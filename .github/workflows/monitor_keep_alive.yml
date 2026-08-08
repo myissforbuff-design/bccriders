@@ -1,0 +1,60 @@
+name: BCC Riders Club Monitor & Keep-Alive
+
+on:
+  schedule:
+    # Run every 12 minutes to keep the service warm and responsive (Render free tier goes to sleep after 15 mins)
+    - cron: '*/12 * * * *'
+    # Run daily at 10:00 PM UTC (6:00 AM Manila Time) to trigger a fresh redeploy and clear memory build-ups
+    - cron: '0 22 * * *'
+  workflow_dispatch: # Allows manual trigger anytime from the GitHub Actions tab
+
+jobs:
+  monitor_keep_alive:
+    name: Ping and Health Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Keep-Alive Ping
+        run: |
+          # Use user-configured secret APP_URL, fallback to the default Render/Dev domain if not set
+          URL="${{ secrets.APP_URL }}"
+          if [ -z "$URL" ]; then
+            URL="https://ais-pre-ckqqittwgzx3f4mqczhgrx-749352485827.asia-southeast1.run.app"
+          fi
+          
+          echo "Pinging service at $URL/api/health"
+          RESPONSE=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time 15 "$URL/api/health")
+          echo "Response HTTP Status: $RESPONSE"
+          
+          if [ "$RESPONSE" -eq 200 ]; then
+            echo "Web service is healthy, warm, and active!"
+          else
+            echo "::warning::Web service returned status code $RESPONSE or timed out."
+            
+            # If the site goes down and they have configured their Render Deploy Hook, trigger self-healing redeployment
+            if [ -n "${{ secrets.RENDER_DEPLOY_HOOK }}" ]; then
+              echo "Triggering automatic Render redeploy to recover the service..."
+              curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+              echo "Redeploy triggered successfully."
+            else
+              echo "No RENDER_DEPLOY_HOOK secret set. Skipping automated recovery."
+            fi
+            
+            # Exit with failure so you get an email notification that the service was unresponsive
+            exit 1
+          fi
+
+  daily_redeploy:
+    name: Automated Memory Clearing Redeploy
+    runs-on: ubuntu-latest
+    # Only run this job if triggered manually or via the daily cron (0 22 * * *)
+    if: github.event.schedule == '0 22 * * *' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Trigger Fresh Rollout
+        run: |
+          if [ -n "${{ secrets.RENDER_DEPLOY_HOOK }}" ]; then
+            echo "Initiating daily fresh deploy rollout to completely purge system memory..."
+            curl -s -X POST "${{ secrets.RENDER_DEPLOY_HOOK }}"
+            echo "Deploy hook fired successfully. The server is rolling out a clean instance."
+          else
+            echo "Skipping scheduled redeploy because RENDER_DEPLOY_HOOK is not configured in GitHub Secrets."
+          fi
