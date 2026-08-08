@@ -59,6 +59,18 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   const { currentUser } = useAuth();
   const isMember = currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
 
+  const [isDesktop, setIsDesktop] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && window.innerWidth >= 768;
+  });
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsDesktop(window.innerWidth >= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const [activities, setActivities] = useState<Activity[]>([]);
   const [selectedActivityId, setSelectedActivityId] = useState<string>('');
   const [scanning, setScanning] = useState<boolean>(true);
@@ -109,6 +121,24 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     }
   };
 
+  // Helper to determine if an event is completed/finished based on date or status
+  const isEventDone = (activity?: Activity): boolean => {
+    if (!activity) return false;
+    if (activity.status === 'Closed') return true;
+    if (activity.date) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const eventDate = new Date(activity.date);
+      if (!isNaN(eventDate.getTime())) {
+        eventDate.setHours(23, 59, 59, 999);
+        if (eventDate < today) {
+          return true;
+        }
+      }
+    }
+    return false;
+  };
+
   // Load activities from database
   const loadActivities = () => {
     fetch('/api/mongodb/activities')
@@ -117,7 +147,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
         const loaded: Activity[] = data.data || [];
         setActivities(loaded);
         if (loaded.length > 0 && !selectedActivityId) {
-          const openOne = loaded.find(a => a.status === 'Open') || loaded[0];
+          const openOne = loaded.find(a => a.status === 'Open' && !isEventDone(a)) || loaded[0];
           setSelectedActivityId(openOne.id);
         }
       })
@@ -129,6 +159,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   }, []);
 
   const selectedActivity = activities.find(a => a.id === selectedActivityId);
+  const isSelectedEventDone = isEventDone(selectedActivity);
 
   // Intelligent QR parser
   const parseQRCodeText = (decodedText: string): Attendance => {
@@ -239,6 +270,13 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   const handleScannedData = async (decodedText: string) => {
     if (!selectedActivityId) return;
 
+    const activeAct = activities.find(a => a.id === selectedActivityId);
+    if (isEventDone(activeAct)) {
+      setScanSuccessMessage(`⚠️ Scanning is disabled for "${activeAct?.name || 'this event'}". The event is completed or date has passed.`);
+      setTimeout(() => setScanSuccessMessage(null), 5000);
+      return;
+    }
+
     // Debounce duplicate scans within 2.5s
     const now = Date.now();
     if (decodedText === lastScannedTextRef.current && now - lastScannedTimeRef.current < 2500) {
@@ -305,7 +343,6 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     }
 
     // Save entry to MongoDB "attendanceLogs" collection table
-    const activeAct = activities.find(a => a.id === selectedActivityId);
     const eventName = activeAct?.name || 'General Event';
     const eventDate = activeAct?.date || new Date().toISOString().split('T')[0];
 
@@ -495,7 +532,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
             inversionAttempts: 'dontInvert',
           });
 
-          if (code && code.data) {
+          if (code && code.data && !isEventDone(activities.find(a => a.id === selectedActivityId))) {
             handleScannedData(code.data);
           }
         }
@@ -520,13 +557,15 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     }
   };
 
-  // Auto-start camera automatically whenever component is rendered or active activity changes
+  // Auto-start camera automatically whenever component is rendered or active activity changes on mobile
   useEffect(() => {
-    startCamera();
+    if (!isDesktop) {
+      startCamera();
+    }
     return () => {
       stopCamera();
     };
-  }, [selectedActivityId]);
+  }, [selectedActivityId, isDesktop]);
 
   const handleCameraChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const newId = e.target.value;
@@ -537,6 +576,12 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+
+    if (isSelectedEventDone) {
+      setScanSuccessMessage(`⚠️ Scanning is disabled for "${selectedActivity?.name || 'this event'}". The event is completed or date has passed.`);
+      setTimeout(() => setScanSuccessMessage(null), 5000);
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -567,9 +612,30 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!manualInputId.trim()) return;
+    if (isSelectedEventDone) {
+      setScanSuccessMessage(`⚠️ Scanning is disabled for "${selectedActivity?.name || 'this event'}". The event is completed or date has passed.`);
+      setTimeout(() => setScanSuccessMessage(null), 5000);
+      return;
+    }
     handleScannedData(manualInputId.trim());
     setManualInputId('');
   };
+
+  if (isDesktop) {
+    return (
+      <div className="w-full min-h-[75vh] flex flex-col items-center justify-center p-8 text-center bg-white rounded-3xl border border-[#e2ece2] shadow-xs">
+        <div className="w-16 h-16 rounded-3xl bg-[#f7f9f7] text-[#2d6a4f] border border-[#e2ece2] flex items-center justify-center mb-4 shadow-2xs">
+          <Smartphone className="w-8 h-8" />
+        </div>
+        <h3 className="text-xl font-extrabold text-[#1b4332] mb-1">
+          Please use mobile phone to scan
+        </h3>
+        <p className="text-xs text-[#52605d] max-w-sm leading-relaxed">
+          QR attendance scanning requires a camera and is optimized for mobile devices. Please open and access this system on your smartphone to scan QR codes.
+        </p>
+      </div>
+    );
+  }
 
   if (isMember) {
     return (
@@ -721,7 +787,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
         </div>
 
         {/* Paused state overlay */}
-        {!scanning && (
+        {!scanning && !isSelectedEventDone && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-white space-y-4 bg-black/90 backdrop-blur-md z-20">
             <Camera className="w-16 h-16 text-emerald-400 opacity-90" />
             <p className="text-sm font-bold text-gray-200">Camera Scanner Paused</p>
@@ -734,13 +800,42 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
             </button>
           </div>
         )}
+
+        {/* Event Finished / Date Passed Overlay */}
+        {isSelectedEventDone && (
+          <div className="absolute inset-0 z-30 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white space-y-4 animate-fadeIn">
+            <div className="w-16 h-16 rounded-3xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center shadow-lg">
+              <AlertCircle className="w-8 h-8" />
+            </div>
+            <div className="space-y-1.5 max-w-sm">
+              <span className="px-3 py-1 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-[10px] font-extrabold uppercase tracking-wider">
+                Scanning Disabled
+              </span>
+              <h3 className="text-xl font-extrabold text-white mt-1">
+                Event Date Has Passed
+              </h3>
+              <p className="text-xs text-gray-300 leading-relaxed">
+                "<span className="font-bold text-white">{selectedActivity?.name}</span>" ({selectedActivity?.date ? new Date(selectedActivity.date).toLocaleDateString() : ''}) is completed. Attendance scanning is disabled for past events.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowEventModal(true)}
+              className="px-6 py-3.5 bg-[#2d6a4f] hover:bg-[#1b4332] text-white rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-xl active:scale-95 flex items-center gap-2 mt-2"
+            >
+              <Calendar className="w-4 h-4" />
+              <span>Select Active Event</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* BOTTOM CONTROL OVERLAY */}
       <div className="absolute bottom-20 sm:bottom-6 left-0 right-0 z-30 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent flex flex-col items-center gap-3">
         <div className="flex items-center gap-2 px-4 py-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/20 text-white/90 text-xs font-semibold">
-          <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-          <span>Point camera at learner's QR code</span>
+          <div className={`w-2.5 h-2.5 rounded-full ${isSelectedEventDone ? 'bg-rose-500' : 'bg-emerald-400 animate-ping'}`} />
+          <span>{isSelectedEventDone ? 'Scanning disabled for completed event' : "Point camera at learner's QR code"}</span>
         </div>
 
         <div className="flex items-center justify-between w-full max-w-sm gap-3 pt-1">
@@ -754,11 +849,12 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
           <button
             type="button"
+            disabled={isSelectedEventDone}
             onClick={() => {
               if (scanning) stopCamera();
               else startCamera();
             }}
-            className="py-2.5 px-4 bg-[#2d6a4f] hover:bg-[#1b4332] text-white text-xs font-extrabold rounded-2xl border border-[#74c69d]/40 transition-all cursor-pointer shrink-0 shadow-lg active:scale-95"
+            className="py-2.5 px-4 bg-[#2d6a4f] hover:bg-[#1b4332] disabled:opacity-40 disabled:hover:bg-[#2d6a4f] text-white text-xs font-extrabold rounded-2xl border border-[#74c69d]/40 transition-all cursor-pointer shrink-0 shadow-lg active:scale-95"
           >
             {scanning ? 'Pause' : 'Resume'}
           </button>
@@ -786,30 +882,44 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
               {activities.length === 0 ? (
                 <p className="text-xs text-gray-500 text-center py-4">No events found.</p>
               ) : (
-                activities.map(act => (
-                  <button
-                    key={act.id}
-                    onClick={() => {
-                      setSelectedActivityId(act.id);
-                      setShowEventModal(false);
-                    }}
-                    className={`w-full text-left p-3.5 rounded-2xl border text-xs flex items-center justify-between transition-all cursor-pointer ${
-                      act.id === selectedActivityId
-                        ? 'border-[#2d6a4f] bg-[#f7f9f7] font-extrabold text-[#1b4332]'
-                        : 'border-[#e2ece2] hover:bg-stone-50 text-[#52605d]'
-                    }`}
-                  >
-                    <div>
-                      <p className="font-bold text-[#1b4332]">{act.name}</p>
-                      <p className="text-[11px] text-[#52605d]">
-                        Date: {new Date(act.date).toLocaleDateString()} | Records: {act.attendance.length}
-                      </p>
-                    </div>
-                    {act.id === selectedActivityId && (
-                      <CheckCircle className="w-4 h-4 text-[#2d6a4f]" />
-                    )}
-                  </button>
-                ))
+                activities.map(act => {
+                  const actDone = isEventDone(act);
+                  return (
+                    <button
+                      key={act.id}
+                      onClick={() => {
+                        setSelectedActivityId(act.id);
+                        setShowEventModal(false);
+                      }}
+                      className={`w-full text-left p-3.5 rounded-2xl border text-xs flex items-center justify-between transition-all cursor-pointer ${
+                        act.id === selectedActivityId
+                          ? 'border-[#2d6a4f] bg-[#f7f9f7] font-extrabold text-[#1b4332]'
+                          : 'border-[#e2ece2] hover:bg-stone-50 text-[#52605d]'
+                      }`}
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-[#1b4332]">{act.name}</p>
+                          {actDone ? (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
+                              Closed / Date Passed
+                            </span>
+                          ) : (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 font-mono">
+                              Active
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-[#52605d]">
+                          Date: {new Date(act.date).toLocaleDateString()} | Records: {act.attendance.length}
+                        </p>
+                      </div>
+                      {act.id === selectedActivityId && (
+                        <CheckCircle className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                      )}
+                    </button>
+                  );
+                })
               )}
             </div>
 

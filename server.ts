@@ -155,6 +155,9 @@ async function initMongoIndexes() {
     await database.collection('attendanceLogs').createIndex({ id: 1 }, { unique: true });
     await database.collection('attendanceLogs').createIndex({ "Member ID": 1, "Event Name": 1 });
 
+    await database.collection('financeLogs').createIndex({ id: 1 }, { unique: true });
+    await database.collection('financeLogs').createIndex({ userId: 1 });
+
     // Clean up obsolete fields from existing MongoDB documents in 'members' collection
     await database.collection('members').updateMany(
       {},
@@ -693,6 +696,82 @@ app.delete('/api/mongodb/attendanceLogs/:id', async (req, res) => {
   if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
   try {
     const result = await database.collection('attendanceLogs').deleteOne({ id });
+    res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// FINANCE LOGS API ("financeLogs" collection table)
+app.get('/api/mongodb/financeLogs', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    const docs = await database.collection('financeLogs').find({}).sort({ updatedAt: -1 }).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, count: data.length, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+app.post('/api/mongodb/financeLogs', async (req, res) => {
+  const database = await getMongoDb();
+  const record = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!record || !record.id) {
+    return res.status(400).json({ error: 'Finance record must contain an id property' });
+  }
+
+  try {
+    const result = await database.collection('financeLogs').updateOne(
+      { id: record.id },
+      { $set: { ...record, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({
+      success: true,
+      id: record.id,
+      message: 'Finance record saved in MongoDB "financeLogs" collection table.',
+      result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/mongodb/financeLogs/bulk', async (req, res) => {
+  const database = await getMongoDb();
+  const { records } = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!Array.isArray(records)) {
+    return res.status(400).json({ error: 'records must be an array' });
+  }
+
+  try {
+    const bulkOps = records.map((rec) => ({
+      updateOne: {
+        filter: { id: rec.id },
+        update: { $set: { ...rec, updatedAt: new Date().toISOString() } },
+        upsert: true,
+      },
+    }));
+
+    if (bulkOps.length > 0) {
+      await database.collection('financeLogs').bulkWrite(bulkOps);
+    }
+    res.json({ success: true, count: records.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/financeLogs/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('financeLogs').deleteOne({ id });
     res.json({ success: true, id, deletedCount: result.deletedCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

@@ -294,6 +294,10 @@ export class DataStoreService {
       body: JSON.stringify(updatedUser),
     }).catch((err) => console.warn('MongoDB updateUser sync error:', err));
 
+    if (updatedUser.approvalStatus === 'Approved') {
+      this.recordMembershipFeePayment(updatedUser);
+    }
+
     return updatedUser;
   }
 
@@ -340,7 +344,61 @@ export class DataStoreService {
       body: JSON.stringify(user),
     }).catch((err) => console.warn('MongoDB addUser sync error:', err));
 
+    if (!isPending) {
+      this.recordMembershipFeePayment(user);
+    }
+
     return user;
+  }
+
+  // Helper to automatically record Membership Fee payment upon member approval
+  recordMembershipFeePayment(approvedUser: User): void {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const recKey = 'bcc_finance_records_v3';
+    let savedRecs: any[] = [];
+    try {
+      const item = localStorage.getItem(recKey);
+      if (item) savedRecs = JSON.parse(item);
+    } catch (e) {
+      console.error(e);
+    }
+
+    // Check if membership fee payment already exists for this user
+    const exists = savedRecs.some(
+      (r: any) => r.userId === approvedUser.id && r.itemType === 'Membership Fee'
+    );
+
+    if (!exists) {
+      const newRec = {
+        id: `rec_mf_${approvedUser.id}`,
+        itemType: 'Membership Fee',
+        userId: approvedUser.id,
+        userName: approvedUser.name,
+        userMemberNo: approvedUser.memberNumber || 'BRC-MEMBER',
+        amount: 200,
+        dueDate: approvedUser.joinDate || todayStr,
+        paidDate: todayStr,
+        status: 'Paid',
+        paymentMethod: 'GCash',
+        referenceNo: undefined,
+        notes: 'Payment recorded upon member approval',
+        updatedAt: todayStr,
+      };
+
+      savedRecs.unshift(newRec);
+      try {
+        localStorage.setItem(recKey, JSON.stringify(savedRecs));
+      } catch (e) {
+        console.error(e);
+      }
+
+      // Sync to MongoDB financeLogs collection
+      fetch('/api/mongodb/financeLogs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newRec),
+      }).catch((err) => console.warn('MongoDB financeLogs auto-record error:', err));
+    }
   }
 
   // Approve a pending registration form, removing it from 'registration' table and transferring to 'members' table
@@ -356,6 +414,8 @@ export class DataStoreService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(approvedUser),
     }).catch((err) => console.warn('MongoDB approveRegistration transfer error:', err));
+
+    this.recordMembershipFeePayment(approvedUser);
 
     return approvedUser;
   }

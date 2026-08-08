@@ -6,6 +6,8 @@ import {
   LayoutDashboard,
   Users,
   FileText,
+  ClipboardList,
+  Wallet,
   Settings,
   ShieldCheck,
   ShieldAlert,
@@ -20,6 +22,7 @@ import {
 export type TabType =
   | 'dashboard'
   | 'members'
+  | 'finances'
   | 'settings'
   | 'events'
   | 'board'
@@ -66,13 +69,14 @@ export const Navigation: React.FC<NavigationProps> = ({
       ? [
           { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
           { id: 'members', label: 'Members', icon: Users },
+          { id: 'finances', label: 'Finances', icon: Wallet },
           { id: 'qr', label: 'QR Scan', icon: QrCode },
-          { id: 'activity', label: 'Activity', icon: FileText },
+          { id: 'activity', label: 'Activity', icon: ClipboardList },
           { id: 'settings', label: 'Settings', icon: Settings },
         ]
       : [
           { id: 'profile', label: 'Profile', icon: User },
-          { id: 'activity', label: 'Activity', icon: FileText },
+          { id: 'activity', label: 'Activity', icon: ClipboardList },
           { id: 'qr', label: 'QR Scan', icon: QrCode },
           { id: 'document', label: 'Document', icon: FileText },
           { id: 'settings', label: 'Settings', icon: Settings },

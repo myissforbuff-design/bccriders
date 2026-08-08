@@ -15,6 +15,7 @@ import { AdminERPPanel } from './components/AdminERPPanel';
 import { Settings } from './components/Settings';
 import { ActivityLog } from './components/ActivityLog';
 import { QRScan } from './components/QRScan';
+import { Finances } from './components/Finances';
 import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -70,6 +71,8 @@ function MainAppContent() {
             <h1 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg capitalize">
               {activeTab === 'settings'
                 ? 'System Settings'
+                : activeTab === 'finances'
+                ? 'Finances & Treasury Management'
                 : activeTab === 'activity'
                 ? (isAdmin ? 'Activity Management' : 'Member Activity Logs')
                 : activeTab === 'qr'
@@ -139,6 +142,8 @@ function MainAppContent() {
               {activeTab === 'members' && (
                 <MembershipManagement />
               )}
+
+              {activeTab === 'finances' && <Finances />}
 
               {activeTab === 'settings' && <Settings />}
 
