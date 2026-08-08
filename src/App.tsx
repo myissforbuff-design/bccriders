@@ -71,7 +71,7 @@ function MainAppContent() {
               {activeTab === 'settings'
                 ? 'System Settings'
                 : activeTab === 'activity'
-                ? 'Activity Management'
+                ? (isAdmin ? 'Activity Management' : 'Member Activity Logs')
                 : activeTab === 'qr'
                 ? 'QR Attendance Scanner'
                 : activeTab === 'board'

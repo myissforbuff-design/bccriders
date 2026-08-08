@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 import {
   Calendar,
   CheckCircle,
@@ -57,6 +58,9 @@ interface AttendanceLogDoc {
 }
 
 export const ActivityLog: React.FC = () => {
+  const { currentUser, isAdmin } = useAuth();
+  const isMember = !isAdmin;
+
   const [activities, setActivities] = useState<Activity[]>([]);
   const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLogDoc[]>([]);
   const [registeredCount, setRegisteredCount] = useState<number>(0);
@@ -69,6 +73,8 @@ export const ActivityLog: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [newActivityName, setNewActivityName] = useState('');
   const [newActivityDate, setNewActivityDate] = useState('');
+  const [memberStatusFilter, setMemberStatusFilter] = useState<'All' | 'Attended' | 'Absent' | 'Upcoming'>('All');
+  const [memberPage, setMemberPage] = useState<number>(1);
 
   const fetchActivities = () => {
     setIsLoadingActivities(true);
@@ -247,6 +253,345 @@ export const ActivityLog: React.FC = () => {
 
     return [];
   };
+
+  // Combine MongoDB activities with local store events
+  const allCombinedActivities: Activity[] = [...activities];
+  const localEvents = store.getEvents();
+
+  localEvents.forEach((evt) => {
+    const exists = allCombinedActivities.some(
+      (a) => a.name.toLowerCase().trim() === evt.title.toLowerCase().trim()
+    );
+    if (!exists) {
+      allCombinedActivities.push({
+        id: evt.id,
+        name: evt.title,
+        date: evt.date,
+        status: evt.status === 'Completed' || evt.status === 'Cancelled' ? 'Closed' : 'Open',
+        attendance: [],
+      });
+    }
+  });
+
+  const getMemberRecord = (activity: Activity) => {
+    if (!currentUser) return { attended: false, timestamp: null, isFinished: false };
+
+    const memNo = (currentUser.memberNumber || '').toLowerCase().trim();
+    const userId = (currentUser.id || '').toLowerCase().trim();
+    const userName = (currentUser.name || '').toLowerCase().trim();
+    const userUsername = (currentUser.username || '').toLowerCase().trim();
+    const actNameLower = activity.name.toLowerCase().trim();
+
+    // 1. Search in attendanceLogs
+    const logMatch = attendanceLogs.find((log) => {
+      const eName = (log['Event Name'] || log.eventName || '').toLowerCase().trim();
+      if (eName !== actNameLower) return false;
+
+      const logMemId = (log['Member ID'] || log.memberId || '').toLowerCase().trim();
+      if (logMemId && (logMemId === memNo || logMemId === userId)) return true;
+
+      const firstName = (log['First Name'] || log.firstName || '').toLowerCase().trim();
+      const lastName = (log['Last Name'] || log.lastName || '').toLowerCase().trim();
+      const fullName = `${firstName} ${lastName}`.trim();
+      if (fullName && (fullName === userName || fullName.includes(userName) || userName.includes(fullName))) return true;
+
+      return false;
+    });
+
+    if (logMatch) {
+      const dateStamp = logMatch['Date Stamp'] || logMatch.dateStamp || logMatch['Event Date'] || activity.date;
+      const timeStamp = logMatch['Time Stamp'] || logMatch.timeStamp || 'Recorded';
+      return {
+        attended: true,
+        timestamp: `${dateStamp} ${timeStamp}`.trim(),
+        dateStamp,
+        timeStamp,
+        isFinished: true,
+      };
+    }
+
+    // 2. Search in activity.attendance array
+    if (activity.attendance && activity.attendance.length > 0) {
+      const attMatch = activity.attendance.find((att) => {
+        const attMemId = (att.memberId || '').toLowerCase().trim();
+        if (attMemId && (attMemId === memNo || attMemId === userId)) return true;
+
+        const attName = (att.name || '').toLowerCase().trim();
+        if (attName && (attName === userName || attName === userUsername)) return true;
+
+        return false;
+      });
+
+      if (attMatch) {
+        return {
+          attended: true,
+          timestamp: `${attMatch.date || activity.date} ${attMatch.time || ''}`.trim(),
+          dateStamp: attMatch.date || activity.date,
+          timeStamp: attMatch.time || 'Recorded',
+          isFinished: true,
+        };
+      }
+    }
+
+    // Determine if event date is finished
+    let isFinished = activity.status === 'Closed';
+    if (!isFinished && activity.date) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const eventDate = new Date(activity.date);
+      if (!isNaN(eventDate.getTime())) {
+        eventDate.setHours(23, 59, 59, 999);
+        if (eventDate < today) {
+          isFinished = true;
+        }
+      }
+    }
+
+    return {
+      attended: false,
+      timestamp: null,
+      isFinished,
+    };
+  };
+
+  // Member stats
+  const memberActivityList = allCombinedActivities.map((act) => ({
+    activity: act,
+    record: getMemberRecord(act),
+  }));
+
+  const totalMemberEvents = memberActivityList.length;
+  const totalMemberAttended = memberActivityList.filter((item) => item.record.attended).length;
+  const totalMemberAbsent = memberActivityList.filter((item) => !item.record.attended && item.record.isFinished).length;
+  const totalMemberUpcoming = memberActivityList.filter((item) => !item.record.attended && !item.record.isFinished).length;
+
+  const filteredMemberActivities = memberActivityList.filter(({ activity, record }) => {
+    const q = searchTerm.toLowerCase();
+    const matchesSearch = activity.name.toLowerCase().includes(q) || activity.date.includes(q);
+    if (!matchesSearch) return false;
+
+    if (memberStatusFilter === 'Attended') return record.attended;
+    if (memberStatusFilter === 'Absent') return !record.attended && record.isFinished;
+    if (memberStatusFilter === 'Upcoming') return !record.attended && !record.isFinished;
+
+    return true;
+  });
+
+  const memberItemsPerPage = 10;
+  const totalMemberPages = Math.ceil(filteredMemberActivities.length / memberItemsPerPage) || 1;
+  const currentMemberPage = Math.min(Math.max(1, memberPage), totalMemberPages);
+
+  const paginatedMemberActivities = filteredMemberActivities.slice(
+    (currentMemberPage - 1) * memberItemsPerPage,
+    currentMemberPage * memberItemsPerPage
+  );
+
+  if (isMember) {
+    return (
+      <div className="space-y-6 pb-12">
+        {/* Member Summary Header */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="bg-white p-4 rounded-3xl border border-[#e2ece2] shadow-2xs space-y-1">
+            <span className="text-[10px] font-extrabold uppercase text-[#52605d] tracking-wider">Total Events</span>
+            <div className="text-xl font-black text-[#1b4332]">{totalMemberEvents}</div>
+          </div>
+          <div className="bg-emerald-50/60 p-4 rounded-3xl border border-emerald-100 shadow-2xs space-y-1">
+            <span className="text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider">Attended</span>
+            <div className="text-xl font-black text-emerald-800">{totalMemberAttended}</div>
+          </div>
+          <div className="bg-rose-50/60 p-4 rounded-3xl border border-rose-100 shadow-2xs space-y-1">
+            <span className="text-[10px] font-extrabold uppercase text-rose-700 tracking-wider">Absent</span>
+            <div className="text-xl font-black text-rose-800">{totalMemberAbsent}</div>
+          </div>
+          <div className="bg-amber-50/60 p-4 rounded-3xl border border-amber-100 shadow-2xs space-y-1">
+            <span className="text-[10px] font-extrabold uppercase text-amber-700 tracking-wider">Upcoming</span>
+            <div className="text-xl font-black text-amber-800">{totalMemberUpcoming}</div>
+          </div>
+        </div>
+
+        {/* Search & Status Filters */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 bg-white rounded-3xl border border-[#e2ece2] shadow-xs">
+          <div className="relative flex-1 sm:max-w-md">
+            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search event name or date..."
+              value={searchTerm}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setMemberPage(1);
+              }}
+              className="w-full pl-9 pr-3 py-2 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+            />
+          </div>
+
+          {/* Filter Pills */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+            {(['All', 'Attended', 'Absent', 'Upcoming'] as const).map((filter) => (
+              <button
+                key={filter}
+                onClick={() => {
+                  setMemberStatusFilter(filter);
+                  setMemberPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
+                  memberStatusFilter === filter
+                    ? 'bg-[#1b4332] text-white shadow-xs'
+                    : 'bg-[#f7f9f7] text-[#52605d] hover:bg-stone-200/70'
+                }`}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Member Activity List Table / Cards */}
+        <div className="bg-white rounded-3xl border border-[#e2ece2] shadow-xs overflow-hidden">
+          {isLoadingActivities ? (
+            <div className="p-12 text-center text-xs text-[#2d6a4f] flex flex-col items-center justify-center gap-3">
+              <Loader2 className="w-6 h-6 animate-spin text-[#2d6a4f]" />
+              <span className="font-extrabold text-[#1b4332]">Loading activity history...</span>
+            </div>
+          ) : filteredMemberActivities.length === 0 ? (
+            <div className="p-12 text-center text-xs text-stone-500 font-medium">
+              No activity records matching your criteria.
+            </div>
+          ) : (
+            <>
+              <div className="divide-y divide-[#e2ece2]">
+                {/* Desktop Header */}
+                <div className="hidden md:grid md:grid-cols-12 gap-4 px-6 py-3.5 bg-[#f7f9f7] text-[11px] font-extrabold text-[#52605d] uppercase tracking-wider">
+                  <div className="col-span-4 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                    <span>Event Name</span>
+                  </div>
+                  <div className="col-span-3 flex items-center gap-1.5">
+                    <Clock className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                    <span>Event Date</span>
+                  </div>
+                  <div className="col-span-3 flex items-center gap-1.5">
+                    <User className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                    <span>Member Timestamp</span>
+                  </div>
+                  <div className="col-span-2 text-right">Status</div>
+                </div>
+
+                {/* Rows */}
+                {paginatedMemberActivities.map(({ activity, record }) => {
+                  const formattedEventDate = !isNaN(new Date(activity.date).getTime())
+                    ? new Date(activity.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                    : activity.date;
+
+                  return (
+                    <div
+                      key={activity.id}
+                      className="p-4 sm:p-5 hover:bg-[#f7f9f7]/60 transition-colors flex flex-col md:grid md:grid-cols-12 gap-3 md:gap-4 items-start md:items-center"
+                    >
+                      {/* Event Name */}
+                      <div className="col-span-4 space-y-0.5">
+                        <h4 className="font-extrabold text-sm text-[#1b4332]">{activity.name}</h4>
+                        <div className="md:hidden text-xs text-[#52605d]">Date: {formattedEventDate}</div>
+                      </div>
+
+                      {/* Event Date (Desktop) */}
+                      <div className="hidden md:block col-span-3 text-xs font-semibold text-[#1b4332]">
+                        {formattedEventDate}
+                      </div>
+
+                      {/* Member Timestamp */}
+                      <div className="col-span-3 text-xs text-[#52605d]">
+                        <span className="md:hidden font-bold text-[#1b4332] mr-1">Timestamp:</span>
+                        {record.attended ? (
+                          <span className="font-mono font-bold text-[#1b4332] bg-[#f7f9f7] px-2 py-1 rounded-lg border border-[#e2ece2] inline-block">
+                            {record.timestamp}
+                          </span>
+                        ) : (
+                          <span className="text-stone-400 italic">—</span>
+                        )}
+                      </div>
+
+                      {/* Status Badge */}
+                      <div className="col-span-2 w-full md:w-auto flex md:justify-end">
+                        {record.attended ? (
+                          <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Attended</span>
+                          </span>
+                        ) : record.isFinished ? (
+                          <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1.5 shadow-2xs">
+                            <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                            <span>Absent</span>
+                          </span>
+                        ) : (
+                          <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1.5 shadow-2xs">
+                            <Clock className="w-3.5 h-3.5 text-amber-600" />
+                            <span>Upcoming</span>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Pagination Footer */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 bg-[#f7f9f7] border-t border-[#e2ece2] text-xs text-[#52605d]">
+                <div className="font-semibold text-stone-600">
+                  Showing <span className="font-extrabold text-[#1b4332]">{(currentMemberPage - 1) * memberItemsPerPage + 1}</span> to{' '}
+                  <span className="font-extrabold text-[#1b4332]">
+                    {Math.min(currentMemberPage * memberItemsPerPage, filteredMemberActivities.length)}
+                  </span>{' '}
+                  of <span className="font-extrabold text-[#1b4332]">{filteredMemberActivities.length}</span> activities
+                </div>
+
+                {totalMemberPages > 1 && (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setMemberPage((prev) => Math.max(1, prev - 1))}
+                      disabled={currentMemberPage === 1}
+                      className="p-1.5 rounded-xl border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-stone-100 disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors"
+                      title="Previous page"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+
+                    <div className="flex items-center gap-1 px-1">
+                      {Array.from({ length: totalMemberPages }, (_, i) => i + 1).map((pageNum) => (
+                        <button
+                          key={pageNum}
+                          type="button"
+                          onClick={() => setMemberPage(pageNum)}
+                          className={`w-7 h-7 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                            currentMemberPage === pageNum
+                              ? 'bg-[#1b4332] text-white shadow-xs'
+                              : 'bg-white text-[#52605d] border border-[#e2ece2] hover:bg-stone-100'
+                          }`}
+                        >
+                          {pageNum}
+                        </button>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setMemberPage((prev) => Math.min(totalMemberPages, prev + 1))}
+                      disabled={currentMemberPage === totalMemberPages}
+                      className="p-1.5 rounded-xl border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-stone-100 disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors"
+                      title="Next page"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-12">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store, uploadStorageFile } from '../lib/db';
@@ -21,6 +21,7 @@ import {
   X,
   Upload,
   Zap,
+  Camera,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -50,6 +51,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
     : currentUser;
 
   // Edit form state
+  const quickFileInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState(activeRider?.name || '');
   const [bio, setBio] = useState(activeRider?.bio || '');
   const [phone, setPhone] = useState(activeRider?.phone || '');
@@ -89,8 +91,8 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      setAvatarError('Image file size exceeds the 2MB limit. Please select a smaller file.');
+    if (file.size > 10 * 1024 * 1024) {
+      setAvatarError('Image file size exceeds the 10MB limit. Please select a smaller file.');
       e.target.value = '';
       return;
     }
@@ -100,6 +102,27 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
       setAvatar(base64Url);
     } else {
       setAvatarError('Failed to read image file. Please try another image.');
+    }
+  };
+
+  const handleDirectAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeRider) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      alert('Image file size exceeds the 10MB limit. Please select a smaller file.');
+      e.target.value = '';
+      return;
+    }
+
+    const base64Url = await uploadStorageFile(file);
+    if (base64Url) {
+      // Overwrite and replace old avatar with new compressed image
+      const updated: UserType = {
+        ...activeRider,
+        avatar: base64Url,
+      };
+      updateUser(updated);
     }
   };
 
@@ -181,12 +204,28 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
         <div className="relative rounded-3xl bg-white border border-[#e2ece2] p-6 space-y-5 shadow-xs text-[#1b4332] overflow-hidden">
           {/* Avatar & Cardholder Info */}
           <div className="flex items-center gap-4">
-            <div className="relative shrink-0">
+            <div className="relative shrink-0 group">
+              <input
+                type="file"
+                ref={quickFileInputRef}
+                accept="image/*"
+                onChange={handleDirectAvatarUpload}
+                className="hidden"
+              />
               <img
-                src={activeRider.avatar}
+                src={activeRider.avatar || '/avatar.svg'}
                 alt={activeRider.name}
                 className="w-20 h-20 rounded-full object-cover border-4 border-[#e2ece2] shadow-xs"
               />
+              <button
+                type="button"
+                onClick={() => quickFileInputRef.current?.click()}
+                title="Upload new avatar photo (deletes and replaces old avatar)"
+                className="absolute inset-0 rounded-full bg-black/45 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity text-white cursor-pointer"
+              >
+                <Camera className="w-5 h-5 text-white drop-shadow-md" />
+                <span className="text-[9px] font-bold mt-0.5">Change</span>
+              </button>
               <RoleAvatarBadge role={activeRider.role} size="lg" />
             </div>
             <div className="space-y-1 font-mono text-xs">
@@ -335,7 +374,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
                         placeholder="Or paste URL / Base64 data..."
                         className="w-full px-3 py-1.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] font-mono text-[11px] focus:outline-none focus:border-[#2d6a4f]"
                       />
-                      <p className="text-[10px] text-[#52605d]">Uploaded images are encoded to Base64 and stored in MongoDB.</p>
+                      <p className="text-[10px] text-[#52605d]">Images (up to 10MB) are automatically compressed (~30KB–80KB) and stored directly in your account.</p>
                     </div>
                   </div>
                   {avatarError && (

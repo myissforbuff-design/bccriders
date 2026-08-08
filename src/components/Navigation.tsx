@@ -1,17 +1,20 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
+import { useModalDismiss } from '../hooks/useModalDismiss';
 import {
   LayoutDashboard,
   Users,
   FileText,
   Settings,
   ShieldCheck,
+  ShieldAlert,
   LogOut,
   ChevronRight,
   User,
   QrCode,
   Calendar,
+  X,
 } from 'lucide-react';
 
 export type TabType =
@@ -44,8 +47,21 @@ export const Navigation: React.FC<NavigationProps> = ({
   onToggleCollapse,
 }) => {
   const { currentUser, logout } = useAuth();
+  const [showOfficerAlert, setShowOfficerAlert] = useState(false);
 
-  const navItems =
+  useModalDismiss(showOfficerAlert, () => setShowOfficerAlert(false));
+
+  const isMember = currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
+
+  const handleTabClick = (tab: TabType) => {
+    if (tab === 'qr' && isMember) {
+      setShowOfficerAlert(true);
+      return;
+    }
+    setActiveTab(tab);
+  };
+
+  const rawNavItems =
     currentUser?.role === 'admin'
       ? [
           { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -56,14 +72,57 @@ export const Navigation: React.FC<NavigationProps> = ({
         ]
       : [
           { id: 'profile', label: 'Profile', icon: User },
-          { id: 'events', label: 'Events', icon: Calendar },
+          { id: 'activity', label: 'Activity', icon: FileText },
           { id: 'qr', label: 'QR Scan', icon: QrCode },
           { id: 'document', label: 'Document', icon: FileText },
           { id: 'settings', label: 'Settings', icon: Settings },
         ];
 
+  const navItems = isMember
+    ? rawNavItems.filter((item) => item.id !== 'qr')
+    : rawNavItems;
+
   return (
     <>
+      {/* Officer Permission Alert Modal */}
+      {showOfficerAlert && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
+            <button
+              type="button"
+              onClick={() => setShowOfficerAlert(false)}
+              className="absolute top-4 right-4 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center mx-auto mb-4 shadow-sm">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+
+            <h3 className="font-heading text-xl font-extrabold text-[#1b4332] mb-2">
+              Access Restricted
+            </h3>
+
+            <p className="text-stone-800 font-extrabold text-sm sm:text-base mb-2">
+              You are not an officer and not allowed to scan
+            </p>
+
+            <p className="text-stone-500 text-xs mb-6 leading-relaxed">
+              Only designated club officers are authorized to scan member attendance QR codes for events.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setShowOfficerAlert(false)}
+              className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-2xl font-bold text-sm shadow-md transition-all cursor-pointer active:scale-95"
+            >
+              Understood
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Mobile & Tablet Top Header */}
       <div className="lg:hidden sticky top-0 z-30 bg-[#1b4332] border-b border-[#2d6a4f] px-4 py-3 flex items-center justify-between text-white shadow-xs">
         <div className="flex items-center gap-2.5">
@@ -100,7 +159,7 @@ export const Navigation: React.FC<NavigationProps> = ({
                 return (
                   <div key={item.id} className="flex-1 flex justify-center items-center relative -mt-9 z-10">
                     <button
-                      onClick={() => setActiveTab(item.id as TabType)}
+                      onClick={() => handleTabClick(item.id as TabType)}
                       title={item.label}
                       className="group cursor-pointer focus:outline-hidden"
                     >
@@ -125,7 +184,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as TabType)}
+                  onClick={() => handleTabClick(item.id as TabType)}
                   title={item.label}
                   className="flex-1 flex flex-col items-center justify-center py-1 transition-transform duration-150 active:scale-90 cursor-pointer select-none"
                 >
@@ -176,7 +235,7 @@ export const Navigation: React.FC<NavigationProps> = ({
               return (
                 <button
                   key={item.id}
-                  onClick={() => setActiveTab(item.id as TabType)}
+                  onClick={() => handleTabClick(item.id as TabType)}
                   title={isCollapsed ? item.label : undefined}
                   className={`w-full flex items-center ${
                     isCollapsed ? 'justify-center px-0' : 'justify-between px-3.5'

@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import jsQR from 'jsqr';
+import { useAuth } from '../context/AuthContext';
 import {
   QrCode,
   CheckCircle,
   AlertCircle,
+  ShieldAlert,
   Camera,
   Upload,
   UserCheck,
@@ -54,6 +56,9 @@ interface QRScanProps {
 }
 
 export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
+  const { currentUser } = useAuth();
+  const isMember = currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
+
   const [activities, setActivities] = useState<Activity[]>([]);
   const [selectedActivityId, setSelectedActivityId] = useState<string>('');
   const [scanning, setScanning] = useState<boolean>(true);
@@ -550,6 +555,38 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     handleScannedData(manualInputId.trim());
     setManualInputId('');
   };
+
+  if (isMember) {
+    return (
+      <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+        <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
+          <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center mx-auto mb-4 shadow-sm">
+            <ShieldAlert className="w-8 h-8" />
+          </div>
+
+          <h3 className="font-heading text-xl font-extrabold text-[#1b4332] mb-2">
+            Access Restricted
+          </h3>
+
+          <p className="text-stone-800 font-extrabold text-sm sm:text-base mb-2">
+            You are not an officer and not allowed to scan
+          </p>
+
+          <p className="text-stone-500 text-xs mb-6 leading-relaxed">
+            Only designated club officers are authorized to scan member attendance QR codes for events.
+          </p>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab?.('profile')}
+            className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-2xl font-bold text-sm shadow-md transition-all cursor-pointer active:scale-95"
+          >
+            Go Back to Profile
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-30 bg-black flex flex-col justify-between overflow-hidden w-full h-[100dvh]">

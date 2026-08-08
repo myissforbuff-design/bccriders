@@ -78,20 +78,72 @@ export async function checkMongoDbStatus(): Promise<MongoStatusResponse> {
   }
 }
 
-// Upload / Storage Helper for MongoDB / Server
+// Upload / Storage Helper for MongoDB / Server with automatic image compression
 export async function uploadStorageFile(
   file: File | Blob,
-  folder = 'avatars'
+  folder = 'avatars',
+  maxDimension = 500,
+  quality = 0.8
 ): Promise<string | null> {
   return new Promise((resolve) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        resolve(reader.result);
-      } else {
+    reader.onload = (e) => {
+      const rawDataUrl = e.target?.result;
+      if (typeof rawDataUrl !== 'string') {
         resolve(null);
+        return;
       }
+
+      // Check if file is an image for compression
+      if (file.type && !file.type.startsWith('image/')) {
+        resolve(rawDataUrl);
+        return;
+      }
+
+      // Compress image via Canvas
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+
+        // Calculate aspect ratio & scale down to maxDimension
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(rawDataUrl); // Fallback if canvas context unavailable
+          return;
+        }
+
+        // Draw background white for transparency safety
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Export as JPEG with specified quality (~20KB - 80KB output)
+        const compressedDataUrl = canvas.toDataURL('image/jpeg', quality);
+        resolve(compressedDataUrl);
+      };
+
+      img.onerror = () => {
+        resolve(rawDataUrl);
+      };
+
+      img.src = rawDataUrl;
     };
+
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });
