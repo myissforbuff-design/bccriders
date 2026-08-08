@@ -70,6 +70,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   const [isDetecting, setIsDetecting] = useState<boolean>(false);
   const [scanSuccessMessage, setScanSuccessMessage] = useState<string | null>(null);
   const [scannedMemberModal, setScannedMemberModal] = useState<Attendance | null>(null);
+  const [alreadyScannedMemberModal, setAlreadyScannedMemberModal] = useState<Attendance | null>(null);
   const [showEventModal, setShowEventModal] = useState<boolean>(false);
   const [manualInputId, setManualInputId] = useState<string>('');
 
@@ -262,10 +263,22 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
     setActivities(prev => prev.map(a => {
       if (a.id === selectedActivityId) {
-        if (a.attendance.some(att => att.memberId === parsedData.memberId || (att.name === parsedData.name && parsedData.name !== 'Member'))) {
+        const memIdClean = (parsedData.memberId || '').toLowerCase().trim();
+        const memNameClean = (parsedData.name || '').toLowerCase().trim();
+
+        const alreadyInActivity = a.attendance.some(att => {
+          const attIdClean = (att.memberId || '').toLowerCase().trim();
+          const attNameClean = (att.name || '').toLowerCase().trim();
+          if (memIdClean && attIdClean && memIdClean === attIdClean) return true;
+          if (memNameClean && attNameClean && attNameClean !== 'member' && memNameClean === attNameClean) return true;
+          return false;
+        });
+
+        if (alreadyInActivity) {
           isAlreadyScanned = true;
           return a;
         }
+
         const updatedActivity = {
           ...a,
           attendance: [parsedData, ...a.attendance]
@@ -284,7 +297,9 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     }));
 
     if (isAlreadyScanned) {
-      setScanSuccessMessage(`⚠️ ${parsedData.name} (${parsedData.memberId}) is already recorded!`);
+      setScannedMemberModal(null);
+      setAlreadyScannedMemberModal(parsedData);
+      setScanSuccessMessage(`⚠️ Member is already scanned! (${parsedData.name})`);
       setTimeout(() => setScanSuccessMessage(null), 4000);
       return;
     }
@@ -896,6 +911,81 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
               className="w-full py-3 bg-[#2d6a4f] hover:bg-[#1b4332] text-white font-extrabold text-xs rounded-2xl shadow-xs cursor-pointer transition-colors"
             >
               Done / Continue Scanning
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Alert: Member is already scanned */}
+      {alreadyScannedMemberModal && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl relative space-y-4 border border-amber-200 text-center animate-scaleUp">
+            <button
+              onClick={() => setAlreadyScannedMemberModal(null)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 font-bold cursor-pointer p-1 rounded-full transition-colors"
+              title="Close modal"
+            >
+              <XCircle className="w-6 h-6 text-stone-400 hover:text-stone-700" />
+            </button>
+
+            {/* Warning Icon Badge */}
+            <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 border-2 border-amber-300 flex items-center justify-center mx-auto shadow-xs">
+              <AlertCircle className="w-8 h-8" />
+            </div>
+
+            {/* Title */}
+            <div>
+              <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-[10px] font-extrabold uppercase tracking-wider">
+                Duplicate Scan
+              </span>
+              <h3 className="text-xl font-extrabold text-[#1b4332] mt-2">
+                Member is already scanned
+              </h3>
+              <p className="text-xs text-[#52605d] mt-1">
+                This member's attendance was previously recorded for this event.
+              </p>
+            </div>
+
+            {/* Scanned Member Details Card */}
+            <div className="p-3.5 bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] text-xs text-left flex items-center gap-3">
+              {alreadyScannedMemberModal.avatar ? (
+                <img
+                  src={alreadyScannedMemberModal.avatar}
+                  alt={alreadyScannedMemberModal.name}
+                  className="w-12 h-12 rounded-full object-cover border-2 border-amber-300 shrink-0"
+                  onError={(e) => {
+                    (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
+                  }}
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                  <UserIcon className="w-6 h-6" />
+                </div>
+              )}
+              <div className="space-y-0.5 min-w-0">
+                <h4 className="font-extrabold text-sm text-[#1b4332] truncate">
+                  {alreadyScannedMemberModal.name}
+                </h4>
+                <p className="text-[11px] font-mono font-bold text-[#2d6a4f]">
+                  Member ID: #{alreadyScannedMemberModal.memberId}
+                </p>
+                <p className="text-[10px] text-[#52605d]">
+                  Chapter: {alreadyScannedMemberModal.network || 'Main Chapter'}
+                </p>
+              </div>
+            </div>
+
+            {/* Event Name Context */}
+            <div className="p-2.5 bg-amber-50/70 rounded-2xl border border-amber-200 text-xs text-center">
+              <p className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">Event Context</p>
+              <p className="font-bold text-[#1b4332] mt-0.5">{selectedActivity?.name || 'General Event'}</p>
+            </div>
+
+            <button
+              onClick={() => setAlreadyScannedMemberModal(null)}
+              className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs rounded-2xl shadow-md cursor-pointer transition-all active:scale-98"
+            >
+              OK / Continue Scanning
             </button>
           </div>
         </div>
