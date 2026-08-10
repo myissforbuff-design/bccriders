@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { store } from '../lib/db';
+import { useAuth } from '../context/AuthContext';
+import { store, safeFetchJson } from '../lib/db';
 import { User } from '../types';
+import { CustomSelect } from './CustomSelect';
 import {
   Wallet,
   Plus,
@@ -8,6 +10,7 @@ import {
   CheckCircle2,
   Clock,
   AlertCircle,
+  ShieldAlert,
   Search,
   User as UserIcon,
   CreditCard,
@@ -19,6 +22,14 @@ import {
   Filter,
   Receipt,
   Tag,
+  ChevronLeft,
+  ChevronRight,
+  TrendingDown,
+  FileText,
+  DollarSign,
+  Building,
+  ShoppingBag,
+  PieChart,
 } from 'lucide-react';
 
 export type FinanceItemType = 'Membership Fee' | 'Monthly Due' | 'Vest Payment' | 'Other';
@@ -41,7 +52,31 @@ export interface FinanceRecord {
   updatedAt: string;
 }
 
+export type ExpenseCategory =
+  | 'Event Logistics'
+  | 'Equipment & Gear'
+  | 'Venue & Rental'
+  | 'Food & Catering'
+  | 'Administrative'
+  | 'Fuel & Travel'
+  | 'Utilities'
+  | 'Other';
+
+export interface ExpenseRecord {
+  id: string;
+  title: string;
+  category: ExpenseCategory;
+  amount: number;
+  date: string;
+  receiptRef?: string;
+  payeeOrDisbursedTo?: string;
+  loggedBy?: string;
+  notes?: string;
+  updatedAt: string;
+}
+
 const LOCAL_STORAGE_REC_KEY = 'bcc_finance_records_v3';
+const LOCAL_STORAGE_EXPENSE_KEY = 'bcc_expense_records_v1';
 
 const MONTHS_LIST = [
   'January',
@@ -60,22 +95,52 @@ const MONTHS_LIST = [
 
 const YEARS_LIST = ['2024', '2025', '2026', '2027', '2028', '2029', '2030', '2031', '2032', '2033', '2034', '2035'];
 
+const EXPENSE_CATEGORIES: ExpenseCategory[] = [
+  'Event Logistics',
+  'Equipment & Gear',
+  'Venue & Rental',
+  'Food & Catering',
+  'Administrative',
+  'Fuel & Travel',
+  'Utilities',
+  'Other',
+];
+
+const INITIAL_EXPENSES: ExpenseRecord[] = [];
+
 export const Finances: React.FC = () => {
+  const { currentUser, isAdmin } = useAuth();
+  const isOfficer = isAdmin || (!!currentUser?.role && currentUser.role !== 'Member' && currentUser.role.toLowerCase() !== 'member');
+  const canManageFinances = isAdmin || isOfficer;
+
   const [users, setUsers] = useState<User[]>([]);
   const [records, setRecords] = useState<FinanceRecord[]>([]);
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
-  // Filters & Search
+  // Main Mode Toggle: "funds" or "expenses"
+  const [activeTab, setActiveTab] = useState<'funds' | 'expenses'>('funds');
+
+  // Filters & Search for Funds
   const [searchQuery, setSearchQuery] = useState('');
   const [itemTypeFilter, setItemTypeFilter] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Pending' | 'Overdue' | 'Waived'>('All');
+  const [currentPage, setCurrentPage] = useState(1);
 
-  // Modal
+  // Filters & Search for Expenses
+  const [expenseSearchQuery, setExpenseSearchQuery] = useState('');
+  const [expenseCategoryFilter, setExpenseCategoryFilter] = useState<string>('All');
+  const [expenseCurrentPage, setExpenseCurrentPage] = useState(1);
+
+  const itemsPerPage = 10;
+
+  // Modal State for Funds
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
   const [editingRecord, setEditingRecord] = useState<FinanceRecord | null>(null);
 
   // Form State for Payment Record
   const [recUserId, setRecUserId] = useState('');
   const [recItemType, setRecItemType] = useState<FinanceItemType>('Monthly Due');
+  const [recOptionKey, setRecOptionKey] = useState<string>('opt_membership_fee');
   const [recMonth, setRecMonth] = useState('August');
   const [recYear, setRecYear] = useState('2026');
   const [recCustomItemName, setRecCustomItemName] = useState('');
@@ -86,11 +151,35 @@ export const Finances: React.FC = () => {
   const [recNotes, setRecNotes] = useState('');
   const [recDueDate, setRecDueDate] = useState(() => new Date().toISOString().split('T')[0]);
 
-  // Load Users & Saved Records
+  // Modal State for Expenses
+  const [showExpenseModal, setShowExpenseModal] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<ExpenseRecord | null>(null);
+
+  // Form State for Expense Liquidation
+  const [expTitle, setExpTitle] = useState('');
+  const [expCategory, setExpCategory] = useState<ExpenseCategory>('Event Logistics');
+  const [expAmount, setExpAmount] = useState('');
+  const [expDate, setExpDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [expReceiptRef, setExpReceiptRef] = useState('');
+  const [expPayee, setExpPayee] = useState('');
+  const [expLoggedBy, setExpLoggedBy] = useState('Treasury Admin');
+  const [expNotes, setExpNotes] = useState('');
+
+  // Delete Confirmation Modal State
+  const [deleteTarget, setDeleteTarget] = useState<{
+    type: 'fund' | 'expense';
+    id: string;
+    title: string;
+    subtitle?: string;
+    amount: number;
+  } | null>(null);
+
+  // Load Users, Funds, and Expenses
   useEffect(() => {
     const loadedUsers = store.getUsers().filter(u => u.role !== 'admin');
     setUsers(loadedUsers);
 
+    // 1. Load Funds Records
     let savedRecs: FinanceRecord[] = [];
     try {
       const recItem = localStorage.getItem(LOCAL_STORAGE_REC_KEY);
@@ -99,13 +188,12 @@ export const Finances: React.FC = () => {
       console.error(e);
     }
 
-    // Helper to auto-create missing membership fee records for approved members
-    const ensureApprovedMembersHaveFees = (currentRecs: FinanceRecord[]) => {
+    const ensureApprovedMembersHaveFeesAndMonthlyDues = (currentRecs: FinanceRecord[]) => {
       let updatedList = [...currentRecs];
       let hasNew = false;
       const todayStr = new Date().toISOString().split('T')[0];
 
-      // Clean up / update existing membership fee records if they have old 1500 amount or old note
+      // 1. Membership Fees
       updatedList = updatedList.map(r => {
         if (r.itemType === 'Membership Fee' && (r.id.startsWith('rec_mf_') || r.amount === 1500 || r.notes?.includes('Automated'))) {
           hasNew = true;
@@ -124,35 +212,84 @@ export const Finances: React.FC = () => {
         return r;
       });
 
-      loadedUsers.forEach(u => {
-        if (u.approvalStatus === 'Approved' || !u.approvalStatus) {
-          const exists = updatedList.some(r => r.userId === u.id && r.itemType === 'Membership Fee');
-          if (!exists) {
+      const approvedUsers = loadedUsers.filter(u => u.approvalStatus === 'Approved' || !u.approvalStatus);
+
+      approvedUsers.forEach(u => {
+        const exists = updatedList.some(r => r.userId === u.id && r.itemType === 'Membership Fee');
+        if (!exists) {
+          hasNew = true;
+          const newFeeRec: FinanceRecord = {
+            id: `rec_mf_${u.id}`,
+            itemType: 'Membership Fee',
+            userId: u.id,
+            userName: u.name,
+            userMemberNo: u.memberNumber || 'BRC-MEMBER',
+            amount: 200,
+            dueDate: u.joinDate || todayStr,
+            paidDate: todayStr,
+            status: 'Paid',
+            paymentMethod: 'GCash',
+            referenceNo: undefined,
+            notes: 'Payment recorded upon member approval',
+            updatedAt: todayStr,
+          };
+          updatedList.unshift(newFeeRec);
+          fetch('/api/mongodb/financeLogs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newFeeRec),
+          }).catch(err => console.warn('MongoDB auto fee sync error:', err));
+        }
+      });
+
+      // 2. Monthly Dues
+      const mDues = store.getMonthlyDues();
+      mDues.forEach(due => {
+        const coveredMonthStr = `${due.month} ${due.year}`;
+        approvedUsers.forEach(u => {
+          const existsIdx = updatedList.findIndex(r =>
+            r.userId === u.id &&
+            r.itemType === 'Monthly Due' &&
+            (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === `rec_md_${due.id}_${u.id}`)
+          );
+
+          if (existsIdx === -1) {
             hasNew = true;
-            const newFeeRec: FinanceRecord = {
-              id: `rec_mf_${u.id}`,
-              itemType: 'Membership Fee',
+            const newDueRec: FinanceRecord = {
+              id: `rec_md_${due.id}_${u.id}`,
+              itemType: 'Monthly Due',
               userId: u.id,
               userName: u.name,
               userMemberNo: u.memberNumber || 'BRC-MEMBER',
-              amount: 200,
-              dueDate: u.joinDate || todayStr,
-              paidDate: todayStr,
-              status: 'Paid',
+              amount: due.amount,
+              coveredMonth: coveredMonthStr,
+              customItemName: due.title,
+              dueDate: todayStr,
+              status: 'Pending',
               paymentMethod: 'GCash',
-              referenceNo: undefined,
-              notes: 'Payment recorded upon member approval',
+              notes: `Automated pending monthly due for ${coveredMonthStr}`,
               updatedAt: todayStr,
             };
-            updatedList.unshift(newFeeRec);
-            // Sync individual new record to MongoDB
+            updatedList.push(newDueRec);
             fetch('/api/mongodb/financeLogs', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(newFeeRec),
-            }).catch(err => console.warn('MongoDB auto membership fee sync error:', err));
+              body: JSON.stringify(newDueRec),
+            }).catch(err => console.warn('MongoDB auto monthly due sync error:', err));
+          } else {
+            const existingRec = updatedList[existsIdx];
+            if (existingRec.status === 'Pending' && existingRec.amount !== due.amount) {
+              hasNew = true;
+              const updatedRec = { ...existingRec, amount: due.amount };
+              updatedList[existsIdx] = updatedRec;
+              fetch('/api/mongodb/financeLogs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedRec),
+              }).catch(err => console.warn('MongoDB sync notice:', err));
+            }
           }
-        }
+        });
       });
 
       if (hasNew) {
@@ -165,17 +302,14 @@ export const Finances: React.FC = () => {
 
     setRecords(savedRecs);
 
-    // Sync with MongoDB financeLogs table
-    fetch('/api/mongodb/financeLogs')
-      .then(res => res.json())
+    safeFetchJson('/api/mongodb/financeLogs')
       .then(data => {
         if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-          ensureApprovedMembersHaveFees(data.data);
+          ensureApprovedMembersHaveFeesAndMonthlyDues(data.data);
           localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(data.data));
         } else {
-          ensureApprovedMembersHaveFees(savedRecs);
+          ensureApprovedMembersHaveFeesAndMonthlyDues(savedRecs);
           if (savedRecs.length > 0) {
-            // Sync local records to MongoDB
             fetch('/api/mongodb/financeLogs/bulk', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -186,11 +320,67 @@ export const Finances: React.FC = () => {
       })
       .catch(err => {
         console.warn('MongoDB financeLogs fetch error:', err);
-        ensureApprovedMembersHaveFees(savedRecs);
+        ensureApprovedMembersHaveFeesAndMonthlyDues(savedRecs);
+      });
+
+    // 2. Load Expense Records
+    const sampleIds = ['exp_101', 'exp_102', 'exp_103', 'exp_104', 'exp_105'];
+    let savedExpenses: ExpenseRecord[] = [];
+    try {
+      const expItem = localStorage.getItem(LOCAL_STORAGE_EXPENSE_KEY);
+      if (expItem) savedExpenses = JSON.parse(expItem);
+    } catch (e) {
+      console.error(e);
+    }
+
+    // Filter out sample records
+    savedExpenses = savedExpenses.filter(x => !sampleIds.includes(x.id));
+    localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(savedExpenses));
+    setExpenses(savedExpenses);
+
+    safeFetchJson('/api/mongodb/liquidationLogs')
+      .then(data => {
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          const cleanData = data.data.filter((x: ExpenseRecord) => !sampleIds.includes(x.id));
+          setExpenses(cleanData);
+          localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(cleanData));
+
+          sampleIds.forEach(id => {
+            fetch(`/api/mongodb/liquidationLogs/${id}`, { method: 'DELETE' }).catch(() => {});
+            fetch(`/api/mongodb/expenseLogs/${id}`, { method: 'DELETE' }).catch(() => {});
+          });
+        } else {
+          // Fallback to expenseLogs if liquidationLogs is empty
+          safeFetchJson('/api/mongodb/expenseLogs')
+            .then(expData => {
+              if (expData.success && Array.isArray(expData.data)) {
+                const cleanData = expData.data.filter((x: ExpenseRecord) => !sampleIds.includes(x.id));
+                setExpenses(cleanData);
+                localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(cleanData));
+
+                sampleIds.forEach(id => {
+                  fetch(`/api/mongodb/expenseLogs/${id}`, { method: 'DELETE' }).catch(() => {});
+                  fetch(`/api/mongodb/liquidationLogs/${id}`, { method: 'DELETE' }).catch(() => {});
+                });
+              }
+            })
+            .catch(err => console.warn('MongoDB expenseLogs fetch error:', err));
+        }
+      })
+      .catch(() => {
+        safeFetchJson('/api/mongodb/expenseLogs')
+          .then(expData => {
+            if (expData.success && Array.isArray(expData.data)) {
+              const cleanData = expData.data.filter((x: ExpenseRecord) => !sampleIds.includes(x.id));
+              setExpenses(cleanData);
+              localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(cleanData));
+            }
+          })
+          .catch(err => console.warn('MongoDB expense/liquidation fetch error:', err));
       });
   }, []);
 
-  // Save Records to localStorage & MongoDB
+  // Save Funds Records
   const saveRecordsToStorage = (updatedRecs: FinanceRecord[]) => {
     setRecords(updatedRecs);
     localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(updatedRecs));
@@ -210,13 +400,109 @@ export const Finances: React.FC = () => {
     }).catch(err => console.warn('MongoDB financeLogs delete error:', err));
   };
 
-  // Change Item Type in Form
-  const handleItemTypeChange = (type: FinanceItemType) => {
-    setRecItemType(type);
+  // Save Expense Records
+  const saveExpensesToStorage = (updatedExpenses: ExpenseRecord[]) => {
+    setExpenses(updatedExpenses);
+    localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(updatedExpenses));
   };
 
-  // Open Log Payment Modal
+  const syncExpenseToMongo = (exp: ExpenseRecord) => {
+    fetch('/api/mongodb/liquidationLogs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(exp),
+    }).catch(err => console.warn('MongoDB liquidationLogs sync error:', err));
+
+    fetch('/api/mongodb/expenseLogs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(exp),
+    }).catch(err => console.warn('MongoDB expenseLogs sync error:', err));
+  };
+
+  const deleteExpenseFromMongo = (expenseId: string) => {
+    fetch(`/api/mongodb/liquidationLogs/${expenseId}`, {
+      method: 'DELETE',
+    }).catch(err => console.warn('MongoDB liquidationLogs delete error:', err));
+
+    fetch(`/api/mongodb/expenseLogs/${expenseId}`, {
+      method: 'DELETE',
+    }).catch(err => console.warn('MongoDB expenseLogs delete error:', err));
+  };
+
+  // Dynamic Finance Collections & Settings for Payment Options Dropdown
+  const finSettings = store.getFinanceSettings();
+  const monthlyDuesList = store.getMonthlyDues();
+  const dynamicColsList = store.getDynamicCollections();
+
+  const paymentOptionsList = [
+    { value: 'opt_membership_fee', label: `Membership Fee (₱${(finSettings.membershipFee || 200).toLocaleString()})` },
+    { value: 'opt_monthly_due', label: 'Monthly Due' },
+    ...dynamicColsList.map(col => ({
+      value: `dc_${col.id}`,
+      label: `Custom Collection: ${col.name} (₱${col.amount.toLocaleString()})`
+    })),
+    { value: 'opt_other', label: 'Other / Custom Payment Item' }
+  ];
+
+  const handleRecMonthChange = (m: string) => {
+    setRecMonth(m);
+    if (recItemType === 'Monthly Due') {
+      const matchedDue = monthlyDuesList.find(d => `${d.month} ${d.year}` === `${m} ${recYear}`);
+      if (matchedDue) {
+        setRecAmount(String(matchedDue.amount));
+      }
+    }
+  };
+
+  const handleRecYearChange = (y: string) => {
+    setRecYear(y);
+    if (recItemType === 'Monthly Due') {
+      const matchedDue = monthlyDuesList.find(d => `${d.month} ${d.year}` === `${recMonth} ${y}`);
+      if (matchedDue) {
+        setRecAmount(String(matchedDue.amount));
+      }
+    }
+  };
+
+  const handleSelectPaymentOption = (val: string) => {
+    setRecOptionKey(val);
+    if (val === 'opt_membership_fee') {
+      setRecItemType('Membership Fee');
+      setRecAmount(String(finSettings.membershipFee || 200));
+      setRecCustomItemName('');
+    } else if (val === 'opt_monthly_due') {
+      setRecItemType('Monthly Due');
+      setRecCustomItemName('');
+      const matchedDue = monthlyDuesList.find(d => `${d.month} ${d.year}` === `${recMonth} ${recYear}`);
+      if (matchedDue) {
+        setRecAmount(String(matchedDue.amount));
+      } else if (monthlyDuesList.length > 0) {
+        setRecAmount(String(monthlyDuesList[0].amount));
+      } else {
+        setRecAmount('100');
+      }
+    } else if (val.startsWith('dc_')) {
+      const colId = val.replace('dc_', '');
+      const col = dynamicColsList.find(c => c.id === colId);
+      if (col) {
+        setRecItemType('Other');
+        setRecCustomItemName(col.name);
+        setRecAmount(String(col.amount));
+      }
+    } else if (val === 'opt_other') {
+      setRecItemType('Other');
+      setRecCustomItemName('');
+    }
+  };
+
+  // Open Funds Modal
   const handleOpenLogRecord = (presetRecord?: FinanceRecord) => {
+    if (!canManageFinances) return;
+    const settings = store.getFinanceSettings();
+    const mDues = store.getMonthlyDues();
+    const dCols = store.getDynamicCollections();
+
     if (presetRecord) {
       setEditingRecord(presetRecord);
       setRecUserId(presetRecord.userId);
@@ -238,26 +524,52 @@ export const Finances: React.FC = () => {
       setRecRefNo(presetRecord.referenceNo || '');
       setRecNotes(presetRecord.notes || '');
       setRecDueDate(presetRecord.dueDate);
+
+      // Derive dropdown option key
+      if (presetRecord.itemType === 'Membership Fee') {
+        setRecOptionKey('opt_membership_fee');
+      } else if (presetRecord.itemType === 'Monthly Due') {
+        setRecOptionKey('opt_monthly_due');
+      } else if (presetRecord.customItemName) {
+        const matchedCol = dCols.find(c => c.name === presetRecord.customItemName);
+        setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_other');
+      } else {
+        setRecOptionKey('opt_other');
+      }
     } else {
       setEditingRecord(null);
       setRecUserId(users[0]?.id || '');
-      setRecItemType('Monthly Due');
-      setRecMonth('August');
-      setRecYear('2026');
-      setRecCustomItemName('');
-      setRecAmount('200');
       setRecStatus('Paid');
       setRecMethod('GCash');
       setRecRefNo('');
       setRecNotes('');
       setRecDueDate(new Date().toISOString().split('T')[0]);
+
+      setRecOptionKey('opt_monthly_due');
+      setRecItemType('Monthly Due');
+      const now = new Date();
+      const currentMonthName = MONTHS_LIST[now.getMonth()]?.value || 'August';
+      const currentYearStr = String(now.getFullYear()) || '2026';
+      setRecMonth(currentMonthName);
+      setRecYear(currentYearStr);
+
+      const matchedDue = mDues.find(d => `${d.month} ${d.year}` === `${currentMonthName} ${currentYearStr}`);
+      if (matchedDue) {
+        setRecAmount(String(matchedDue.amount));
+      } else if (mDues.length > 0) {
+        setRecAmount(String(mDues[0].amount));
+      } else {
+        setRecAmount('100');
+      }
+      setRecCustomItemName('');
     }
     setShowAddRecordModal(true);
   };
 
-  // Save Record Handler
+  // Save Payment Record
   const handleSaveRecord = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageFinances) return;
     const amountNum = parseFloat(recAmount) || 0;
     const selectedUser = users.find(u => u.id === recUserId);
     const todayStr = new Date().toISOString().split('T')[0];
@@ -275,7 +587,7 @@ export const Finances: React.FC = () => {
         amount: amountNum,
         status: recStatus,
         dueDate: recDueDate,
-        paidDate: recStatus === 'Paid' ? todayStr : undefined,
+        paidDate: recStatus === 'Paid' ? todayStr : editingRecord.paidDate,
         paymentMethod: recMethod,
         referenceNo: undefined,
         notes: recNotes.trim() || undefined,
@@ -286,67 +598,171 @@ export const Finances: React.FC = () => {
       saveRecordsToStorage(updated);
       syncRecordToMongo(updatedRecord);
     } else {
-      const newRec: FinanceRecord = {
-        id: `rec_${Date.now()}`,
-        userId: recUserId || (users[0]?.id || 'usr_guest'),
-        userName: selectedUser?.name || 'Walk-in Member',
-        userMemberNo: selectedUser?.memberNumber || 'BRC-N/A',
-        itemType: recItemType,
-        coveredMonth: coveredMonthStr,
-        customItemName: recItemType === 'Other' ? recCustomItemName : undefined,
-        amount: amountNum,
-        dueDate: recDueDate,
-        paidDate: recStatus === 'Paid' ? todayStr : undefined,
-        status: recStatus,
-        paymentMethod: recMethod,
-        referenceNo: undefined,
-        notes: recNotes.trim() || undefined,
-        updatedAt: todayStr,
-      };
-      saveRecordsToStorage([...records, newRec]);
-      syncRecordToMongo(newRec);
+      // Look for an existing pending record for this user and coveredMonth/Monthly Due
+      let existingPending = null;
+      if (recItemType === 'Monthly Due' && coveredMonthStr) {
+        existingPending = records.find(r =>
+          r.userId === recUserId &&
+          r.itemType === 'Monthly Due' &&
+          (r.coveredMonth === coveredMonthStr || r.id.includes(coveredMonthStr)) &&
+          (r.status === 'Pending' || r.status === 'Overdue')
+        );
+      }
+
+      if (existingPending) {
+        const updatedRecord: FinanceRecord = {
+          ...existingPending,
+          userName: selectedUser?.name || existingPending.userName,
+          userMemberNo: selectedUser?.memberNumber || existingPending.userMemberNo,
+          amount: amountNum,
+          dueDate: recDueDate,
+          paidDate: recStatus === 'Paid' ? todayStr : undefined,
+          status: recStatus,
+          paymentMethod: recMethod,
+          notes: recNotes.trim() || existingPending.notes,
+          updatedAt: todayStr,
+        };
+        const updated = records.map(r => (r.id === existingPending.id ? updatedRecord : r));
+        saveRecordsToStorage(updated);
+        syncRecordToMongo(updatedRecord);
+      } else {
+        const newRec: FinanceRecord = {
+          id: `rec_${Date.now()}`,
+          userId: recUserId || (users[0]?.id || 'usr_guest'),
+          userName: selectedUser?.name || 'Walk-in Member',
+          userMemberNo: selectedUser?.memberNumber || 'BRC-N/A',
+          itemType: recItemType,
+          coveredMonth: coveredMonthStr,
+          customItemName: recItemType === 'Other' ? recCustomItemName : undefined,
+          amount: amountNum,
+          dueDate: recDueDate,
+          paidDate: recStatus === 'Paid' ? todayStr : undefined,
+          status: recStatus,
+          paymentMethod: recMethod,
+          referenceNo: undefined,
+          notes: recNotes.trim() || undefined,
+          updatedAt: todayStr,
+        };
+        saveRecordsToStorage([...records, newRec]);
+        syncRecordToMongo(newRec);
+      }
     }
 
     setShowAddRecordModal(false);
   };
 
-  // Quick Status Toggle (Mark Paid / Pending)
-  const handleQuickMarkPaid = (record: FinanceRecord) => {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const newStatus = record.status === 'Paid' ? 'Pending' : 'Paid';
-    let targetUpdatedRecord: FinanceRecord | null = null;
-
-    const updated = records.map(r => {
-      if (r.id === record.id) {
-        targetUpdatedRecord = {
-          ...r,
-          status: newStatus,
-          paidDate: newStatus === 'Paid' ? todayStr : undefined,
-          referenceNo: undefined,
-          paymentMethod: newStatus === 'Paid' ? (r.paymentMethod || 'GCash') : undefined,
-          updatedAt: todayStr,
-        };
-        return targetUpdatedRecord;
-      }
-      return r;
+  // Request Delete Funds Record
+  const handleRequestDeleteRecord = (rec: FinanceRecord) => {
+    if (!canManageFinances) return;
+    setDeleteTarget({
+      type: 'fund',
+      id: rec.id,
+      title: rec.userName,
+      subtitle: `${getItemTitle(rec)}${rec.userMemberNo ? ` (${rec.userMemberNo})` : ''}`,
+      amount: rec.amount,
     });
-
-    saveRecordsToStorage(updated);
-    if (targetUpdatedRecord) {
-      syncRecordToMongo(targetUpdatedRecord);
-    }
   };
 
-  // Delete Record
-  const handleDeleteRecord = (recordId: string) => {
-    if (confirm('Are you sure you want to delete this payment record?')) {
-      const updated = records.filter(r => r.id !== recordId);
+  // Open Expense Modal
+  const handleOpenExpenseModal = (presetExpense?: ExpenseRecord) => {
+    if (!canManageFinances) return;
+    if (presetExpense) {
+      setEditingExpense(presetExpense);
+      setExpTitle(presetExpense.title);
+      setExpCategory(presetExpense.category);
+      setExpAmount(presetExpense.amount.toString());
+      setExpDate(presetExpense.date);
+      setExpReceiptRef(presetExpense.receiptRef || '');
+      setExpPayee(presetExpense.payeeOrDisbursedTo || '');
+      setExpLoggedBy(presetExpense.loggedBy || 'Treasury Admin');
+      setExpNotes(presetExpense.notes || '');
+    } else {
+      setEditingExpense(null);
+      setExpTitle('');
+      setExpCategory('Event Logistics');
+      setExpAmount('');
+      setExpDate(new Date().toISOString().split('T')[0]);
+      setExpReceiptRef('');
+      setExpPayee('');
+      setExpLoggedBy('Treasury Admin');
+      setExpNotes('');
+    }
+    setShowExpenseModal(true);
+  };
+
+  // Save Expense Handler
+  const handleSaveExpense = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canManageFinances) return;
+    const amountNum = parseFloat(expAmount) || 0;
+    const todayStr = new Date().toISOString().split('T')[0];
+
+    if (editingExpense) {
+      const updatedExpense: ExpenseRecord = {
+        ...editingExpense,
+        title: expTitle.trim(),
+        category: expCategory,
+        amount: amountNum,
+        date: expDate || todayStr,
+        receiptRef: expReceiptRef.trim() || undefined,
+        payeeOrDisbursedTo: expPayee.trim() || undefined,
+        loggedBy: expLoggedBy.trim() || 'Treasury Admin',
+        notes: expNotes.trim() || undefined,
+        updatedAt: todayStr,
+      };
+      const updated = expenses.map(x => (x.id === editingExpense.id ? updatedExpense : x));
+      saveExpensesToStorage(updated);
+      syncExpenseToMongo(updatedExpense);
+    } else {
+      const newExpense: ExpenseRecord = {
+        id: `exp_${Date.now()}`,
+        title: expTitle.trim(),
+        category: expCategory,
+        amount: amountNum,
+        date: expDate || todayStr,
+        receiptRef: expReceiptRef.trim() || undefined,
+        payeeOrDisbursedTo: expPayee.trim() || undefined,
+        loggedBy: expLoggedBy.trim() || 'Treasury Admin',
+        notes: expNotes.trim() || undefined,
+        updatedAt: todayStr,
+      };
+      saveExpensesToStorage([newExpense, ...expenses]);
+      syncExpenseToMongo(newExpense);
+    }
+
+    setShowExpenseModal(false);
+  };
+
+  // Request Delete Expense Handler
+  const handleRequestDeleteExpense = (exp: ExpenseRecord) => {
+    if (!canManageFinances) return;
+    setDeleteTarget({
+      type: 'expense',
+      id: exp.id,
+      title: exp.title,
+      subtitle: `${exp.category}${exp.receiptRef ? ` • Ref: ${exp.receiptRef}` : ''}`,
+      amount: exp.amount,
+    });
+  };
+
+  // Confirm Delete Action Handler
+  const handleConfirmDelete = () => {
+    if (!canManageFinances || !deleteTarget) return;
+
+    if (deleteTarget.type === 'fund') {
+      const updated = records.filter(r => r.id !== deleteTarget.id);
       saveRecordsToStorage(updated);
-      deleteRecordFromMongo(recordId);
+      deleteRecordFromMongo(deleteTarget.id);
+    } else {
+      const updated = expenses.filter(x => x.id !== deleteTarget.id);
+      saveExpensesToStorage(updated);
+      deleteExpenseFromMongo(deleteTarget.id);
     }
+
+    setDeleteTarget(null);
   };
 
-  // Helper to format Item Title
+  // Helper for Payment Title
   const getItemTitle = (rec: FinanceRecord) => {
     if (rec.itemType === 'Monthly Due') {
       return `Monthly Due${rec.coveredMonth ? ` (${rec.coveredMonth})` : ''}`;
@@ -357,15 +773,14 @@ export const Finances: React.FC = () => {
     return rec.itemType;
   };
 
-  // Filtered Records
+  // Filtered Funds Records
   const filteredRecords = records.filter(r => {
     const title = getItemTitle(r).toLowerCase();
     const matchesSearch =
       r.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      title.includes(searchQuery.toLowerCase()) ||
       (r.userMemberNo && r.userMemberNo.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (r.referenceNo && r.referenceNo.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (r.notes && r.notes.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      title.includes(searchQuery.toLowerCase());
+      (r.referenceNo && r.referenceNo.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const matchesItemType = itemTypeFilter === 'All' || r.itemType === itemTypeFilter;
     const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
@@ -373,7 +788,43 @@ export const Finances: React.FC = () => {
     return matchesSearch && matchesItemType && matchesStatus;
   });
 
-  // Financial Metrics
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, itemTypeFilter, statusFilter]);
+
+  const totalPages = Math.ceil(filteredRecords.length / itemsPerPage) || 1;
+  const validCurrentPage = Math.min(Math.max(currentPage, 1), totalPages);
+  const paginatedRecords = filteredRecords.slice(
+    (validCurrentPage - 1) * itemsPerPage,
+    validCurrentPage * itemsPerPage
+  );
+
+  // Filtered Expense Records
+  const filteredExpenses = expenses.filter(x => {
+    const query = expenseSearchQuery.toLowerCase();
+    const matchesSearch =
+      x.title.toLowerCase().includes(query) ||
+      (x.payeeOrDisbursedTo && x.payeeOrDisbursedTo.toLowerCase().includes(query)) ||
+      (x.receiptRef && x.receiptRef.toLowerCase().includes(query)) ||
+      (x.notes && x.notes.toLowerCase().includes(query));
+
+    const matchesCategory = expenseCategoryFilter === 'All' || x.category === expenseCategoryFilter;
+
+    return matchesSearch && matchesCategory;
+  });
+
+  useEffect(() => {
+    setExpenseCurrentPage(1);
+  }, [expenseSearchQuery, expenseCategoryFilter]);
+
+  const totalExpensePages = Math.ceil(filteredExpenses.length / itemsPerPage) || 1;
+  const validExpensePage = Math.min(Math.max(expenseCurrentPage, 1), totalExpensePages);
+  const paginatedExpenses = filteredExpenses.slice(
+    (validExpensePage - 1) * itemsPerPage,
+    validExpensePage * itemsPerPage
+  );
+
+  // Financial Metrics Calculation
   const totalCollected = records
     .filter(r => r.status === 'Paid')
     .reduce((sum, r) => sum + r.amount, 0);
@@ -382,612 +833,950 @@ export const Finances: React.FC = () => {
     .filter(r => r.status === 'Pending' || r.status === 'Overdue')
     .reduce((sum, r) => sum + r.amount, 0);
 
-  const totalMonthlyDues = records
-    .filter(r => r.itemType === 'Monthly Due' && r.status === 'Paid')
-    .reduce((sum, r) => sum + r.amount, 0);
-
-  const totalMonthlyDuesCount = records.filter(r => r.itemType === 'Monthly Due' && r.status === 'Paid').length;
-
   const totalPaidCount = records.filter(r => r.status === 'Paid').length;
+
+  const totalExpenses = expenses.reduce((sum, x) => sum + x.amount, 0);
+  const netBalance = totalCollected - totalExpenses;
+
+  // Category Badge Styler
+  const getCategoryBadgeStyle = (cat: ExpenseCategory) => {
+    switch (cat) {
+      case 'Food & Catering':
+        return 'bg-amber-100 text-amber-900 border-amber-200';
+      case 'Event Logistics':
+        return 'bg-blue-100 text-blue-900 border-blue-200';
+      case 'Equipment & Gear':
+        return 'bg-emerald-100 text-emerald-900 border-emerald-200';
+      case 'Venue & Rental':
+        return 'bg-purple-100 text-purple-900 border-purple-200';
+      case 'Fuel & Travel':
+        return 'bg-orange-100 text-orange-900 border-orange-200';
+      case 'Administrative':
+        return 'bg-slate-100 text-slate-800 border-slate-200';
+      case 'Utilities':
+        return 'bg-cyan-100 text-cyan-900 border-cyan-200';
+      default:
+        return 'bg-stone-100 text-stone-800 border-stone-200';
+    }
+  };
 
   return (
     <div className="space-y-6 pb-12 font-sans">
-      {/* Global Overview Stats */}
+      {/* Global Overview Stats Banner */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Total Funds Collected */}
         <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
             <Coins className="w-6 h-6 stroke-[2.2]" />
           </div>
           <div>
-            <span className="text-[11px] text-[#52605d] font-bold block">Total Funds Collected</span>
+            <span className="text-[11px] text-[#52605d] font-bold block uppercase tracking-wider">Total Funds Collected</span>
             <p className="font-heading text-xl font-black text-[#1b4332]">
               ₱{totalCollected.toLocaleString()}.00
             </p>
-            <span className="text-[10px] text-[#2d6a4f] font-semibold">{totalPaidCount} verified payments</span>
+            <span className="text-[10px] text-[#2d6a4f] font-semibold">{totalPaidCount} verified member payments</span>
           </div>
         </div>
 
+        {/* Total Liquidated Expenses */}
+        <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
+          <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center shrink-0">
+            <TrendingDown className="w-6 h-6 stroke-[2.2]" />
+          </div>
+          <div>
+            <span className="text-[11px] text-[#52605d] font-bold block uppercase tracking-wider">Total Club Expenses</span>
+            <p className="font-heading text-xl font-black text-rose-800">
+              ₱{totalExpenses.toLocaleString()}.00
+            </p>
+            <span className="text-[10px] text-rose-700 font-semibold">{expenses.length} liquidated expense items</span>
+          </div>
+        </div>
+
+        {/* Net Treasury Balance */}
+        <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
+          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+            netBalance >= 0 ? 'bg-emerald-100 text-emerald-900' : 'bg-rose-100 text-rose-900'
+          }`}>
+            <Wallet className="w-6 h-6 stroke-[2.2]" />
+          </div>
+          <div>
+            <span className="text-[11px] text-[#52605d] font-bold block uppercase tracking-wider">Net Treasury Balance</span>
+            <p className={`font-heading text-xl font-black ${
+              netBalance >= 0 ? 'text-[#1b4332]' : 'text-rose-700'
+            }`}>
+              ₱{netBalance.toLocaleString()}.00
+            </p>
+            <span className="text-[10px] text-[#52605d] font-semibold">Funds Collected minus Expenses</span>
+          </div>
+        </div>
+
+        {/* Pending Collections */}
         <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
           <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
             <Clock className="w-6 h-6 stroke-[2.2]" />
           </div>
           <div>
-            <span className="text-[11px] text-[#52605d] font-bold block">Pending Payments</span>
+            <span className="text-[11px] text-[#52605d] font-bold block uppercase tracking-wider">Pending Collections</span>
             <p className="font-heading text-xl font-black text-amber-900">
               ₱{totalPending.toLocaleString()}.00
             </p>
-            <span className="text-[10px] text-amber-700 font-semibold">Uncollected dues</span>
-          </div>
-        </div>
-
-        <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
-            <Receipt className="w-6 h-6 stroke-[2.2]" />
-          </div>
-          <div>
-            <span className="text-[11px] text-[#52605d] font-bold block">Total Monthly Dues</span>
-            <p className="font-heading text-xl font-black text-[#1b4332]">
-              ₱{totalMonthlyDues.toLocaleString()}.00
-            </p>
-            <span className="text-[10px] text-[#52605d]">{totalMonthlyDuesCount} dues collected</span>
-          </div>
-        </div>
-
-        <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-[#f7f9f7] text-[#2d6a4f] border border-[#e2ece2] flex items-center justify-center shrink-0">
-            <UserIcon className="w-6 h-6 stroke-[2.2]" />
-          </div>
-          <div>
-            <span className="text-[11px] text-[#52605d] font-bold block">Active Members</span>
-            <p className="font-heading text-xl font-black text-[#1b4332]">
-              {users.length} Accounts
-            </p>
-            <span className="text-[10px] text-[#52605d]">Member profiles</span>
+            <span className="text-[10px] text-amber-700 font-semibold">Uncollected dues & pending fees</span>
           </div>
         </div>
       </div>
 
-      {/* MAIN RECORDS CONTAINER */}
-      <div className="bg-white rounded-3xl p-4 sm:p-6 border border-[#e2ece2] shadow-xs space-y-5">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-[#e2ece2]">
-          <div>
-            <h3 className="font-heading text-base font-extrabold text-[#1b4332] flex items-center gap-2">
-              <Receipt className="w-4 h-4 text-[#2d6a4f]" />
-              <span>Payment Records & Transactions</span>
-            </h3>
-            <p className="text-xs text-[#52605d]">
-              Manage all member payments for membership fees, monthly dues, and vest orders.
-            </p>
-          </div>
-
+      {/* TWO-BUTTON GROUP / TAB NAVIGATION */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 bg-white p-2 sm:p-2.5 rounded-2xl border border-[#e2ece2] shadow-xs">
+        <div className="flex p-1 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] w-full sm:w-auto">
+          {/* Button 1: Funds */}
           <button
             type="button"
-            onClick={() => handleOpenLogRecord()}
-            className="px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center gap-1.5 self-start md:self-auto"
+            onClick={() => setActiveTab('funds')}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+              activeTab === 'funds'
+                ? 'bg-[#1b4332] text-white shadow-sm'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
+            }`}
           >
-            <Plus className="w-3.5 h-3.5 text-[#74c69d]" />
-            <span>Record Payment</span>
+            <Coins className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span>Funds</span>
+          </button>
+
+          {/* Button 2: Expenses */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('expenses')}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+              activeTab === 'expenses'
+                ? 'bg-[#1b4332] text-white shadow-sm'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
+            }`}
+          >
+            <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span>Expenses</span>
           </button>
         </div>
 
-        {/* SEARCH & FILTERS BAR */}
-        <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 pt-1">
-          {/* Search Box */}
-          <div className="relative w-full lg:w-80">
-            <Search className="w-4 h-4 text-[#52605d] absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search member name, ref #, or item..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-stone-400 hover:text-stone-700"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+        {/* Tab Action Button */}
+        {canManageFinances ? (
+          activeTab === 'funds' ? (
+            <button
+              type="button"
+              onClick={() => handleOpenLogRecord()}
+              className="w-full sm:w-auto px-4 py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4 text-[#74c69d]" />
+              <span>Record Payment</span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => handleOpenExpenseModal()}
+              className="w-full sm:w-auto px-4 py-2.5 bg-rose-800 hover:bg-rose-900 text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-2"
+            >
+              <Plus className="w-4 h-4 text-rose-200" />
+              <span>Liquidate Expense</span>
+            </button>
+          )
+        ) : (
+          <div className="w-full sm:w-auto px-3.5 py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-bold text-[#52605d] flex items-center justify-center gap-1.5 shrink-0">
+            <ShieldAlert className="w-3.5 h-3.5 text-[#2d6a4f]" />
+            <span>Read-Only Member View</span>
           </div>
+        )}
+      </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Item Type Filter */}
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Item:</span>
-              <select
-                value={itemTypeFilter}
-                onChange={e => setItemTypeFilter(e.target.value)}
-                className="px-3 py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-bold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-              >
-                <option value="All">All Items</option>
-                <option value="Membership Fee">Membership Fee</option>
-                <option value="Monthly Due">Monthly Due</option>
-                <option value="Vest Payment">Vest Payment</option>
-                <option value="Other">Other</option>
-              </select>
-            </div>
-
-            {/* Status Filter */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-              <span className="text-xs font-bold text-[#52605d] mr-1 whitespace-nowrap">Status:</span>
-              {(['All', 'Paid', 'Pending', 'Overdue', 'Waived'] as const).map(st => (
-                <button
-                  key={st}
-                  type="button"
-                  onClick={() => setStatusFilter(st)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
-                    statusFilter === st
-                      ? 'bg-[#2d6a4f] text-white shadow-xs'
-                      : 'bg-[#f7f9f7] hover:bg-[#e2ece2] text-[#52605d]'
-                  }`}
-                >
-                  {st}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* MOBILE TRANSACTION CARDS VIEW */}
-        <div className="block md:hidden space-y-3">
-          {filteredRecords.length === 0 ? (
-            <div className="p-8 rounded-2xl bg-white border border-[#e2ece2] text-center text-[#52605d] space-y-2">
-              <AlertCircle className="w-8 h-8 text-stone-300 mx-auto" />
-              <p className="font-bold text-stone-600">No payment records found</p>
-              <p className="text-xs text-stone-400">
-                Click "Record Payment" to log a new member payment transaction.
+      {/* TAB CONTENT 1: FUNDS (PAYMENT RECORDS & TRANSACTIONS) */}
+      {activeTab === 'funds' && (
+        <div className="bg-white rounded-3xl p-4 sm:p-6 border border-[#e2ece2] shadow-xs space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-2 border-b border-[#e2ece2]">
+            <div>
+              <h3 className="font-heading text-base font-extrabold text-[#1b4332] flex items-center gap-2">
+                <Coins className="w-4 h-4 text-[#2d6a4f]" />
+                <span>Payment Records & Transactions</span>
+              </h3>
+              <p className="text-xs text-[#52605d]">
+                Manage all member payments for membership fees, monthly dues, and vest orders.
               </p>
             </div>
-          ) : (
-            filteredRecords.map(rec => {
-              const isPaid = rec.status === 'Paid';
-              const isPending = rec.status === 'Pending';
-              const isOverdue = rec.status === 'Overdue';
-              const itemTitle = getItemTitle(rec);
+          </div>
 
-              return (
-                <div key={rec.id} className="p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-2xs space-y-3">
-                  {/* Member & Status Header */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="font-bold text-[#1b4332] text-sm">{rec.userName}</p>
-                      <p className="text-xs font-semibold text-[#1b4332] mt-0.5">{itemTitle}</p>
-                      {itemTitle.toLowerCase() !== rec.itemType.toLowerCase() &&
-                        !itemTitle.toLowerCase().startsWith(rec.itemType.toLowerCase()) && (
-                          <span className="text-[10px] text-[#52605d] uppercase tracking-wider font-semibold block">
-                            {rec.itemType}
-                          </span>
-                        )}
-                    </div>
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold inline-flex items-center gap-1 border shrink-0 ${
-                        isPaid
-                          ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                          : isPending
-                          ? 'bg-amber-100 text-amber-800 border-amber-300'
-                          : isOverdue
-                          ? 'bg-rose-100 text-rose-800 border-rose-300'
-                          : 'bg-stone-100 text-stone-700 border-stone-300'
-                      }`}
-                    >
-                      {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
-                      {isPending && <Clock className="w-3 h-3 text-amber-600" />}
-                      {isOverdue && <AlertCircle className="w-3 h-3 text-rose-600" />}
-                      <span>{rec.status}</span>
-                    </span>
-                  </div>
+          {/* SEARCH & FILTERS BAR */}
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 pt-1">
+            {/* Search Box */}
+            <div className="relative w-full lg:w-80">
+              <Search className="w-4 h-4 text-[#52605d] absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search member name, ref #, or item..."
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-stone-400 hover:text-stone-700"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
 
-                  {/* Amount & Details Grid */}
-                  <div className="flex items-center justify-between pt-2 border-t border-[#e2ece2]/60 text-xs">
-                    <div>
-                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Amount</span>
-                      <span className="font-extrabold text-[#1b4332] text-base">
-                        ₱{rec.amount.toLocaleString()}.00
+            <div className="flex flex-wrap items-center gap-3">
+              {/* Item Type Filter */}
+              <div className="flex items-center gap-1.5 min-w-[160px]">
+                <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Item:</span>
+                <div className="flex-1">
+                  <CustomSelect
+                    value={itemTypeFilter}
+                    onChange={setItemTypeFilter}
+                    options={[
+                      { value: 'All', label: 'All Items' },
+                      { value: 'Membership Fee', label: 'Membership Fee' },
+                      { value: 'Monthly Due', label: 'Monthly Due' },
+                      { value: 'Vest Payment', label: 'Vest Payment' },
+                      { value: 'Other', label: 'Other' },
+                    ]}
+                  />
+                </div>
+              </div>
+
+              {/* Status Filter */}
+              <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+                <span className="text-xs font-bold text-[#52605d] mr-1 whitespace-nowrap">Status:</span>
+                {(['All', 'Paid', 'Pending', 'Overdue', 'Waived'] as const).map(st => (
+                  <button
+                    key={st}
+                    type="button"
+                    onClick={() => setStatusFilter(st)}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                      statusFilter === st
+                        ? 'bg-[#2d6a4f] text-white shadow-xs'
+                        : 'bg-[#f7f9f7] hover:bg-[#e2ece2] text-[#52605d]'
+                    }`}
+                  >
+                    {st}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* MOBILE TRANSACTION CARDS VIEW */}
+          <div className="block md:hidden space-y-3">
+            {filteredRecords.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-white border border-[#e2ece2] text-center text-[#52605d] space-y-2">
+                <AlertCircle className="w-8 h-8 text-stone-300 mx-auto" />
+                <p className="font-bold text-stone-600">No payment records found</p>
+                <p className="text-xs text-stone-400">
+                  Click "Record Payment" to log a new member payment transaction.
+                </p>
+              </div>
+            ) : (
+              paginatedRecords.map(rec => {
+                const isPaid = rec.status === 'Paid';
+                const isPending = rec.status === 'Pending';
+                const isOverdue = rec.status === 'Overdue';
+
+                return (
+                  <div
+                    key={rec.id}
+                    className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="font-black text-[#1b4332] text-sm">{rec.userName}</p>
+                        <p className="text-[10px] text-[#52605d] font-mono">{rec.userMemberNo || 'BRC-MEMBER'}</p>
+                      </div>
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          isPaid
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : isPending
+                            ? 'bg-amber-100 text-amber-800'
+                            : isOverdue
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-stone-200 text-stone-700'
+                        }`}
+                      >
+                        {rec.status}
                       </span>
                     </div>
 
-                    <div className="text-right">
-                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Due Date</span>
-                      <span className="font-medium text-[#1b4332] text-xs">{rec.dueDate}</span>
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-[#e2ece2]">
+                      <div>
+                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Item</span>
+                        <span className="font-bold text-[#1b4332]">{getItemTitle(rec)}</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Amount</span>
+                        <span className="font-black text-[#1b4332] text-sm">₱{rec.amount.toLocaleString()}.00</span>
+                      </div>
                     </div>
-                  </div>
 
-                  {/* Payment Method & Notes */}
-                  <div className="flex flex-wrap items-center justify-between text-xs text-[#52605d] gap-2 pt-1">
-                    <div>
-                      <span className="text-[10px] text-[#52605d] font-bold mr-1">Method:</span>
-                      <span className="font-semibold text-[#1b4332]">{rec.paymentMethod || '—'}</span>
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-[#e2ece2]">
+                      <div>
+                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Payment Method</span>
+                        <span className="text-[#1b4332] font-semibold">{rec.paymentMethod || 'GCash'}</span>
+                      </div>
+
+                      <div className="text-right">
+                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Date Paid</span>
+                        <span className="font-medium text-[#1b4332] text-xs">{rec.paidDate || rec.dueDate}</span>
+                      </div>
                     </div>
+
                     {rec.notes && (
-                      <div className="text-right text-[11px] italic text-[#52605d] max-w-[200px] truncate">
-                        {rec.notes}
+                      <p className="text-[11px] text-[#52605d] bg-white p-2 rounded-xl border border-[#e2ece2] italic">
+                        "{rec.notes}"
+                      </p>
+                    )}
+
+                    {canManageFinances && (
+                      <div className="flex items-center justify-end gap-2 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenLogRecord(rec)}
+                          className="px-3 py-1.5 rounded-lg bg-white border border-[#e2ece2] text-[#1b4332] hover:bg-[#e2ece2] font-bold text-xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>Edit</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRequestDeleteRecord(rec)}
+                          className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span>Delete</span>
+                        </button>
                       </div>
                     )}
                   </div>
+                );
+              })
+            )}
+          </div>
 
-                  {/* Action Buttons */}
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#e2ece2]">
-                    <button
-                      type="button"
-                      onClick={() => handleQuickMarkPaid(rec)}
-                      className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
-                        isPaid
-                          ? 'bg-stone-100 hover:bg-stone-200 text-stone-700'
-                          : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
-                      }`}
-                    >
-                      {isPaid ? 'Undo' : 'Mark Paid'}
-                    </button>
+          {/* DESKTOP TRANSACTION TABLE VIEW */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-[#e2ece2] text-[#52605d] uppercase font-bold tracking-wider text-[10px] bg-[#f7f9f7]">
+                  <th className="py-3 px-4">Member</th>
+                  <th className="py-3 px-3">Item Details</th>
+                  <th className="py-3 px-3">Amount</th>
+                  <th className="py-3 px-3">Date Paid</th>
+                  <th className="py-3 px-3">Method</th>
+                  <th className="py-3 px-3">Status</th>
+                  <th className="py-3 px-3">Notes</th>
+                  {canManageFinances && <th className="py-3 px-4 text-right">Actions</th>}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#e2ece2]">
+                {filteredRecords.length === 0 ? (
+                  <tr>
+                    <td colSpan={canManageFinances ? 8 : 7} className="py-12 text-center text-[#52605d]">
+                      <AlertCircle className="w-8 h-8 text-stone-300 mx-auto mb-2" />
+                      <p className="font-bold text-stone-600">No payment records match your query</p>
+                      <p className="text-xs text-stone-400 mt-1">
+                        Try adjusting your search terms or filter selection.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedRecords.map(rec => {
+                    const isPaid = rec.status === 'Paid';
+                    const isPending = rec.status === 'Pending';
+                    const isOverdue = rec.status === 'Overdue';
 
-                    <button
-                      type="button"
-                      onClick={() => handleOpenLogRecord(rec)}
-                      title="Edit Payment Record"
-                      className="p-2 rounded-xl text-stone-500 hover:text-[#1b4332] bg-[#f7f9f7] border border-[#e2ece2] transition-colors cursor-pointer flex items-center gap-1 text-xs font-medium"
-                    >
-                      <Edit3 className="w-3.5 h-3.5" />
-                      <span>Edit</span>
-                    </button>
+                    return (
+                      <tr key={rec.id} className="hover:bg-[#f7f9f7]/60 transition-colors">
+                        {/* Member */}
+                        <td className="py-3.5 px-4 font-extrabold text-[#1b4332]">
+                          <div>
+                            <p className="text-xs font-black">{rec.userName}</p>
+                            <p className="text-[10px] text-[#52605d] font-mono font-semibold">
+                              {rec.userMemberNo || 'BRC-MEMBER'}
+                            </p>
+                          </div>
+                        </td>
 
-                    <button
-                      type="button"
-                      onClick={() => handleDeleteRecord(rec.id)}
-                      title="Delete Payment Record"
-                      className="p-2 rounded-xl text-stone-400 hover:text-rose-600 bg-rose-50/50 border border-rose-100 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })
+                        {/* Item Details */}
+                        <td className="py-3.5 px-3 font-bold text-[#1b4332]">
+                          <span>{getItemTitle(rec)}</span>
+                        </td>
+
+                        {/* Amount */}
+                        <td className="py-3.5 px-3 font-black text-[#1b4332]">
+                          ₱{rec.amount.toLocaleString()}.00
+                        </td>
+
+                        {/* Dates */}
+                        <td className="py-3.5 px-3 text-[#52605d]">
+                          <p className="font-medium text-[#1b4332] text-[11px]">{rec.paidDate || rec.dueDate}</p>
+                        </td>
+
+                        {/* Method */}
+                        <td className="py-3.5 px-3 text-[#52605d] font-medium">
+                          {rec.paymentMethod || 'GCash'}
+                        </td>
+
+                        {/* Status */}
+                        <td className="py-3.5 px-3">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                              isPaid
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : isPending
+                                ? 'bg-amber-100 text-amber-800'
+                                : isOverdue
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-stone-200 text-stone-700'
+                            }`}
+                          >
+                            {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-700" />}
+                            {isPending && <Clock className="w-3 h-3 text-amber-700" />}
+                            {isOverdue && <AlertCircle className="w-3 h-3 text-rose-700" />}
+                            <span>{rec.status}</span>
+                          </span>
+                        </td>
+
+                        {/* Notes */}
+                        <td className="py-3.5 px-3 text-[#52605d] max-w-xs truncate text-[11px]">
+                          {rec.notes || '-'}
+                        </td>
+
+                        {/* Actions */}
+                        {canManageFinances && (
+                          <td className="py-3.5 px-4 text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenLogRecord(rec)}
+                                title="Edit Record"
+                                className="p-1.5 hover:bg-[#e2ece2] text-[#1b4332] rounded-lg transition-colors cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRequestDeleteRecord(rec)}
+                                title="Delete Record"
+                                className="p-1.5 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* PAGINATION CONTROLS FOR FUNDS */}
+          {filteredRecords.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+              <div>
+                Showing{' '}
+                <span className="font-extrabold text-[#1b4332]">
+                  {(validCurrentPage - 1) * itemsPerPage + 1}
+                </span>{' '}
+                to{' '}
+                <span className="font-extrabold text-[#1b4332]">
+                  {Math.min(validCurrentPage * itemsPerPage, filteredRecords.length)}
+                </span>{' '}
+                of <span className="font-extrabold text-[#1b4332]">{filteredRecords.length}</span> payment records
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={validCurrentPage === 1}
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Previous</span>
+                </button>
+
+                <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                  {validCurrentPage} / {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={validCurrentPage >= totalPages}
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
           )}
         </div>
+      )}
 
-        {/* FINANCIAL RECORDS TABLE (DESKTOP) */}
-        <div className="hidden md:block overflow-x-auto rounded-2xl border border-[#e2ece2]">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="bg-[#f7f9f7] border-b border-[#e2ece2] text-[#52605d] font-extrabold uppercase text-[10px]">
-                <th className="py-3 px-4">Member</th>
-                <th className="py-3 px-3">Item Details</th>
-                <th className="py-3 px-3">Amount</th>
-                <th className="py-3 px-3">Date</th>
-                <th className="py-3 px-3">Method & Ref #</th>
-                <th className="py-3 px-3">Status</th>
-                <th className="py-3 px-3">Notes</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#e2ece2]">
-              {filteredRecords.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-[#52605d] space-y-2">
-                    <AlertCircle className="w-8 h-8 text-stone-300 mx-auto" />
-                    <p className="font-bold text-stone-600">No payment records found</p>
-                    <p className="text-xs text-stone-400">
-                      Click "Record Payment" to log a new member payment transaction.
+      {/* TAB CONTENT 2: EXPENSES (CLUB DISBURSEMENTS & LIQUIDATIONS) */}
+      {activeTab === 'expenses' && (
+        <div className="bg-white rounded-3xl p-4 sm:p-6 border border-[#e2ece2] shadow-xs space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-2 border-b border-[#e2ece2]">
+            <div>
+              <h3 className="font-heading text-base font-extrabold text-[#1b4332] flex items-center gap-2">
+                <Receipt className="w-4 h-4 text-rose-700" />
+                <span>Club Expense Liquidations</span>
+              </h3>
+              <p className="text-xs text-[#52605d]">
+                Liquidate and track all club expenditures involving member dues and treasury funds.
+              </p>
+            </div>
+          </div>
+
+          {/* EXPENSES SEARCH & CATEGORY FILTER BAR */}
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 pt-1">
+            {/* Expense Search Box */}
+            <div className="relative w-full lg:w-80">
+              <Search className="w-4 h-4 text-[#52605d] absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search expense title, payee, or OR ref..."
+                value={expenseSearchQuery}
+                onChange={e => setExpenseSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+              />
+              {expenseSearchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setExpenseSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-stone-400 hover:text-stone-700"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Category Filter Dropdown */}
+            <div className="flex items-center gap-2 min-w-[180px]">
+              <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Category:</span>
+              <div className="flex-1">
+                <CustomSelect
+                  value={expenseCategoryFilter}
+                  onChange={setExpenseCategoryFilter}
+                  options={[
+                    { value: 'All', label: 'All Categories' },
+                    ...EXPENSE_CATEGORIES.map(cat => ({ value: cat, label: cat })),
+                  ]}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* MOBILE EXPENSE CARDS VIEW */}
+          <div className="block md:hidden space-y-3">
+            {filteredExpenses.length === 0 ? (
+              <div className="p-8 rounded-2xl bg-white border border-[#e2ece2] text-center text-[#52605d] space-y-2">
+                <AlertCircle className="w-8 h-8 text-stone-300 mx-auto" />
+                <p className="font-bold text-stone-600">No liquidated expenses found</p>
+                <p className="text-xs text-stone-400">
+                  Click "Liquidate Expense" to log a new club disbursement entry.
+                </p>
+              </div>
+            ) : (
+              paginatedExpenses.map(exp => (
+                <div
+                  key={exp.id}
+                  className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-black text-[#1b4332] text-sm">{exp.title}</p>
+                      <span
+                        className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-black border ${getCategoryBadgeStyle(
+                          exp.category
+                        )}`}
+                      >
+                        {exp.category}
+                      </span>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] text-rose-700 font-bold block uppercase">Disbursed</span>
+                      <span className="font-black text-rose-700 text-sm">
+                        - ₱{exp.amount.toLocaleString()}.00
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#e2ece2]">
+                    <div>
+                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Date</span>
+                      <span className="font-medium text-[#1b4332]">{exp.date}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Receipt / Ref #</span>
+                      <span className="font-mono text-[#1b4332]">{exp.receiptRef || 'N/A'}</span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#e2ece2]">
+                    <div>
+                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Disbursed To</span>
+                      <span className="font-semibold text-[#1b4332]">{exp.payeeOrDisbursedTo || 'General Vendor'}</span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Logged By</span>
+                      <span className="font-medium text-[#52605d]">{exp.loggedBy || 'Treasury Admin'}</span>
+                    </div>
+                  </div>
+
+                  {exp.notes && (
+                    <p className="text-[11px] text-[#52605d] bg-white p-2 rounded-xl border border-[#e2ece2] italic">
+                      "{exp.notes}"
                     </p>
-                  </td>
+                  )}
+
+                  {canManageFinances && (
+                    <div className="flex items-center justify-end gap-2 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => handleOpenExpenseModal(exp)}
+                        className="px-3 py-1.5 rounded-lg bg-white border border-[#e2ece2] text-[#1b4332] hover:bg-[#e2ece2] font-bold text-xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <Edit3 className="w-3.5 h-3.5" />
+                        <span>Edit</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRequestDeleteExpense(exp)}
+                        className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Delete</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* DESKTOP EXPENSES TABLE VIEW */}
+          <div className="hidden md:block overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-[#e2ece2] text-[#52605d] uppercase font-bold tracking-wider text-[10px] bg-[#f7f9f7]">
+                  <th className="py-3 px-4">Expense Title</th>
+                  <th className="py-3 px-3">Category</th>
+                  <th className="py-3 px-3">Amount</th>
+                  <th className="py-3 px-3">Date</th>
+                  <th className="py-3 px-3">Receipt / Ref #</th>
+                  <th className="py-3 px-3">Payee / Disbursed To</th>
+                  <th className="py-3 px-3">Notes</th>
+                  {canManageFinances && <th className="py-3 px-4 text-right">Actions</th>}
                 </tr>
-              ) : (
-                filteredRecords.map(rec => {
-                  const isPaid = rec.status === 'Paid';
-                  const isPending = rec.status === 'Pending';
-                  const isOverdue = rec.status === 'Overdue';
-                  const itemTitle = getItemTitle(rec);
-
-                  return (
-                    <tr key={rec.id} className="hover:bg-[#f7f9f7]/80 transition-colors">
-                      {/* Member Info */}
-                      <td className="py-3.5 px-4 font-semibold text-[#1b4332]">
-                        <p className="font-bold text-[#1b4332]">{rec.userName}</p>
+              </thead>
+              <tbody className="divide-y divide-[#e2ece2]">
+                {filteredExpenses.length === 0 ? (
+                  <tr>
+                    <td colSpan={canManageFinances ? 8 : 7} className="py-12 text-center text-[#52605d]">
+                      <AlertCircle className="w-8 h-8 text-stone-300 mx-auto mb-2" />
+                      <p className="font-bold text-stone-600">No expense liquidations match your query</p>
+                      <p className="text-xs text-stone-400 mt-1">
+                        Try adjusting your search query or category filter.
+                      </p>
+                    </td>
+                  </tr>
+                ) : (
+                  paginatedExpenses.map(exp => (
+                    <tr key={exp.id} className="hover:bg-[#f7f9f7]/60 transition-colors">
+                      {/* Expense Title */}
+                      <td className="py-3.5 px-4 font-black text-[#1b4332]">
+                        <p className="text-xs font-black">{exp.title}</p>
+                        <span className="text-[10px] text-[#52605d]">Logged by: {exp.loggedBy || 'Treasury Admin'}</span>
                       </td>
 
-                      {/* Item Details */}
-                      <td className="py-3.5 px-3">
-                        <span className="font-bold text-[#1b4332] block">{itemTitle}</span>
-                        {itemTitle.toLowerCase() !== rec.itemType.toLowerCase() &&
-                          !itemTitle.toLowerCase().startsWith(rec.itemType.toLowerCase()) && (
-                            <span className="text-[10px] text-[#52605d] uppercase tracking-wider font-semibold">
-                              {rec.itemType}
-                            </span>
-                          )}
-                      </td>
-
-                      {/* Amount */}
-                      <td className="py-3.5 px-3 font-extrabold text-[#1b4332]">
-                        ₱{rec.amount.toLocaleString()}.00
-                      </td>
-
-                      {/* Dates */}
-                      <td className="py-3.5 px-3 text-[#52605d]">
-                        <p className="font-medium text-[#1b4332] text-[11px]">Due: {rec.dueDate}</p>
-                      </td>
-
-                      {/* Method */}
-                      <td className="py-3.5 px-3 text-[#52605d]">
-                        {rec.paymentMethod ? (
-                          <span className="font-bold text-[#1b4332] text-xs">{rec.paymentMethod}</span>
-                        ) : (
-                          <span className="text-stone-400 italic">—</span>
-                        )}
-                      </td>
-
-                      {/* Status */}
+                      {/* Category */}
                       <td className="py-3.5 px-3">
                         <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold inline-flex items-center gap-1 border ${
-                            isPaid
-                              ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                              : isPending
-                              ? 'bg-amber-100 text-amber-800 border-amber-300'
-                              : isOverdue
-                              ? 'bg-rose-100 text-rose-800 border-rose-300'
-                              : 'bg-stone-100 text-stone-700 border-stone-300'
-                          }`}
+                          className={`inline-block px-2.5 py-1 rounded-full text-[10px] font-black border ${getCategoryBadgeStyle(
+                            exp.category
+                          )}`}
                         >
-                          {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
-                          {isPending && <Clock className="w-3 h-3 text-amber-600" />}
-                          {isOverdue && <AlertCircle className="w-3 h-3 text-rose-600" />}
-                          <span>{rec.status}</span>
+                          {exp.category}
                         </span>
                       </td>
 
+                      {/* Amount */}
+                      <td className="py-3.5 px-3 font-black text-rose-700">
+                        - ₱{exp.amount.toLocaleString()}.00
+                      </td>
+
+                      {/* Date */}
+                      <td className="py-3.5 px-3 text-[#52605d] font-medium">
+                        {exp.date}
+                      </td>
+
+                      {/* Receipt / Ref # */}
+                      <td className="py-3.5 px-3 font-mono text-[#1b4332]">
+                        {exp.receiptRef || '-'}
+                      </td>
+
+                      {/* Payee */}
+                      <td className="py-3.5 px-3 font-semibold text-[#1b4332]">
+                        {exp.payeeOrDisbursedTo || 'General Vendor'}
+                      </td>
+
                       {/* Notes */}
-                      <td className="py-3.5 px-3 text-[#52605d] max-w-xs truncate">
-                        {rec.notes || '—'}
+                      <td className="py-3.5 px-3 text-[#52605d] max-w-xs truncate text-[11px]">
+                        {exp.notes || '-'}
                       </td>
 
                       {/* Actions */}
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => handleQuickMarkPaid(rec)}
-                            title={isPaid ? 'Mark as Pending' : 'Mark as Paid'}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-extrabold transition-all cursor-pointer ${
-                              isPaid
-                                ? 'bg-stone-100 hover:bg-stone-200 text-stone-700'
-                                : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-2xs'
-                            }`}
-                          >
-                            {isPaid ? 'Undo' : 'Mark Paid'}
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleOpenLogRecord(rec)}
-                            title="Edit Payment Record"
-                            className="p-1.5 rounded-lg text-stone-500 hover:text-[#1b4332] hover:bg-[#e2ece2] transition-colors cursor-pointer"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteRecord(rec.id)}
-                            title="Delete Payment Record"
-                            className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
+                      {canManageFinances && (
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenExpenseModal(exp)}
+                              title="Edit Expense Entry"
+                              className="p-1.5 hover:bg-[#e2ece2] text-[#1b4332] rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRequestDeleteExpense(exp)}
+                              title="Delete Expense Entry"
+                              className="p-1.5 hover:bg-rose-100 text-rose-600 rounded-lg transition-colors cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
 
-      {/* MODAL: RECORD PAYMENT */}
-      {showAddRecordModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-stone-200 relative animate-scaleUp">
-            <button
-              type="button"
-              onClick={() => setShowAddRecordModal(false)}
-              className="absolute top-4 right-4 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center gap-3 mb-5">
-              <div className="w-12 h-12 rounded-2xl bg-[#2d6a4f] text-[#74c69d] flex items-center justify-center shrink-0 shadow-sm">
-                <CreditCard className="w-6 h-6" />
-              </div>
+          {/* PAGINATION CONTROLS FOR EXPENSES */}
+          {filteredExpenses.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
               <div>
-                <h3 className="font-heading text-lg font-extrabold text-[#1b4332]">
-                  {editingRecord ? 'Edit Payment Record' : 'Record Member Payment'}
-                </h3>
-                <p className="text-xs text-[#52605d]">
-                  Select the item type and enter transaction details below.
-                </p>
+                Showing{' '}
+                <span className="font-extrabold text-[#1b4332]">
+                  {(validExpensePage - 1) * itemsPerPage + 1}
+                </span>{' '}
+                to{' '}
+                <span className="font-extrabold text-[#1b4332]">
+                  {Math.min(validExpensePage * itemsPerPage, filteredExpenses.length)}
+                </span>{' '}
+                of <span className="font-extrabold text-[#1b4332]">{filteredExpenses.length}</span> expense items
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={validExpensePage === 1}
+                  onClick={() => setExpenseCurrentPage(prev => Math.max(prev - 1, 1))}
+                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Previous</span>
+                </button>
+
+                <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                  {validExpensePage} / {totalExpensePages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={validExpensePage >= totalExpensePages}
+                  onClick={() => setExpenseCurrentPage(prev => Math.min(prev + 1, totalExpensePages))}
+                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
             </div>
+          )}
+        </div>
+      )}
 
-            <form onSubmit={handleSaveRecord} className="space-y-4">
-              {/* Select Member */}
+      {/* MODAL: RECORD PAYMENT (FUNDS) */}
+      {showAddRecordModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-[#e2ece2] max-h-[85vh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 my-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-[#e2ece2] shrink-0">
               <div>
-                <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                  Select Member *
-                </label>
-                <select
-                  required
-                  value={recUserId}
-                  onChange={e => setRecUserId(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-bold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
-                >
-                  {users.length === 0 ? (
-                    <option value="">No members found</option>
-                  ) : (
-                    users.map(u => (
-                      <option key={u.id} value={u.id}>
-                        {u.name} ({u.memberNumber || 'BRC'})
-                      </option>
-                    ))
-                  )}
-                </select>
+                <h3 className="font-heading text-base sm:text-lg font-black text-[#1b4332]">
+                  {editingRecord ? 'Edit Payment Record' : 'Record Member Payment'}
+                </h3>
+                <p className="text-[11px] sm:text-xs text-[#52605d]">
+                  Log payment collections for membership fees, monthly dues, or vests.
+                </p>
               </div>
+              <button
+                type="button"
+                onClick={() => setShowAddRecordModal(false)}
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-[#f7f9f7] rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
 
-              {/* Item Details Dropdown */}
-              <div className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3">
+            <form onSubmit={handleSaveRecord} className="flex flex-col min-h-0 flex-1 mt-4">
+              <div className="flex-1 overflow-y-auto pr-1.5 space-y-4">
+                {/* Select Member */}
                 <div>
-                  <label className="block text-xs font-bold text-[#1b4332] mb-1 flex items-center gap-1.5">
-                    <Tag className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                    <span>Item Details (Payment For) *</span>
-                  </label>
-                  <select
+                  <CustomSelect
+                    label="Select Club Member"
+                    value={recUserId}
+                    onChange={setRecUserId}
+                    options={
+                      users.length === 0
+                        ? [{ value: '', label: 'No members registered yet' }]
+                        : users.map(u => ({
+                            value: u.id,
+                            label: `${u.name} (${u.memberNumber || 'BRC Member'})`,
+                          }))
+                    }
                     required
-                    value={recItemType}
-                    onChange={e => handleItemTypeChange(e.target.value as FinanceItemType)}
-                    className="w-full px-4 py-2.5 bg-white border border-[#e2ece2] rounded-xl text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] transition-colors"
-                  >
-                    <option value="Membership Fee">Membership Fee</option>
-                    <option value="Monthly Due">Monthly Due</option>
-                    <option value="Vest Payment">Vest Payment</option>
-                    <option value="Other">Other / Custom Item</option>
-                  </select>
+                  />
                 </div>
 
-                {/* If Monthly Due, specify covered month & year */}
+                {/* Item Type */}
+                <div>
+                  <CustomSelect
+                    label="Item / Payment Type"
+                    value={recOptionKey}
+                    onChange={handleSelectPaymentOption}
+                    options={paymentOptionsList}
+                    required
+                  />
+                </div>
+
+                {/* Covered Month if Monthly Due */}
                 {recItemType === 'Monthly Due' && (
-                  <div className="pt-1">
-                    <label className="block text-xs font-bold text-[#1b4332] mb-1 flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                      <span>Covered Month & Year *</span>
+                  <div className="p-3 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] space-y-2">
+                    <label className="block text-xs font-bold text-[#1b4332]">
+                      Covered Month & Year
                     </label>
                     <div className="grid grid-cols-2 gap-2">
-                      <select
+                      <CustomSelect
                         value={recMonth}
-                        onChange={e => setRecMonth(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-[#e2ece2] rounded-xl text-xs font-bold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                      >
-                        {MONTHS_LIST.map(m => (
-                          <option key={m} value={m}>
-                            {m}
-                          </option>
-                        ))}
-                      </select>
-                      <select
+                        onChange={handleRecMonthChange}
+                        options={MONTHS_LIST}
+                      />
+
+                      <CustomSelect
                         value={recYear}
-                        onChange={e => setRecYear(e.target.value)}
-                        className="w-full px-3 py-2 bg-white border border-[#e2ece2] rounded-xl text-xs font-bold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                      >
-                        {YEARS_LIST.map(y => (
-                          <option key={y} value={y}>
-                            {y}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={handleRecYearChange}
+                        options={YEARS_LIST}
+                      />
                     </div>
                   </div>
                 )}
 
-                {/* If Other, custom item name */}
+                {/* Custom Item Name if Other */}
                 {recItemType === 'Other' && (
-                  <div className="pt-1">
+                  <div>
                     <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                      Custom Item Name *
+                      Custom Item Name
                     </label>
                     <input
                       type="text"
-                      required
-                      placeholder="e.g. Anniversary Gala Ticket, Club Jersey"
+                      placeholder="e.g. Anniversary Gala Dinner Ticket"
                       value={recCustomItemName}
                       onChange={e => setRecCustomItemName(e.target.value)}
-                      className="w-full px-4 py-2 bg-white border border-[#e2ece2] rounded-xl text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      required
                     />
                   </div>
                 )}
-              </div>
 
-              {/* Amount & Status */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* Amount & Status */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                      Amount (₱)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={recAmount}
+                      onChange={e => setRecAmount(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-black text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <CustomSelect
+                      label="Payment Status"
+                      value={recStatus}
+                      onChange={val => setRecStatus(val as any)}
+                      options={['Paid', 'Pending', 'Overdue', 'Waived']}
+                    />
+                  </div>
+                </div>
+
+                {/* Payment Method */}
                 <div>
-                  <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                    Amount Paid (₱) *
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="0"
-                    placeholder="200"
-                    value={recAmount}
-                    onChange={e => setRecAmount(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+                  <CustomSelect
+                    label="Payment Method"
+                    value={recMethod}
+                    onChange={val => setRecMethod(val as any)}
+                    options={[
+                      { value: 'GCash', label: 'GCash' },
+                      { value: 'Cash', label: 'Cash' },
+                      { value: 'Bank Transfer', label: 'Bank Transfer' },
+                      { value: 'Credit Card', label: 'Credit / Debit Card' },
+                      { value: 'Other', label: 'Other' },
+                    ]}
                   />
                 </div>
 
+                {/* Date Paid */}
                 <div>
                   <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                    Payment Status *
+                    Date Paid
                   </label>
-                  <select
-                    value={recStatus}
-                    onChange={e => setRecStatus(e.target.value as any)}
-                    className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
-                  >
-                    <option value="Paid">Paid / Verified</option>
-                    <option value="Pending">Pending Payment</option>
-                    <option value="Overdue">Overdue Notice</option>
-                    <option value="Waived">Waived / Exempted</option>
-                  </select>
+                  <input
+                    type="date"
+                    value={recDueDate}
+                    onChange={e => setRecDueDate(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+                  />
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                    Notes / Remarks
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Size L vest order, receipt verified by Treasurer"
+                    value={recNotes}
+                    onChange={e => setRecNotes(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+                  />
                 </div>
               </div>
 
-              {/* Payment Method */}
-              <div>
-                <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                  Payment Method
-                </label>
-                <select
-                  value={recMethod}
-                  onChange={e => setRecMethod(e.target.value as any)}
-                  className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
-                >
-                  <option value="GCash">GCash E-Wallet</option>
-                  <option value="Bank Transfer">Bank Online Transfer</option>
-                  <option value="Cash">Cash to Treasurer</option>
-                  <option value="Credit Card">Credit / Debit Card</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              {/* Due Date */}
-              <div>
-                <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                  Due / Payment Date
-                </label>
-                <input
-                  type="date"
-                  value={recDueDate}
-                  onChange={e => setRecDueDate(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
-                />
-              </div>
-
-              {/* Notes */}
-              <div>
-                <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                  Notes / Remarks
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Size L vest order, receipt verified by Treasurer"
-                  value={recNotes}
-                  onChange={e => setRecNotes(e.target.value)}
-                  className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
-                />
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-[#e2ece2]">
+              <div className="flex items-center justify-end gap-3 pt-3 mt-4 border-t border-[#e2ece2] shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowAddRecordModal(false)}
@@ -1004,6 +1793,227 @@ export const Finances: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: LIQUIDATE EXPENSE */}
+      {showExpenseModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-[#e2ece2] max-h-[85vh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200 my-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-[#e2ece2] shrink-0">
+              <div>
+                <h3 className="font-heading text-base sm:text-lg font-black text-[#1b4332]">
+                  {editingExpense ? 'Edit Expense Liquidation' : 'Liquidate Club Expense'}
+                </h3>
+                <p className="text-[11px] sm:text-xs text-[#52605d]">
+                  Log disbursements and official expenditures using club treasury funds.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowExpenseModal(false)}
+                className="p-1.5 text-stone-400 hover:text-stone-700 hover:bg-[#f7f9f7] rounded-full transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveExpense} className="flex flex-col min-h-0 flex-1 mt-4">
+              <div className="flex-1 overflow-y-auto pr-1.5 space-y-4">
+                {/* Expense Title */}
+                <div>
+                  <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                    Expense Title / Particulars
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Food & Refreshments for Anniversary Ride"
+                    value={expTitle}
+                    onChange={e => setExpTitle(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] font-semibold"
+                    required
+                  />
+                </div>
+
+                {/* Category & Amount */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <CustomSelect
+                      label="Expense Category"
+                      value={expCategory}
+                      onChange={val => setExpCategory(val as ExpenseCategory)}
+                      options={EXPENSE_CATEGORIES.map(cat => ({ value: cat, label: cat }))}
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                      Amount (₱)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="e.g. 2500"
+                      value={expAmount}
+                      onChange={e => setExpAmount(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-black text-rose-800 focus:outline-none focus:border-[#2d6a4f]"
+                      required
+                    />
+                  </div>
+                </div>
+
+                {/* Date & Receipt Reference */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                      Disbursement Date
+                    </label>
+                    <input
+                      type="date"
+                      value={expDate}
+                      onChange={e => setExpDate(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                      OR / Invoice / Receipt Ref #
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. OR-88219"
+                      value={expReceiptRef}
+                      onChange={e => setExpReceiptRef(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Disbursed To & Logged By */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                      Disbursed To / Vendor / Payee
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Petron Lanang Station"
+                      value={expPayee}
+                      onChange={e => setExpPayee(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                      Liquidated / Logged By
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Treasury Admin"
+                      value={expLoggedBy}
+                      onChange={e => setExpLoggedBy(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                    />
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                    Purpose / Notes
+                  </label>
+                  <textarea
+                    rows={2}
+                    placeholder="Additional context regarding this expenditure..."
+                    value={expNotes}
+                    onChange={e => setExpNotes(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 mt-4 border-t border-[#e2ece2] shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowExpenseModal(false)}
+                  className="px-5 py-2.5 bg-[#f7f9f7] hover:bg-[#e2ece2] text-stone-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 bg-rose-800 hover:bg-rose-900 text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-2"
+                >
+                  <Check className="w-4 h-4 text-rose-200" />
+                  <span>{editingExpense ? 'Save Changes' : 'Liquidate Expense'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE TRANSACTION CONFIRMATION MODAL */}
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-[#e2ece2] space-y-5 my-auto text-center animate-in zoom-in-95 duration-200">
+            <div className="w-14 h-14 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
+              <Trash2 className="w-7 h-7" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h3 className="font-heading text-lg font-extrabold text-[#1b4332]">
+                Delete {deleteTarget.type === 'fund' ? 'Payment' : 'Expense'} Record?
+              </h3>
+              <p className="text-xs text-[#52605d] leading-relaxed">
+                Are you sure you want to delete this {deleteTarget.type === 'fund' ? 'payment' : 'expense liquidation'} record? This action will remove it permanently from both local storage and MongoDB.
+              </p>
+            </div>
+
+            <div className="p-3.5 bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] text-left space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-[#52605d]">
+                  {deleteTarget.type === 'fund' ? 'Member / Payee' : 'Title'}
+                </span>
+                <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100">
+                  {deleteTarget.type === 'fund' ? 'Payment Record' : 'Expense Liquidation'}
+                </span>
+              </div>
+              <p className="text-xs font-black text-[#1b4332] truncate">{deleteTarget.title}</p>
+              {deleteTarget.subtitle && (
+                <p className="text-[11px] font-medium text-[#52605d] truncate">{deleteTarget.subtitle}</p>
+              )}
+              <div className="pt-2 border-t border-[#e2ece2] flex items-center justify-between">
+                <span className="text-xs font-bold text-[#52605d]">Record Amount:</span>
+                <span className="text-sm font-black text-rose-700">
+                  ₱{deleteTarget.amount.toLocaleString()}.00
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2 border-t border-[#e2ece2]">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                className="flex-1 px-4 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Delete Record</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

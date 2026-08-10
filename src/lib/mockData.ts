@@ -7,6 +7,10 @@ import {
   RouteMap,
   MilestoneBadge,
   NotificationItem,
+  Announcement,
+  FinanceSettings,
+  MonthlyDue,
+  DynamicCollection,
 } from '../types';
 
 export const INITIAL_USERS: User[] = [
@@ -148,3 +152,15 @@ export const BADGES: MilestoneBadge[] = [
 ];
 
 export const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
+
+export const INITIAL_ANNOUNCEMENTS: Announcement[] = [];
+
+export const INITIAL_FINANCE_SETTINGS: FinanceSettings = {
+  membershipFee: 500,
+  annualFee: 1000,
+};
+
+export const INITIAL_MONTHLY_DUES: MonthlyDue[] = [];
+
+export const INITIAL_DYNAMIC_COLLECTIONS: DynamicCollection[] = [];
+

@@ -25,7 +25,26 @@ export const MembershipAgreementPaper: React.FC<MembershipAgreementPaperProps> =
   useModalDismiss(showExportModal, () => setShowExportModal(false));
   const paperRef = useRef<HTMLDivElement | null>(null);
 
-    const president = useMemo(() => store.getUsers().find((u) => u.role === 'President'), []);
+  // Retrieve user tagged as President from store
+  const president = useMemo(() => {
+    const allUsers = store.getUsers();
+    return (
+      allUsers.find(
+        (u) =>
+          u.role === 'President' ||
+          u.role?.toLowerCase() === 'president' ||
+          u.role?.toLowerCase().includes('president')
+      ) ||
+      allUsers.find((u) => u.bio?.toLowerCase().includes('president'))
+    );
+  }, [user]);
+
+  const presidentDisplayName = useMemo(() => {
+    if (user.role === 'President' || user.role?.toLowerCase().includes('president')) {
+      return (user.name || 'GAUDENCIO PILAPIL').toUpperCase();
+    }
+    return (president?.name || 'GAUDENCIO PILAPIL').toUpperCase();
+  }, [user, president]);
 
   useEffect(() => {
     if (exportPdfTrigger && exportPdfTrigger > 0) {
@@ -161,33 +180,36 @@ export const MembershipAgreementPaper: React.FC<MembershipAgreementPaperProps> =
     setSignaturePng(applicantSig);
 
     // 2. President Signature
-    if (user.role === 'President') {
-        setPresidentSignaturePng(applicantSig);
+    const isUserPresident = user.role === 'President' || user.role?.toLowerCase().includes('president');
+    if (isUserPresident) {
+      setPresidentSignaturePng(applicantSig);
+    } else if (president?.applicantSignature && president.applicantSignature.startsWith('data:image')) {
+      setPresidentSignaturePng(president.applicantSignature);
     } else {
-        const presCanvas = document.createElement('canvas');
-        presCanvas.width = 400;
-        presCanvas.height = 120;
-        const presCtx = presCanvas.getContext('2d');
-        if (presCtx) {
-          presCtx.clearRect(0, 0, presCanvas.width, presCanvas.height);
-          presCtx.font = 'italic 38px "Dancing Script", "Brush Script MT", "Great Vibes", cursive';
-          presCtx.fillStyle = '#000000'; // Pure black ink
-          presCtx.textAlign = 'center';
-          presCtx.textBaseline = 'middle';
-          presCtx.fillText(president?.name || '', 200, 55);
+      const presCanvas = document.createElement('canvas');
+      presCanvas.width = 400;
+      presCanvas.height = 120;
+      const presCtx = presCanvas.getContext('2d');
+      if (presCtx) {
+        presCtx.clearRect(0, 0, presCanvas.width, presCanvas.height);
+        presCtx.font = 'italic 38px "Dancing Script", "Brush Script MT", "Great Vibes", cursive';
+        presCtx.fillStyle = '#000000'; // Pure black ink
+        presCtx.textAlign = 'center';
+        presCtx.textBaseline = 'middle';
+        presCtx.fillText(presidentDisplayName, 200, 55);
 
-          // President flourish stroke
-          presCtx.beginPath();
-          presCtx.moveTo(60, 80);
-          presCtx.bezierCurveTo(160, 105, 260, 70, 340, 85);
-          presCtx.strokeStyle = '#000000';
-          presCtx.lineWidth = 2.5;
-          presCtx.stroke();
+        // President flourish stroke
+        presCtx.beginPath();
+        presCtx.moveTo(60, 80);
+        presCtx.bezierCurveTo(160, 105, 260, 70, 340, 85);
+        presCtx.strokeStyle = '#000000';
+        presCtx.lineWidth = 2.5;
+        presCtx.stroke();
 
-          setPresidentSignaturePng(presCanvas.toDataURL('image/png'));
-        }
+        setPresidentSignaturePng(presCanvas.toDataURL('image/png'));
+      }
     }
-  }, [user, president]);
+  }, [user, president, presidentDisplayName]);
 
   const handleExportPdf = async () => {
     if (!paperRef.current || isExporting) return;
@@ -364,7 +386,7 @@ export const MembershipAgreementPaper: React.FC<MembershipAgreementPaperProps> =
                 {/* President Name Line */}
                 <div className="space-y-0.5">
                   <strong className="block text-base font-black text-[#1b4332] tracking-wide">
-                    {president?.name?.toUpperCase() || ''}
+                    {presidentDisplayName}
                   </strong>
                   <p className="text-xs font-extrabold text-[#2d6a4f] uppercase tracking-wider">
                     BCC Riders Club President

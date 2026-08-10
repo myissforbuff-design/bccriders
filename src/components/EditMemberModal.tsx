@@ -176,6 +176,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [yearsInService, setYearsInService] = useState(member.bikeInfo?.yearsInService || '');
   const [licenseRestrictionCode, setLicenseRestrictionCode] = useState(member.bikeInfo?.licenseRestrictionCode || 'A');
   const [conditionCode, setConditionCode] = useState(member.bikeInfo?.conditionCode || '');
+  const [bikePhotoUrl, setBikePhotoUrl] = useState(member.bikeInfo?.photoUrl || '');
 
   // Riding Details
   const [ridingExperience, setRidingExperience] = useState(member.ridingExperience || 'Regular');
@@ -269,6 +270,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         yearsInService: yearsInService.trim(),
         licenseRestrictionCode: licenseRestrictionCode.trim(),
         conditionCode: conditionCode.trim(),
+        photoUrl: bikePhotoUrl.trim(),
       },
     };
 
@@ -755,6 +757,22 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                   className={inputStyle}
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="font-bold text-[#1b4332] block mb-1">Motorcycle Photo Image URL</label>
+              <input
+                type="text"
+                value={bikePhotoUrl}
+                onChange={(e) => setBikePhotoUrl(e.target.value)}
+                placeholder="https://images.unsplash.com/photo-..."
+                className={inputStyle}
+              />
+              {bikePhotoUrl && (
+                <div className="mt-2 rounded-xl overflow-hidden border border-[#e2ece2] h-32 bg-stone-900">
+                  <img src={bikePhotoUrl} alt="Motorcycle Preview" className="w-full h-full object-cover" />
+                </div>
+              )}
             </div>
           </div>
 

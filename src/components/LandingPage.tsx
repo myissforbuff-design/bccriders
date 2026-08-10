@@ -7,6 +7,8 @@ import {
   Bike,
   ShieldCheck,
   Key,
+  Eye,
+  EyeOff,
   User,
   Calendar,
   Trophy,
@@ -14,6 +16,7 @@ import {
   X,
   CheckCircle2,
   Clock,
+  Facebook,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -25,6 +28,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   const { login } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [regViewMode, setRegViewMode] = useState<'landing' | 'constitution' | 'register'>('landing');
@@ -119,13 +123,34 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
           <main className="relative z-10 max-w-7xl mx-auto w-full px-6 py-12 grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center flex-1">
             
             {/* Mobile Header Title (Shown ONLY on small screens above the login box) */}
-            <div className="block lg:hidden text-center space-y-1">
+            <div className="block lg:hidden text-center space-y-2">
               <h1 className="font-heading text-4xl sm:text-5xl font-black text-[#1b4332] tracking-tight">
                 BCC Riders Club
               </h1>
               <h2 className="font-heading text-2xl sm:text-3xl font-extrabold text-[#1b4332] tracking-tight">
                 Love. <span className="text-[#2d6a4f]">Peace.</span> Joy.
               </h2>
+              <div className="pt-1 flex flex-wrap justify-center items-center gap-2">
+                <a
+                  href="https://www.facebook.com/profile.php?id=61589518561366&rdid=t1oQo3E7q6ZIVwVO&share_url=https%3A%2F%2Fwww.facebook.com%2Fshare%2F1B1MNeTR1H%2F#"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-transparent hover:bg-[#1877F2]/10 text-[#1877F2] font-bold text-xs transition-all cursor-pointer group"
+                >
+                  <img src="/fb.ico" alt="Riders Club Facebook" className="w-4 h-4 object-contain group-hover:scale-110 transition-transform" />
+                  <span>BRC FB Page</span>
+                </a>
+
+                <a
+                  href="https://www.facebook.com/buhangincommunitychurch"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-transparent hover:bg-black/5 text-black font-bold text-xs transition-all cursor-pointer group"
+                >
+                  <img src="/bcc-logo.png" alt="Buhangin Community Church Facebook" className="w-4 h-4 object-contain group-hover:scale-110 transition-transform" />
+                  <span>BCC FB Page</span>
+                </a>
+              </div>
             </div>
 
             {/* Left Value Proposition (hidden on mobile, shown on large screens) */}
@@ -148,6 +173,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
               <p className="text-[#52605d] text-base sm:text-lg leading-relaxed max-w-2xl">
                 Revelation 19:11 &ensp;"Then I saw heaven opened, and suddenly a white horse appeared. The name of the one riding it was Faithful and True, and with pure righteousness he judges and rides to battle."
               </p>
+
+              <div className="pt-2 flex flex-wrap items-center gap-2">
+                <a
+                  href="https://www.facebook.com/profile.php?id=61589518561366&rdid=t1oQo3E7q6ZIVwVO&share_url=https%3A%2F%2Fwww.facebook.com%2Fshare%2F1B1MNeTR1H%2F#"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-transparent hover:bg-[#1877F2]/10 text-[#1877F2] font-bold text-xs transition-all cursor-pointer group"
+                >
+                  <div className="w-5 h-5 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                    <img src="/fb.ico" alt="Facebook Icon" className="w-full h-full object-contain" />
+                  </div>
+                  <span>BCC Riders Club</span>
+                </a>
+
+                <a
+                  href="https://www.facebook.com/buhangincommunitychurch"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-transparent hover:bg-black/5 text-black font-bold text-xs transition-all cursor-pointer group"
+                >
+                  <div className="w-5 h-5 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform">
+                    <img src="/bcc-logo.png" alt="Church Logo" className="w-full h-full object-contain" />
+                  </div>
+                  <span>Buhangin Community Church</span>
+                </a>
+              </div>
             </div>
 
             {/* Right Login Box */}
@@ -196,14 +247,23 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                     </label>
                     <div className="relative">
                       <input
-                        type="password"
+                        type={showPassword ? 'text' : 'password'}
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
-                        className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] text-sm focus:outline-none focus:border-[#2d6a4f]"
+                        className="w-full pl-10 pr-11 py-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] text-sm focus:outline-none focus:border-[#2d6a4f]"
                         placeholder="••••••••••••"
                       />
-                      <Key className="w-4 h-4 text-[#52605d] absolute left-3.5 top-3.5" />
+                      <Key className="w-4 h-4 text-[#52605d] absolute left-3.5 top-3.5 pointer-events-none" />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="text-[#52605d] hover:text-[#1b4332] absolute right-3.5 top-3.5 focus:outline-none transition-colors cursor-pointer"
+                        title={showPassword ? 'Hide password' : 'Show password'}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
                     </div>
                   </div>
 
@@ -234,31 +294,24 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
           </main>
 
           {/* Footer */}
-          <footer className="relative z-10 max-w-7xl mx-auto w-full px-6 py-6 border-t border-[#e2ece2]/80 text-xs text-[#52605d] flex flex-col sm:flex-row items-center justify-center sm:justify-between gap-3 sm:gap-4">
+          <footer className="relative z-10 max-w-7xl mx-auto w-full px-4 sm:px-6 py-5 sm:py-6 border-t border-[#e2ece2]/80 text-[11px] sm:text-xs text-[#52605d] flex flex-row items-center justify-between gap-2 sm:gap-4">
             
-            {/* Logos and Copyright Wrapper for Mobile (Inline side-by-side) */}
-            <div className="flex flex-row items-center justify-center gap-3 sm:gap-4 w-full sm:w-auto">
-              <div className="flex items-center gap-2">
-                <img 
-                  src="/logo.png" 
-                  alt="BCC Logo 1" 
-                  className="h-6 sm:h-8 w-auto object-contain opacity-80" 
-                />
-                <img 
-                  src="/bcc-logo.png" 
-                  alt="BCC Logo 2" 
-                  className="h-6 sm:h-8 w-auto object-contain opacity-80" 
-                />
-              </div>
-
-              {/* Copyright text shown beside logos on Mobile */}
-              <p className="block sm:hidden text-center">
-                © 2026 BCC Riders Club. All rights reserved.
-              </p>
+            {/* Logos on the Left */}
+            <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+              <img 
+                src="/logo.png" 
+                alt="BCC Logo 1" 
+                className="h-6 sm:h-7 w-auto object-contain opacity-80" 
+              />
+              <img 
+                src="/bcc-logo.png" 
+                alt="BCC Logo 2" 
+                className="h-6 sm:h-7 w-auto object-contain opacity-80" 
+              />
             </div>
 
-            {/* Copyright text on Desktop (Pushed to the far right on larger screens) */}
-            <p className="hidden sm:block text-right">
+            {/* Copyright text on the Right */}
+            <p className="text-right text-[#52605d] font-medium leading-tight">
               © 2026 BCC Riders Club. All rights reserved.
             </p>
           </footer>

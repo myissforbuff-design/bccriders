@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store } from '../lib/db';
 import { CommunityPost, PaceLevel } from '../types';
+import { CustomSelect } from './CustomSelect';
 import {
   MessageSquare,
   Plus,
@@ -288,17 +289,12 @@ export const CommunityBoard: React.FC = () => {
 
               <form onSubmit={handleCreatePostSubmit} className="space-y-4 text-xs">
                 <div>
-                  <label className="text-[#2d3a3a] font-semibold mb-1 block">Category</label>
-                  <select
+                  <CustomSelect
+                    label="Category"
                     value={category}
-                    onChange={(e) => setCategory(e.target.value as any)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] focus:outline-none focus:border-[#2d6a4f] cursor-pointer"
-                  >
-                    <option value="Group Ride Setup">Group Ride Setup</option>
-                    <option value="Route Suggestion">Route Suggestion</option>
-                    <option value="General Talk">General Talk</option>
-                    <option value="Equipment & Gear">Equipment & Gear</option>
-                  </select>
+                    onChange={(val) => setCategory(val as any)}
+                    options={['Group Ride Setup', 'Route Suggestion', 'General Talk', 'Equipment & Gear']}
+                  />
                 </div>
 
                 <div>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { safeFetchJson, store } from '../lib/db';
 import {
   Calendar,
   CheckCircle,
@@ -78,8 +79,7 @@ export const ActivityLog: React.FC = () => {
 
   const fetchActivities = () => {
     setIsLoadingActivities(true);
-    fetch('/api/mongodb/activities')
-      .then((res) => res.json())
+    safeFetchJson('/api/mongodb/activities')
       .then((data) => setActivities(data.data || []))
       .catch((err) => console.error(err))
       .finally(() => setIsLoadingActivities(false));
@@ -87,8 +87,7 @@ export const ActivityLog: React.FC = () => {
 
   const fetchAttendanceLogs = () => {
     setIsLoadingLogs(true);
-    fetch('/api/mongodb/attendanceLogs')
-      .then((res) => res.json())
+    safeFetchJson('/api/mongodb/attendanceLogs')
       .then((data) => setAttendanceLogs(data.data || []))
       .catch((err) => console.error('Error fetching attendanceLogs:', err))
       .finally(() => setIsLoadingLogs(false));
@@ -107,8 +106,7 @@ export const ActivityLog: React.FC = () => {
     );
     setRegisteredCount(nonAdminLocal.length);
 
-    fetch('/api/mongodb/users')
-      .then((res) => res.json())
+    safeFetchJson('/api/mongodb/users')
       .then((data) => {
         if (data.data && Array.isArray(data.data) && data.data.length > 0) {
           const nonAdminMongo = data.data.filter(

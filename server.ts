@@ -158,6 +158,10 @@ async function initMongoIndexes() {
     await database.collection('financeLogs').createIndex({ id: 1 }, { unique: true });
     await database.collection('financeLogs').createIndex({ userId: 1 });
 
+    await database.collection('expenseLogs').createIndex({ id: 1 }, { unique: true });
+    await database.collection('liquidationLogs').createIndex({ id: 1 }, { unique: true });
+    await database.collection('settings').createIndex({ id: 1 }, { unique: true });
+
     // Clean up obsolete fields from existing MongoDB documents in 'members' collection
     await database.collection('members').updateMany(
       {},
@@ -195,6 +199,43 @@ async function initMongoIndexes() {
         );
       }
       console.log('Successfully created "bcc-riders-club-db" database and "members" collection in MongoDB!');
+    }
+
+    // Auto seed settings collection if empty
+    const settingsCount = await database.collection('settings').countDocuments();
+    if (settingsCount === 0) {
+      console.log('Seeding initial settings documents into MongoDB "settings" table...');
+      const defaultSettings = [
+        {
+          id: 'finance_settings',
+          category: 'finance',
+          membershipFee: 500,
+          annualFee: 1200,
+          currency: 'PHP',
+          paymentInstructions: 'GCash / Bank Transfer to BRC Treasury Account: 0917-123-4567 (Juan Dela Cruz)',
+          autoGeneratePendingDues: true,
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: 'club_profile',
+          category: 'club_info',
+          clubName: 'BCC Riders Club',
+          tagline: 'Precision, Passion, & Brotherhood on Two Wheels',
+          contactEmail: 'treasury@bccridersclub.ph',
+          contactPhone: '+63 917 123 4567',
+          address: 'Baguio City, Philippines',
+          establishedYear: '2020',
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+      for (const item of defaultSettings) {
+        await database.collection('settings').updateOne(
+          { id: item.id },
+          { $set: item },
+          { upsert: true }
+        );
+      }
+      console.log('Successfully seeded initial settings into MongoDB "settings" collection table!');
     }
   } catch (e) {
     console.warn('MongoDB index initialization notice:', e);
@@ -778,6 +819,158 @@ app.delete('/api/mongodb/financeLogs/:id', async (req, res) => {
   }
 });
 
+// EXPENSE LOGS API ("expenseLogs" collection table)
+app.get('/api/mongodb/expenseLogs', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    const docs = await database.collection('expenseLogs').find({}).sort({ date: -1, updatedAt: -1 }).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, count: data.length, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+app.post('/api/mongodb/expenseLogs', async (req, res) => {
+  const database = await getMongoDb();
+  const record = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!record || !record.id) {
+    return res.status(400).json({ error: 'Expense record must contain an id property' });
+  }
+
+  try {
+    const result = await database.collection('expenseLogs').updateOne(
+      { id: record.id },
+      { $set: { ...record, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({
+      success: true,
+      id: record.id,
+      message: 'Expense record saved in MongoDB "expenseLogs" collection table.',
+      result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/mongodb/expenseLogs/bulk', async (req, res) => {
+  const database = await getMongoDb();
+  const { records } = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!Array.isArray(records)) {
+    return res.status(400).json({ error: 'records must be an array' });
+  }
+
+  try {
+    const bulkOps = records.map((rec) => ({
+      updateOne: {
+        filter: { id: rec.id },
+        update: { $set: { ...rec, updatedAt: new Date().toISOString() } },
+        upsert: true,
+      },
+    }));
+
+    if (bulkOps.length > 0) {
+      await database.collection('expenseLogs').bulkWrite(bulkOps);
+    }
+    res.json({ success: true, count: records.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/expenseLogs/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('expenseLogs').deleteOne({ id });
+    res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// LIQUIDATION LOGS API ("liquidationLogs" collection table)
+app.get('/api/mongodb/liquidationLogs', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    const docs = await database.collection('liquidationLogs').find({}).sort({ date: -1, updatedAt: -1 }).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, count: data.length, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+app.post('/api/mongodb/liquidationLogs', async (req, res) => {
+  const database = await getMongoDb();
+  const record = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!record || !record.id) {
+    return res.status(400).json({ error: 'Liquidation record must contain an id property' });
+  }
+
+  try {
+    const result = await database.collection('liquidationLogs').updateOne(
+      { id: record.id },
+      { $set: { ...record, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({
+      success: true,
+      id: record.id,
+      message: 'Liquidation record saved in MongoDB "liquidationLogs" collection table.',
+      result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/mongodb/liquidationLogs/bulk', async (req, res) => {
+  const database = await getMongoDb();
+  const { records } = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!Array.isArray(records)) {
+    return res.status(400).json({ error: 'records must be an array' });
+  }
+
+  try {
+    const bulkOps = records.map((rec) => ({
+      updateOne: {
+        filter: { id: rec.id },
+        update: { $set: { ...rec, updatedAt: new Date().toISOString() } },
+        upsert: true,
+      },
+    }));
+
+    if (bulkOps.length > 0) {
+      await database.collection('liquidationLogs').bulkWrite(bulkOps);
+    }
+    res.json({ success: true, count: records.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/liquidationLogs/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('liquidationLogs').deleteOne({ id });
+    res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PAYMENTS API
 app.get('/api/mongodb/payments', async (req, res) => {
   const database = await getMongoDb();
@@ -865,6 +1058,143 @@ app.post('/api/mongodb/logs', async (req, res) => {
   }
 });
 
+// UPDATES API ("updates" MongoDB collection)
+app.get('/api/mongodb/updates', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    // Drop legacy announcements collection if present
+    try {
+      await database.collection('announcements').drop().catch(() => {});
+    } catch (_) {}
+
+    const docs = await database.collection('updates').find({}).sort({ createdAt: -1 }).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+app.post('/api/mongodb/updates', async (req, res) => {
+  const database = await getMongoDb();
+  const updateDoc = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    await database.collection('updates').updateOne(
+      { id: updateDoc.id },
+      { $set: { ...updateDoc, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({ success: true, id: updateDoc.id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/updates/:id', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    await database.collection('updates').deleteOne({ id: req.params.id });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// SETTINGS API ("settings" collection table)
+app.get('/api/mongodb/settings', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    const docs = await database.collection('settings').find({}).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, count: data.length, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+app.get('/api/mongodb/settings/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const doc = await database.collection('settings').findOne({ id });
+    if (!doc) {
+      return res.status(404).json({ error: 'Setting record not found' });
+    }
+    const { _id, ...rest } = doc;
+    res.json({ success: true, data: rest });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/mongodb/settings', async (req, res) => {
+  const database = await getMongoDb();
+  const record = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!record || !record.id) {
+    return res.status(400).json({ error: 'Setting record must contain an id property' });
+  }
+
+  try {
+    const result = await database.collection('settings').updateOne(
+      { id: record.id },
+      { $set: { ...record, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({
+      success: true,
+      id: record.id,
+      message: 'Setting saved in MongoDB "settings" collection table.',
+      result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/mongodb/settings/bulk', async (req, res) => {
+  const database = await getMongoDb();
+  const { records } = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!Array.isArray(records)) {
+    return res.status(400).json({ error: 'records must be an array' });
+  }
+
+  try {
+    const bulkOps = records.map((rec) => ({
+      updateOne: {
+        filter: { id: rec.id },
+        update: { $set: { ...rec, updatedAt: new Date().toISOString() } },
+        upsert: true,
+      },
+    }));
+
+    if (bulkOps.length > 0) {
+      await database.collection('settings').bulkWrite(bulkOps);
+    }
+    res.json({ success: true, count: records.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/settings/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('settings').deleteOne({ id });
+    res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // SEED INITIAL DATA TO MONGODB
 app.post('/api/mongodb/seed', async (req, res) => {
   const database = await getMongoDb();
@@ -901,6 +1231,24 @@ app.post('/api/mongodb/seed', async (req, res) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// GET /api/mongodb/users (alias for members)
+app.get('/api/mongodb/users', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    const docs = await database.collection('members').find({}).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, count: data.length, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+// Catch-all route for API requests to ensure JSON response instead of HTML SPA fallback
+app.all('/api/*', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}`, data: [] });
 });
 
 // Start Express and Vite Server

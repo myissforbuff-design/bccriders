@@ -6,6 +6,10 @@ import {
   INITIAL_RIDE_LOGS,
   INITIAL_ROUTES,
   INITIAL_NOTIFICATIONS,
+  INITIAL_ANNOUNCEMENTS,
+  INITIAL_FINANCE_SETTINGS,
+  INITIAL_MONTHLY_DUES,
+  INITIAL_DYNAMIC_COLLECTIONS,
 } from './mockData';
 import {
   User,
@@ -15,6 +19,10 @@ import {
   RideLog,
   RouteMap,
   NotificationItem,
+  Announcement,
+  FinanceSettings,
+  MonthlyDue,
+  DynamicCollection,
 } from '../types';
 
 // Storage Keys for local state persistence
@@ -26,6 +34,10 @@ const STORAGE_KEYS = {
   LOGS: 'bcc_logs_v2',
   ROUTES: 'bcc_routes_v2',
   NOTIFS: 'bcc_notifs_v2',
+  ANNOUNCEMENTS: 'bcc_announcements_v3',
+  FINANCE_SETTINGS: 'bcc_finance_settings_v1',
+  MONTHLY_DUES: 'bcc_monthly_dues_v2',
+  DYNAMIC_COLLECTIONS: 'bcc_dynamic_collections_v2',
   CURRENT_USER: 'bcc_current_user_id_v2',
 };
 
@@ -63,10 +75,29 @@ export interface MongoStatusResponse {
   collections?: Record<string, number>;
 }
 
+export async function safeFetchJson<T = any>(
+  url: string,
+  options?: RequestInit
+): Promise<{ success: boolean; data?: T; [key: string]: any }> {
+  try {
+    const res = await fetch(url, options);
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) {
+      return { success: false, data: [] as any };
+    }
+    return await res.json();
+  } catch {
+    return { success: false, data: [] as any };
+  }
+}
+
 export async function checkMongoDbStatus(): Promise<MongoStatusResponse> {
   try {
     const res = await fetch('/api/mongodb/status');
-    if (!res.ok) throw new Error('API server unavailable');
+    const contentType = res.headers.get('content-type') || '';
+    if (!res.ok || !contentType.includes('application/json')) {
+      throw new Error('API server returned non-JSON response');
+    }
     return await res.json();
   } catch (err: any) {
     return {
@@ -163,6 +194,10 @@ export class DataStoreService {
   private logs: RideLog[];
   private routes: RouteMap[];
   private notifications: NotificationItem[];
+  private announcements: Announcement[];
+  private financeSettings: FinanceSettings;
+  private monthlyDues: MonthlyDue[];
+  private dynamicCollections: DynamicCollection[];
   private currentUserId: string;
 
   constructor() {
@@ -175,6 +210,22 @@ export class DataStoreService {
     this.notifications = loadFromStorage(
       STORAGE_KEYS.NOTIFS,
       INITIAL_NOTIFICATIONS
+    );
+    this.announcements = loadFromStorage(
+      STORAGE_KEYS.ANNOUNCEMENTS,
+      INITIAL_ANNOUNCEMENTS
+    );
+    this.financeSettings = loadFromStorage(
+      STORAGE_KEYS.FINANCE_SETTINGS,
+      INITIAL_FINANCE_SETTINGS
+    );
+    this.monthlyDues = loadFromStorage(
+      STORAGE_KEYS.MONTHLY_DUES,
+      INITIAL_MONTHLY_DUES
+    );
+    this.dynamicCollections = loadFromStorage(
+      STORAGE_KEYS.DYNAMIC_COLLECTIONS,
+      INITIAL_DYNAMIC_COLLECTIONS
     );
     this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
 
@@ -189,13 +240,11 @@ export class DataStoreService {
     if (status.status === 'connected') {
       try {
         // Fetch active members from 'members' table
-        const resMembers = await fetch('/api/mongodb/members');
-        const dataMembers = await resMembers.json();
+        const dataMembers = await safeFetchJson('/api/mongodb/members');
         const activeMembers = (dataMembers.success && Array.isArray(dataMembers.data)) ? dataMembers.data : [];
 
         // Fetch pending registrations from 'registration' table
-        const resRegistration = await fetch('/api/mongodb/registration');
-        const dataRegistration = await resRegistration.json();
+        const dataRegistration = await safeFetchJson('/api/mongodb/registration');
         const pendingRegistrations = (dataRegistration.success && Array.isArray(dataRegistration.data)) ? dataRegistration.data : [];
 
         if (activeMembers.length > 0 || pendingRegistrations.length > 0) {
@@ -204,7 +253,7 @@ export class DataStoreService {
           saveToStorage(STORAGE_KEYS.USERS, this.users);
         } else {
           // Seed initial data into MongoDB if collection is empty
-          await fetch('/api/mongodb/seed', {
+          await safeFetchJson('/api/mongodb/seed', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -214,6 +263,58 @@ export class DataStoreService {
               posts: INITIAL_POSTS,
             }),
           });
+        }
+
+        // Fetch updates from MongoDB 'updates' table
+        const dataUpdates = await safeFetchJson('/api/mongodb/updates');
+        if (dataUpdates.success && Array.isArray(dataUpdates.data)) {
+          this.announcements = dataUpdates.data;
+          saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
+        }
+
+        // Fetch settings from MongoDB 'settings' table
+        const dataSettings = await safeFetchJson('/api/mongodb/settings');
+        if (dataSettings.success && Array.isArray(dataSettings.data) && dataSettings.data.length > 0) {
+          const finSettingsDoc = dataSettings.data.find((s: any) => s.id === 'finance_settings');
+          if (finSettingsDoc) {
+            this.financeSettings = {
+              membershipFee: Number(finSettingsDoc.membershipFee) || 500,
+              annualFee: Number(finSettingsDoc.annualFee) || 1200,
+              currency: finSettingsDoc.currency || 'PHP',
+              paymentInstructions: finSettingsDoc.paymentInstructions || '',
+              autoGeneratePendingDues: finSettingsDoc.autoGeneratePendingDues !== false,
+            };
+            saveToStorage(STORAGE_KEYS.FINANCE_SETTINGS, this.financeSettings);
+          }
+
+          const duesDocs = dataSettings.data.filter((s: any) => s.category === 'monthly_due' || (s.id && s.id.startsWith('md_')));
+          if (duesDocs.length > 0) {
+            this.monthlyDues = duesDocs.map((d: any) => ({
+              id: d.id,
+              month: d.month,
+              year: d.year,
+              amount: Number(d.amount) || 0,
+              description: d.description || '',
+              createdAt: d.createdAt || new Date().toISOString().split('T')[0],
+              status: d.status || 'Active',
+            }));
+            saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
+          }
+
+          const dynamicColDocs = dataSettings.data.filter((s: any) => s.category === 'dynamic_collection' || (s.id && s.id.startsWith('dc_')));
+          if (dynamicColDocs.length > 0) {
+            this.dynamicCollections = dynamicColDocs.map((c: any) => ({
+              id: c.id,
+              title: c.title,
+              targetAmount: Number(c.targetAmount) || 0,
+              description: c.description || '',
+              deadline: c.deadline || '',
+              createdAt: c.createdAt || new Date().toISOString().split('T')[0],
+              status: c.status || 'Active',
+              category: c.category || 'Event',
+            }));
+            saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
+          }
         }
       } catch (err) {
         console.warn('MongoDB sync fetch notice:', err);
@@ -672,6 +773,201 @@ export class DataStoreService {
   markAllNotificationsRead(): void {
     this.notifications.forEach((n) => (n.read = true));
     saveToStorage(STORAGE_KEYS.NOTIFS, this.notifications);
+  }
+
+  // Announcements
+  getAnnouncements(): Announcement[] {
+    return this.announcements;
+  }
+
+  createAnnouncement(
+    data: Omit<Announcement, 'id' | 'createdAt'>
+  ): Announcement {
+    const newAnn: Announcement = {
+      ...data,
+      id: `ann_${Date.now()}`,
+      createdAt: new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      }),
+    };
+    this.announcements.unshift(newAnn);
+    saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
+
+    fetch('/api/mongodb/updates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newAnn),
+    }).catch((err) => console.warn('MongoDB createAnnouncement sync error:', err));
+
+    return newAnn;
+  }
+
+  updateAnnouncement(ann: Announcement): Announcement {
+    const index = this.announcements.findIndex((a) => a.id === ann.id);
+    if (index > -1) {
+      this.announcements[index] = {
+        ...ann,
+        updatedAt: new Date().toLocaleDateString('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+        }),
+      };
+      saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
+
+      fetch('/api/mongodb/updates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.announcements[index]),
+      }).catch((err) => console.warn('MongoDB updateAnnouncement sync error:', err));
+
+      return this.announcements[index];
+    }
+    return ann;
+  }
+
+  deleteAnnouncement(id: string): void {
+    this.announcements = this.announcements.filter((a) => a.id !== id);
+    saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
+
+    fetch(`/api/mongodb/updates/${id}`, {
+      method: 'DELETE',
+    }).catch((err) => console.warn('MongoDB deleteAnnouncement sync error:', err));
+  }
+
+  togglePinAnnouncement(id: string): Announcement {
+    const ann = this.announcements.find((a) => a.id === id);
+    if (ann) {
+      ann.pinned = !ann.pinned;
+      saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
+
+      fetch('/api/mongodb/updates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(ann),
+      }).catch((err) => console.warn('MongoDB togglePin sync error:', err));
+
+      return ann;
+    }
+    throw new Error('Announcement not found');
+  }
+
+  // Finance Settings & Configs
+  getFinanceSettings(): FinanceSettings {
+    return this.financeSettings;
+  }
+
+  updateFinanceSettings(settings: FinanceSettings): FinanceSettings {
+    this.financeSettings = { ...settings };
+    saveToStorage(STORAGE_KEYS.FINANCE_SETTINGS, this.financeSettings);
+
+    fetch('/api/mongodb/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'finance_settings', category: 'finance', ...this.financeSettings }),
+    }).catch((err) => console.warn('MongoDB settings sync notice:', err));
+
+    return this.financeSettings;
+  }
+
+  // Monthly Dues
+  getMonthlyDues(): MonthlyDue[] {
+    return this.monthlyDues;
+  }
+
+  createMonthlyDue(data: Omit<MonthlyDue, 'id' | 'createdAt'>): MonthlyDue {
+    const newDue: MonthlyDue = {
+      ...data,
+      id: `md_${Date.now()}`,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    this.monthlyDues.unshift(newDue);
+    saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
+
+    fetch('/api/mongodb/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'monthly_due', ...newDue }),
+    }).catch((err) => console.warn('MongoDB monthly dues sync notice:', err));
+
+    return newDue;
+  }
+
+  updateMonthlyDue(due: MonthlyDue): MonthlyDue {
+    const idx = this.monthlyDues.findIndex((d) => d.id === due.id);
+    if (idx > -1) {
+      this.monthlyDues[idx] = { ...due };
+      saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
+
+      fetch('/api/mongodb/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: 'monthly_due', ...this.monthlyDues[idx] }),
+      }).catch((err) => console.warn('MongoDB monthly dues sync notice:', err));
+    }
+    return due;
+  }
+
+  deleteMonthlyDue(id: string): void {
+    this.monthlyDues = this.monthlyDues.filter((d) => d.id !== id);
+    saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
+
+    fetch(`/api/mongodb/settings/${id}`, {
+      method: 'DELETE',
+    }).catch((err) => console.warn('MongoDB monthly dues delete notice:', err));
+  }
+
+  // Dynamic Collections
+  getDynamicCollections(): DynamicCollection[] {
+    return this.dynamicCollections;
+  }
+
+  createDynamicCollection(
+    data: Omit<DynamicCollection, 'id' | 'createdAt'>
+  ): DynamicCollection {
+    const newCol: DynamicCollection = {
+      ...data,
+      id: `dc_${Date.now()}`,
+      createdAt: new Date().toISOString().split('T')[0],
+    };
+    this.dynamicCollections.unshift(newCol);
+    saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
+
+    fetch('/api/mongodb/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category: 'dynamic_collection', ...newCol }),
+    }).catch((err) => console.warn('MongoDB dynamic collection sync notice:', err));
+
+    return newCol;
+  }
+
+  updateDynamicCollection(col: DynamicCollection): DynamicCollection {
+    const idx = this.dynamicCollections.findIndex((c) => c.id === col.id);
+    if (idx > -1) {
+      this.dynamicCollections[idx] = { ...col };
+      saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
+
+      fetch('/api/mongodb/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: 'dynamic_collection', ...this.dynamicCollections[idx] }),
+      }).catch((err) => console.warn('MongoDB dynamic collection sync notice:', err));
+    }
+    return col;
+  }
+
+  deleteDynamicCollection(id: string): void {
+    this.dynamicCollections = this.dynamicCollections.filter(
+      (c) => c.id !== id
+    );
+    saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
+
+    fetch(`/api/mongodb/settings/${id}`, {
+      method: 'DELETE',
+    }).catch((err) => console.warn('MongoDB dynamic collection delete notice:', err));
   }
 }
 

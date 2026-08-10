@@ -16,6 +16,7 @@ import { Settings } from './components/Settings';
 import { ActivityLog } from './components/ActivityLog';
 import { QRScan } from './components/QRScan';
 import { Finances } from './components/Finances';
+import { AnnouncementsView } from './components/AnnouncementsView';
 import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -29,6 +30,8 @@ function MainAppContent() {
   const [exportPdfTrigger, setExportPdfTrigger] = useState(0);
   const [printTrigger, setPrintTrigger] = useState(0);
 
+  const isMember = !currentUser?.role || currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
+
   useEffect(() => {
     if (isAuthenticated) {
       if (isAdmin) {
@@ -36,12 +39,12 @@ function MainAppContent() {
           setActiveTab('dashboard');
         }
       } else {
-        if (activeTab === 'dashboard' || activeTab === 'members') {
+        if (activeTab === 'dashboard' || activeTab === 'members' || (isMember && activeTab === 'qr')) {
           setActiveTab('profile');
         }
       }
     }
-  }, [isAuthenticated, isAdmin]);
+  }, [isAuthenticated, isAdmin, isMember, activeTab]);
 
   if (!isAuthenticated) {
     return (
@@ -66,11 +69,13 @@ function MainAppContent() {
       {/* Main Workspace Panel */}
       <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72'} flex flex-col min-w-0`}>
         {/* Top Header Bar */}
-        <header className="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-[#e2ece2] px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between shadow-xs">
+        <header className="sticky top-[52px] lg:top-0 z-20 bg-white/98 backdrop-blur-md border-b border-[#e2ece2] px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between shadow-xs">
           <div>
             <h1 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg capitalize">
               {activeTab === 'settings'
                 ? 'System Settings'
+                : activeTab === 'announcements'
+                ? 'News Updates & Facebook Posts'
                 : activeTab === 'finances'
                 ? 'Finances & Treasury Management'
                 : activeTab === 'activity'
@@ -83,6 +88,8 @@ function MainAppContent() {
                 ? 'Members Directory'
                 : activeTab === 'events'
                 ? 'Ride & Event Scheduler'
+                : activeTab === 'leaderboard'
+                ? 'Mileage Leaderboard'
                 : activeTab === 'maps'
                 ? 'Offline Route Maps'
                 : activeTab === 'admin'
@@ -95,6 +102,8 @@ function MainAppContent() {
                   )
                 : activeTab === 'profile'
                 ? 'Rider Profile'
+                : activeTab === 'dashboard'
+                ? 'Dashboard'
                 : activeTab}
             </h1>
           </div>
@@ -138,6 +147,8 @@ function MainAppContent() {
                   onOpenLogRideModal={() => setActiveTab('leaderboard')}
                 />
               )}
+
+              {activeTab === 'announcements' && <AnnouncementsView />}
 
               {activeTab === 'members' && (
                 <MembershipManagement />

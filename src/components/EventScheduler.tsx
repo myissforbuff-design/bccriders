@@ -4,6 +4,7 @@ import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store } from '../lib/db';
 import { Event, EventType, PaceLevel } from '../types';
 import { PaymentModal } from './PaymentModal';
+import { CustomSelect } from './CustomSelect';
 import {
   Calendar,
   Plus,
@@ -414,31 +415,20 @@ export const EventScheduler: React.FC<EventSchedulerProps> = ({ onOpenMapRoute }
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[#2d3a3a] font-semibold mb-1 block">Category</label>
-                    <select
+                    <CustomSelect
+                      label="Category"
                       value={newType}
-                      onChange={(e) => setNewType(e.target.value as EventType)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] focus:outline-none focus:border-[#2d6a4f] cursor-pointer"
-                    >
-                      <option value="Group Ride">Group Ride</option>
-                      <option value="Club Meeting">Club Meeting</option>
-                      <option value="Workshop">Workshop</option>
-                      <option value="Rally">Rally</option>
-                      <option value="Charity Run">Charity Run</option>
-                    </select>
+                      onChange={(val) => setNewType(val as EventType)}
+                      options={['Group Ride', 'Club Meeting', 'Workshop', 'Rally', 'Charity Run']}
+                    />
                   </div>
                   <div>
-                    <label className="text-[#2d3a3a] font-semibold mb-1 block">Pace</label>
-                    <select
+                    <CustomSelect
+                      label="Pace"
                       value={newPace}
-                      onChange={(e) => setNewPace(e.target.value as PaceLevel)}
-                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] focus:outline-none focus:border-[#2d6a4f] cursor-pointer"
-                    >
-                      <option value="Casual 15-20mph">Casual 15-20mph</option>
-                      <option value="Moderate 20-25mph">Moderate 20-25mph</option>
-                      <option value="Fast 25+mph">Fast 25+mph</option>
-                      <option value="All Pace">All Pace</option>
-                    </select>
+                      onChange={(val) => setNewPace(val as PaceLevel)}
+                      options={['Casual 15-20mph', 'Moderate 20-25mph', 'Fast 25+mph', 'All Pace']}
+                    />
                   </div>
                 </div>
 

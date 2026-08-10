@@ -45,6 +45,7 @@ export interface BikeInfo {
   conditionCode?: string;
   restrictionCodes?: string[];
   ltoConditions?: string[];
+  photoUrl?: string;
 }
 
 export interface EmergencyContact {
@@ -222,4 +223,47 @@ export interface NotificationItem {
   timestamp: string;
   read: boolean;
   actionUrl?: string;
+}
+
+export type AnnouncementPriority = 'Important' | 'General' | 'Event' | 'Emergency';
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  priority: AnnouncementPriority;
+  authorId: string;
+  authorName: string;
+  authorRole: string;
+  pinned?: boolean;
+  facebookUrl?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface FinanceSettings {
+  membershipFee: number;
+  annualFee: number;
+}
+
+export interface MonthlyDue {
+  id: string;
+  title: string;
+  amount: number;
+  month: string;
+  year: number;
+  status: 'Active' | 'Inactive';
+  notes?: string;
+  createdAt: string;
+}
+
+export interface DynamicCollection {
+  id: string;
+  name: string;
+  amount: number;
+  month?: string;
+  year?: number;
+  status: 'Active' | 'Completed' | 'Archived';
+  description?: string;
+  createdAt: string;
 }

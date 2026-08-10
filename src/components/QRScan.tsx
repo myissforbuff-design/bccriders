@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import jsQR from 'jsqr';
 import { useAuth } from '../context/AuthContext';
+import { safeFetchJson } from '../lib/db';
 import {
   QrCode,
   CheckCircle,
@@ -29,6 +30,7 @@ import {
 } from 'lucide-react';
 import { store } from '../lib/db';
 import { BikeInfo } from '../types';
+import { CustomSelect } from './CustomSelect';
 
 import { TabType } from './Navigation';
 
@@ -141,8 +143,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
   // Load activities from database
   const loadActivities = () => {
-    fetch('/api/mongodb/activities')
-      .then(res => res.json())
+    safeFetchJson('/api/mongodb/activities')
       .then(data => {
         const loaded: Activity[] = data.data || [];
         setActivities(loaded);
@@ -719,17 +720,19 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
           </button>
 
           {cameras.length > 1 && (
-            <select
-              value={selectedCameraId}
-              onChange={handleCameraChange}
-              className="font-bold bg-black/40 backdrop-blur-md border border-white/20 rounded-2xl px-3 py-2 text-white focus:outline-none cursor-pointer text-xs"
-            >
-              {cameras.map((c, index) => (
-                <option key={c.id} value={c.id} className="bg-stone-900 text-white">
-                  {c.label || `Cam ${index + 1}`}
-                </option>
-              ))}
-            </select>
+            <div className="min-w-[120px]">
+              <CustomSelect
+                value={selectedCameraId}
+                onChange={(camId) => {
+                  setSelectedCameraId(camId);
+                  startCamera(camId);
+                }}
+                options={cameras.map((c, index) => ({
+                  value: c.id,
+                  label: c.label || `Cam ${index + 1}`,
+                }))}
+              />
+            </div>
           )}
         </div>
 
@@ -986,22 +989,33 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
                 <span className="font-extrabold text-[#1b4332]">Registered Motorcycle</span>
               </div>
               {scannedMemberModal.bikeInfo && (scannedMemberModal.bikeInfo.make || scannedMemberModal.bikeInfo.model) ? (
-                <div className="grid grid-cols-2 gap-2 text-[11px] text-[#52605d]">
-                  <div>
-                    <span className="block text-[10px] font-bold text-gray-400">Make & Model</span>
-                    <strong className="text-[#1b4332]">{scannedMemberModal.bikeInfo.make || ''} {scannedMemberModal.bikeInfo.model || 'N/A'}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[10px] font-bold text-gray-400">Model Year</span>
-                    <strong className="text-[#1b4332]">{scannedMemberModal.bikeInfo.year || 'N/A'}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[10px] font-bold text-gray-400">Displacement</span>
-                    <strong className="text-[#2d6a4f]">{scannedMemberModal.bikeInfo.engineCc ? (scannedMemberModal.bikeInfo.engineCc.toString().toLowerCase().endsWith('cc') ? scannedMemberModal.bikeInfo.engineCc : `${scannedMemberModal.bikeInfo.engineCc} cc`) : 'N/A'}</strong>
-                  </div>
-                  <div>
-                    <span className="block text-[10px] font-bold text-gray-400">Plate Number</span>
-                    <strong className="text-[#1b4332] font-mono">{scannedMemberModal.bikeInfo.licensePlate || scannedMemberModal.bikeInfo.plateNo || 'N/A'}</strong>
+                <div className="space-y-2">
+                  {scannedMemberModal.bikeInfo.photoUrl && (
+                    <div className="rounded-xl overflow-hidden border border-[#e2ece2] max-h-36 bg-stone-900">
+                      <img
+                        src={scannedMemberModal.bikeInfo.photoUrl}
+                        alt="Motorcycle"
+                        className="w-full h-32 object-cover"
+                      />
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-[#52605d]">
+                    <div>
+                      <span className="block text-[10px] font-bold text-gray-400">Make & Model</span>
+                      <strong className="text-[#1b4332]">{scannedMemberModal.bikeInfo.make || ''} {scannedMemberModal.bikeInfo.model || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] font-bold text-gray-400">Model Year</span>
+                      <strong className="text-[#1b4332]">{scannedMemberModal.bikeInfo.year || 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] font-bold text-gray-400">Displacement</span>
+                      <strong className="text-[#2d6a4f]">{scannedMemberModal.bikeInfo.engineCc ? (scannedMemberModal.bikeInfo.engineCc.toString().toLowerCase().endsWith('cc') ? scannedMemberModal.bikeInfo.engineCc : `${scannedMemberModal.bikeInfo.engineCc} cc`) : 'N/A'}</strong>
+                    </div>
+                    <div>
+                      <span className="block text-[10px] font-bold text-gray-400">Plate Number</span>
+                      <strong className="text-[#1b4332] font-mono">{scannedMemberModal.bikeInfo.licensePlate || scannedMemberModal.bikeInfo.plateNo || 'N/A'}</strong>
+                    </div>
                   </div>
                 </div>
               ) : (

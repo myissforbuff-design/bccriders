@@ -4,6 +4,7 @@ import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store, uploadStorageFile } from '../lib/db';
 import { User as UserType } from '../types';
 import { RoleAvatarBadge } from './RoleAvatarBadge';
+import { CustomSelect } from './CustomSelect';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   User,
@@ -167,32 +168,30 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
           </div>
 
           {riderMembers.length > 0 && (
-            <div className="flex items-center gap-2 shrink-0">
-              <label className="text-xs text-[#d8f3dc] font-semibold whitespace-nowrap">Select Rider:</label>
-              <select
-                value={activeRider.id}
-                onChange={(e) => {
-                  const riderId = e.target.value;
-                  setSelectedRiderId(riderId);
-                  const selected = riderMembers.find((r) => r.id === riderId);
-                  if (selected) {
-                    setName(selected.name || '');
-                    setBio(selected.bio || '');
-                    setPhone(selected.phone || '');
-                    setBikeMake(selected.bikeInfo?.make || '');
-                    setBikeModel(selected.bikeInfo?.model || '');
-                    setBikeYear(selected.bikeInfo?.year || 2024);
-                    setEngineCc(selected.bikeInfo?.engineCc || '');
-                  }
-                }}
-                className="px-3 py-2 rounded-xl bg-[#2d6a4f] text-white border border-[#74c69d]/40 text-xs font-semibold focus:outline-none focus:border-[#74c69d] cursor-pointer"
-              >
-                {riderMembers.map((rider) => (
-                  <option key={rider.id} value={rider.id} className="bg-[#1b4332] text-white">
-                    {rider.name} ({rider.memberNumber || 'Rider'})
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-2 shrink-0 min-w-[200px]">
+              <span className="text-xs text-[#d8f3dc] font-semibold whitespace-nowrap">Select Rider:</span>
+              <div className="flex-1">
+                <CustomSelect
+                  value={activeRider.id}
+                  onChange={(riderId) => {
+                    setSelectedRiderId(riderId);
+                    const selected = riderMembers.find((r) => r.id === riderId);
+                    if (selected) {
+                      setName(selected.name || '');
+                      setBio(selected.bio || '');
+                      setPhone(selected.phone || '');
+                      setBikeMake(selected.bikeInfo?.make || '');
+                      setBikeModel(selected.bikeInfo?.model || '');
+                      setBikeYear(selected.bikeInfo?.year || 2024);
+                      setEngineCc(selected.bikeInfo?.engineCc || '');
+                    }
+                  }}
+                  options={riderMembers.map((rider) => ({
+                    value: rider.id,
+                    label: `${rider.name} (${rider.memberNumber || 'Rider'})`,
+                  }))}
+                />
+              </div>
             </div>
           )}
         </div>
@@ -287,6 +286,15 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
           </h3>
 
           <div className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3 text-xs">
+            {activeRider.bikeInfo?.photoUrl && (
+              <div className="rounded-xl overflow-hidden border border-[#e2ece2] shadow-xs mb-3 bg-stone-900">
+                <img
+                  src={activeRider.bikeInfo.photoUrl}
+                  alt={`${activeRider.bikeInfo?.make} ${activeRider.bikeInfo?.model}`}
+                  className="w-full h-44 object-cover"
+                />
+              </div>
+            )}
             <div className="flex justify-between items-center">
               <span className="text-[#52605d]">Vehicle:</span>
               <strong className="text-[#1b4332] font-heading text-sm">

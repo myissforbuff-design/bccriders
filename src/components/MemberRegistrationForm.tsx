@@ -14,6 +14,7 @@ import {
   Calendar,
   Shield,
   Bike,
+  Camera,
   Upload,
   AlertCircle,
   CheckCircle2,
@@ -191,6 +192,50 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
         ? initialData.bikeInfo.conditionCode.split(',').map((s) => s.trim()).filter(Boolean)
         : ['None'])
   );
+  const [bikePhotoUrl, setBikePhotoUrl] = useState<string>(initialData?.bikeInfo?.photoUrl || '');
+  const [bikePhotoFileName, setBikePhotoFileName] = useState<string>('');
+
+  const handleBikePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setBikePhotoFileName(file.name);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const maxDim = 800;
+        let width = img.width;
+        let height = img.height;
+
+        if (width > height) {
+          if (width > maxDim) {
+            height = Math.round((height * maxDim) / width);
+            width = maxDim;
+          }
+        } else {
+          if (height > maxDim) {
+            width = Math.round((width * maxDim) / height);
+            height = maxDim;
+          }
+        }
+
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const compressedUrl = canvas.toDataURL('image/jpeg', 0.75);
+          setBikePhotoUrl(compressedUrl);
+        }
+      };
+      if (event.target?.result) {
+        img.src = event.target.result as string;
+      }
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Riding Details
   const [ridingExperience, setRidingExperience] = useState(initialData?.ridingExperience || 'Regular');
@@ -363,6 +408,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             ? initialData.bikeInfo.conditionCode.split(',').map((s) => s.trim()).filter(Boolean)
             : ['None'])
       );
+      setBikePhotoUrl(initialData.bikeInfo?.photoUrl || '');
       setRidingExperience(initialData.ridingExperience || 'Regular');
       setRiderType(initialData.riderType || 'Beginner');
       setReasonForJoining(initialData.reasonForJoining || '');
@@ -596,6 +642,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
         licensePlate: plateNo.trim(),
         condition: bikeCondition,
         yearsInService: yearsInService.trim(),
+        photoUrl: bikePhotoUrl,
         restrictionCodes: restrictionCodes,
         licenseRestrictionCode: restrictionCodes.join(', '),
         ltoConditions: ltoConditions,
@@ -1347,6 +1394,83 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
               className={inputStyle}
             />
           </div>
+        </div>
+
+        {/* Motorcycle Photo Upload Field */}
+        <div className="pt-3 border-t border-[#e2ece2] space-y-2">
+          <div className="flex items-center justify-between">
+            <label className="font-bold text-[#1b4332] flex items-center gap-1.5 text-xs sm:text-sm">
+              <span>Motorcycle Photo</span>
+              {!isReadOnly && <span className="text-rose-600 font-extrabold">* Required</span>}
+            </label>
+            <span className="text-[9px] text-[#2d6a4f] font-semibold bg-[#d8f3dc] px-2 py-0.5 rounded-full">
+              MongoDB Optimized
+            </span>
+          </div>
+
+          {bikePhotoUrl ? (
+            <div className="relative rounded-2xl overflow-hidden border border-[#e2ece2] bg-stone-900 group max-w-sm">
+              <img
+                src={bikePhotoUrl}
+                alt="Motorcycle"
+                className="w-full h-44 sm:h-52 object-cover transition-transform duration-300 group-hover:scale-105"
+              />
+              {!isReadOnly && (
+                <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <label className="px-3 py-1.5 bg-white text-[#1b4332] text-xs font-bold rounded-xl shadow-md cursor-pointer hover:bg-[#f7f9f7]">
+                    Change Photo
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleBikePhotoChange}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBikePhotoUrl('');
+                      setBikePhotoFileName('');
+                    }}
+                    className="px-3 py-1.5 bg-rose-600 text-white text-xs font-bold rounded-xl shadow-md hover:bg-rose-700 cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                </div>
+              )}
+              <div className="absolute bottom-2 left-2 right-2 bg-black/75 backdrop-blur-xs text-white text-[10px] px-2.5 py-1 rounded-lg flex items-center justify-between">
+                <span className="truncate font-mono">{bikePhotoFileName || 'Motorcycle Photo'}</span>
+                <span className="text-emerald-400 font-bold shrink-0 flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3" />
+                  Validated
+                </span>
+              </div>
+            </div>
+          ) : !isReadOnly ? (
+            <label className="border-2 border-dashed border-[#2d6a4f]/40 hover:border-[#2d6a4f] bg-white rounded-2xl p-4 sm:p-5 flex flex-col items-center justify-center cursor-pointer transition-all hover:bg-[#d8f3dc]/20 text-center space-y-2 group">
+              <div className="w-11 h-11 rounded-2xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform">
+                <Camera className="w-5 h-5" />
+              </div>
+              <div>
+                <p className="text-xs font-black text-[#1b4332]">
+                  Upload Motorcycle Photo <span className="text-rose-600">*</span>
+                </p>
+                <p className="text-[10px] text-[#52605d] mt-0.5">
+                  Click or drag image file (PNG, JPG, WebP). Auto-compressed for database storage.
+                </p>
+              </div>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleBikePhotoChange}
+                className="hidden"
+              />
+            </label>
+          ) : (
+            <div className="p-3 bg-stone-100 rounded-xl text-center text-xs text-stone-500 italic">
+              No motorcycle photo uploaded
+            </div>
+          )}
         </div>
       </div>
 

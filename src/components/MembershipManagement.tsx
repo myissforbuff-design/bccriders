@@ -711,6 +711,27 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     <Bike className="w-4 h-4 text-[#2d6a4f]" />
                     Motorcycle Specifications & Documents
                   </span>
+
+                  {/* Motorcycle Photo Display */}
+                  <div className="rounded-2xl overflow-hidden border border-[#e2ece2] bg-stone-900 relative shadow-xs group">
+                    <img
+                      src={
+                        selectedMember.bikeInfo.photoUrl ||
+                        'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800'
+                      }
+                      alt={`${selectedMember.bikeInfo.make || 'Motorcycle'} ${selectedMember.bikeInfo.model || ''}`}
+                      className="w-full h-48 sm:h-56 object-cover object-center transition-transform duration-300 group-hover:scale-105"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src =
+                          'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800';
+                      }}
+                    />
+                    <div className="absolute top-3 left-3 px-3 py-1 rounded-xl bg-[#1b4332]/90 backdrop-blur-md text-white text-[11px] font-extrabold tracking-wide flex items-center gap-1.5 shadow-md border border-white/20">
+                      <Bike className="w-3.5 h-3.5 text-[#74c69d]" />
+                      <span>{selectedMember.bikeInfo.make} {selectedMember.bikeInfo.model}</span>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]">
                       <span className="text-[10px] text-[#52605d] block">Make</span>

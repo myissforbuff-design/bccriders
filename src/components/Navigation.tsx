@@ -11,16 +11,17 @@ import {
   Settings,
   ShieldCheck,
   ShieldAlert,
-  LogOut,
   ChevronRight,
   User,
-  QrCode,
+  ScanLine,
   Calendar,
+  Megaphone,
   X,
 } from 'lucide-react';
 
 export type TabType =
   | 'dashboard'
+  | 'announcements'
   | 'members'
   | 'finances'
   | 'settings'
@@ -49,12 +50,12 @@ export const Navigation: React.FC<NavigationProps> = ({
   isCollapsed = false,
   onToggleCollapse,
 }) => {
-  const { currentUser, logout } = useAuth();
+  const { currentUser, isAdmin } = useAuth();
   const [showOfficerAlert, setShowOfficerAlert] = useState(false);
 
   useModalDismiss(showOfficerAlert, () => setShowOfficerAlert(false));
 
-  const isMember = currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
+  const isMember = !currentUser?.role || currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
 
   const handleTabClick = (tab: TabType) => {
     if (tab === 'qr' && isMember) {
@@ -68,16 +69,19 @@ export const Navigation: React.FC<NavigationProps> = ({
     currentUser?.role === 'admin'
       ? [
           { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+          { id: 'announcements', label: 'Updates', icon: Megaphone },
           { id: 'members', label: 'Members', icon: Users },
+          { id: 'qr', label: 'QR Scan', icon: ScanLine },
           { id: 'finances', label: 'Finances', icon: Wallet },
-          { id: 'qr', label: 'QR Scan', icon: QrCode },
           { id: 'activity', label: 'Activity', icon: ClipboardList },
           { id: 'settings', label: 'Settings', icon: Settings },
         ]
       : [
           { id: 'profile', label: 'Profile', icon: User },
+          { id: 'announcements', label: 'Updates', icon: Megaphone },
           { id: 'activity', label: 'Activity', icon: ClipboardList },
-          { id: 'qr', label: 'QR Scan', icon: QrCode },
+          { id: 'qr', label: 'QR Scan', icon: ScanLine },
+          { id: 'finances', label: 'Finances', icon: Wallet },
           { id: 'document', label: 'Document', icon: FileText },
           { id: 'settings', label: 'Settings', icon: Settings },
         ];
@@ -128,7 +132,7 @@ export const Navigation: React.FC<NavigationProps> = ({
       )}
 
       {/* Mobile & Tablet Top Header */}
-      <div className="lg:hidden sticky top-0 z-30 bg-[#1b4332] border-b border-[#2d6a4f] px-4 py-3 flex items-center justify-between text-white shadow-xs">
+      <div className="lg:hidden sticky top-0 z-30 bg-[#1b4332] border-b border-[#2d6a4f] px-4 py-3 flex items-center justify-between text-white shadow-xs h-[52px]">
         <div className="flex items-center gap-2.5">
           <div className="p-1.5 rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center">
             <img src="/logo.png" alt="BCC Logo" className="w-6 h-6 object-contain" />
@@ -139,20 +143,11 @@ export const Navigation: React.FC<NavigationProps> = ({
             </h1>
           </div>
         </div>
-
-        {/* Mobile Sign Out Button (Icon Only) */}
-        <button
-          onClick={logout}
-          title="Sign Out"
-          className="p-2 rounded-xl bg-[#2d6a4f] hover:bg-rose-900/40 border border-[#52b788]/30 text-white hover:text-rose-200 transition-colors cursor-pointer flex items-center justify-center shadow-xs"
-        >
-          <LogOut className="w-5 h-5" />
-        </button>
       </div>
 
-      {/* Mobile & Tablet Bottom Navigation Bar (Matched to Image Design) */}
+      {/* Mobile & Tablet Bottom Navigation Bar (Hierarchy of Green) */}
       <div className="lg:hidden fixed bottom-3 left-3 right-3 z-40 max-w-md mx-auto font-sans">
-        <div className="relative bg-white/98 backdrop-blur-xl rounded-[28px] shadow-2xl shadow-stone-900/15 border border-stone-200/80 px-2 pt-3 pb-1.5">
+        <div className="relative bg-white/98 backdrop-blur-xl rounded-[28px] shadow-2xl shadow-[#1b4332]/15 border border-[#e2ece2] px-2 pt-3 pb-1.5">
           <div className="flex items-center justify-between relative px-2">
             {navItems.map((item) => {
               const Icon = item.icon;
@@ -171,12 +166,12 @@ export const Navigation: React.FC<NavigationProps> = ({
                       <div
                         className={`p-1.5 rounded-full transition-all duration-200 ${
                           isActive
-                            ? 'bg-pink-200/90 ring-4 ring-[#e91e63]/25 scale-105'
-                            : 'bg-pink-100 hover:bg-pink-200/80'
+                            ? 'bg-[#d8f3dc] ring-4 ring-[#2d6a4f]/30 scale-105'
+                            : 'bg-[#d8f3dc]/80 hover:bg-[#d8f3dc]'
                         }`}
                       >
                         {/* Inner Action Button */}
-                        <div className="w-13 h-13 sm:w-14 sm:h-14 bg-[#e91e63] hover:bg-[#d81b60] rounded-full flex items-center justify-center text-white shadow-lg shadow-[#e91e63]/35 group-active:scale-95 transition-all duration-200">
+                        <div className="w-13 h-13 sm:w-14 sm:h-14 bg-[#1b4332] hover:bg-[#2d6a4f] rounded-full flex items-center justify-center text-white shadow-lg shadow-[#1b4332]/35 group-active:scale-95 transition-all duration-200">
                           <Icon className="w-6 h-6 sm:w-7 sm:h-7 text-white stroke-[2.2]" />
                         </div>
                       </div>
@@ -190,20 +185,23 @@ export const Navigation: React.FC<NavigationProps> = ({
                   key={item.id}
                   onClick={() => handleTabClick(item.id as TabType)}
                   title={item.label}
-                  className="flex-1 flex flex-col items-center justify-center py-1 transition-transform duration-150 active:scale-90 cursor-pointer select-none"
+                  className="flex-1 flex flex-col items-center justify-center py-1 transition-transform duration-150 active:scale-90 cursor-pointer select-none relative"
                 >
                   <Icon
                     className={`w-6 h-6 transition-colors duration-200 ${
-                      isActive ? 'text-[#e91e63] stroke-[2.4]' : 'text-stone-400 hover:text-stone-600 stroke-[1.8]'
+                      isActive ? 'text-[#1b4332] stroke-[2.5]' : 'text-[#52605d] hover:text-[#1b4332] stroke-[1.8]'
                     }`}
                   />
+                  {isActive && (
+                    <span className="w-1.5 h-1.5 bg-[#2d6a4f] rounded-full absolute -bottom-1" />
+                  )}
                 </button>
               );
             })}
           </div>
 
           {/* Bottom Home Bar Indicator */}
-          <div className="w-28 h-1 bg-stone-300/80 rounded-full mx-auto mt-2 mb-0.5" />
+          <div className="w-28 h-1 bg-[#1b4332]/20 rounded-full mx-auto mt-2 mb-0.5" />
         </div>
       </div>
 
@@ -309,14 +307,6 @@ export const Navigation: React.FC<NavigationProps> = ({
                     )}
                   </div>
                 )}
-
-                <button
-                  onClick={logout}
-                  className="p-1.5 text-white/60 hover:text-rose-300 rounded-lg hover:bg-white/10 transition-colors cursor-pointer"
-                  title="Sign Out"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
               </div>
             </div>
           )}
