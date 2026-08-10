@@ -32,6 +32,7 @@ import {
   RotateCcw,
   Save,
   X,
+  Check,
 } from 'lucide-react';
 
 interface RegistrationPageFlowProps {
@@ -121,7 +122,12 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
   const [network, setNetwork] = useState<string>('');
   const [chapter, setChapter] = useState<string>('');
   const [leadersContactNo, setLeadersContactNo] = useState<string>('');
-  const [affiliation, setAffiliation] = useState<string>('');
+  const [affiliations, setAffiliations] = useState<string[]>([]);
+  const [customAffiliation, setCustomAffiliation] = useState<string>('');
+
+  const affiliation = affiliations.includes('Others') && customAffiliation.trim()
+    ? [...affiliations.filter((a) => a !== 'Others'), customAffiliation.trim()].join(', ')
+    : affiliations.join(', ');
 
   // 3. Emergency Contact State
   const [emergencyFullName, setEmergencyFullName] = useState<string>('');
@@ -222,6 +228,8 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
     network,
     chapter,
     leadersContactNo,
+    affiliations,
+    customAffiliation,
     affiliation,
     emergencyFullName,
     emergencyRelationship,
@@ -282,7 +290,12 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
       if (restoredData.network !== undefined) setNetwork(restoredData.network);
       if (restoredData.chapter !== undefined) setChapter(restoredData.chapter);
       if (restoredData.leadersContactNo !== undefined) setLeadersContactNo(restoredData.leadersContactNo);
-      if (restoredData.affiliation !== undefined) setAffiliation(restoredData.affiliation);
+      if (restoredData.affiliations && Array.isArray(restoredData.affiliations)) {
+        setAffiliations(restoredData.affiliations);
+      } else if (restoredData.affiliation) {
+        setAffiliations(String(restoredData.affiliation).split(',').map((s: string) => s.trim()).filter(Boolean));
+      }
+      if (restoredData.customAffiliation !== undefined) setCustomAffiliation(restoredData.customAffiliation);
       if (restoredData.emergencyFullName !== undefined) setEmergencyFullName(restoredData.emergencyFullName);
       if (restoredData.emergencyRelationship !== undefined) setEmergencyRelationship(restoredData.emergencyRelationship);
       if (restoredData.emergencyPhone !== undefined) setEmergencyPhone(restoredData.emergencyPhone);
@@ -481,7 +494,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
   );
 
   const isPage2Valid = Boolean(
-    network.trim() && chapter.trim() && affiliation.trim()
+    network.trim() && chapter.trim() && (affiliations.length > 0 || customAffiliation.trim())
   );
 
   const isPage3Valid = Boolean(
@@ -1030,20 +1043,74 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                     </div>
                   </div>
 
-                  <CustomSelect
-                    label="Affiliation"
-                    required
-                    value={affiliation}
-                    onChange={(val) => setAffiliation(val)}
-                    options={[
-                      'House Church',
-                      'Life Group',
-                      'Plug-in',
-                      'Y2DN',
-                      'Others',
-                    ]}
-                    placeholder="Select Affiliation..."
-                  />
+                  {/* Multi-Select Affiliation */}
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                        Affiliation <span className="text-rose-500">*</span>
+                      </label>
+                      <span className="text-[9px] sm:text-[10px] text-[#2d6a4f] font-semibold bg-[#e8f5e9] px-2 py-0.5 rounded-full">
+                        Allow Multiple Selection
+                      </span>
+                    </div>
+                    <p className="text-[10px] sm:text-xs text-[#52605d]">
+                      Select one or more church affiliations or ministries you belong to:
+                    </p>
+
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-1">
+                      {[
+                        'House Church',
+                        'Life Group',
+                        'Plug-in',
+                        'Y2DN',
+                        'Others',
+                      ].map((option) => {
+                        const isSelected = affiliations.includes(option);
+                        return (
+                          <button
+                            key={option}
+                            type="button"
+                            onClick={() => {
+                              if (isSelected) {
+                                setAffiliations(affiliations.filter((a) => a !== option));
+                              } else {
+                                setAffiliations([...affiliations, option]);
+                              }
+                            }}
+                            className={`p-2.5 rounded-xl text-left border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                              isSelected
+                                ? 'bg-[#1b4332] text-white border-[#1b4332] shadow-xs'
+                                : 'bg-white text-[#1b4332] border-[#e2ece2] hover:border-[#2d6a4f]'
+                            }`}
+                          >
+                            <span className="text-[11px] sm:text-xs font-bold">{option}</span>
+                            <div
+                              className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${
+                                isSelected ? 'bg-[#74c69d] text-[#1b4332]' : 'bg-[#f7f9f7] border border-[#e2ece2]'
+                              }`}
+                            >
+                              {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {affiliations.includes('Others') && (
+                      <div className="pt-2 space-y-1">
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Please specify other affiliation:
+                        </label>
+                        <input
+                          type="text"
+                          value={customAffiliation}
+                          onChange={(e) => setCustomAffiliation(e.target.value)}
+                          placeholder="e.g. Worship Ministry, Ushering, Youth Fellowship"
+                          className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </motion.div>
               )}
 

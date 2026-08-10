@@ -144,7 +144,17 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
   const [chapter, setChapter] = useState(initialData?.chapter || '');
   const [civilStatus, setCivilStatus] = useState(initialData?.civilStatus || 'Single');
   const [leadersContactNo, setLeadersContactNo] = useState(initialData?.leadersContactNo || '');
-  const [affiliation, setAffiliation] = useState(initialData?.affiliation || 'House Church');
+  const [affiliations, setAffiliations] = useState<string[]>(() => {
+    if (initialData?.affiliation) {
+      return initialData.affiliation.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    return ['House Church'];
+  });
+  const [customAffiliation, setCustomAffiliation] = useState<string>('');
+
+  const affiliation = affiliations.includes('Others') && customAffiliation.trim()
+    ? [...affiliations.filter((a) => a !== 'Others'), customAffiliation.trim()].join(', ')
+    : affiliations.join(', ');
   const [occupation, setOccupation] = useState(initialData?.occupation || '');
   const [occupationStatus, setOccupationStatus] = useState(initialData?.occupationStatus || 'Active');
   const [lifeInsurance, setLifeInsurance] = useState(initialData?.lifeInsurance || '');
@@ -322,7 +332,12 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       if (restoredData.chapter !== undefined) setChapter(restoredData.chapter);
       if (restoredData.civilStatus !== undefined) setCivilStatus(restoredData.civilStatus);
       if (restoredData.leadersContactNo !== undefined) setLeadersContactNo(restoredData.leadersContactNo);
-      if (restoredData.affiliation !== undefined) setAffiliation(restoredData.affiliation);
+      if (restoredData.affiliations && Array.isArray(restoredData.affiliations)) {
+        setAffiliations(restoredData.affiliations);
+      } else if (restoredData.affiliation) {
+        setAffiliations(String(restoredData.affiliation).split(',').map((s: string) => s.trim()).filter(Boolean));
+      }
+      if (restoredData.customAffiliation !== undefined) setCustomAffiliation(restoredData.customAffiliation);
       if (restoredData.occupation !== undefined) setOccupation(restoredData.occupation);
       if (restoredData.occupationStatus !== undefined) setOccupationStatus(restoredData.occupationStatus);
       if (restoredData.lifeInsurance !== undefined) setLifeInsurance(restoredData.lifeInsurance);
@@ -369,7 +384,11 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       setChapter(initialData.chapter || '');
       setCivilStatus(initialData.civilStatus || 'Single');
       setLeadersContactNo(initialData.leadersContactNo || '');
-      setAffiliation(initialData.affiliation || 'House Church');
+      if (initialData.affiliation) {
+        setAffiliations(initialData.affiliation.split(',').map((s) => s.trim()).filter(Boolean));
+      } else {
+        setAffiliations(['House Church']);
+      }
       setOccupation(initialData.occupation || '');
       setOccupationStatus(initialData.occupationStatus || 'Active');
       setLifeInsurance(initialData.lifeInsurance || '');
@@ -959,19 +978,70 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
               className={inputStyle}
             />
           </div>
-          <InteractiveSelect
-            label="Affiliation"
-            value={affiliation}
-            onChange={setAffiliation}
-            disabled={isReadOnly}
-            options={[
-              { value: 'House Church', label: 'House Church' },
-              { value: 'Life Group', label: 'Life Group' },
-              { value: 'Plug-in', label: 'Plug-in' },
-              { value: 'Y2DN', label: 'Y2DN' },
-              { value: 'Others', label: 'Others' },
-            ]}
-          />
+          <div className="sm:col-span-2 space-y-2 pt-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold text-[#1b4332] block">
+                Affiliation <span className="text-rose-500">*</span>
+              </label>
+              <span className="text-[10px] text-[#2d6a4f] font-semibold bg-[#e8f5e9] px-2 py-0.5 rounded-full">
+                Allow Multiple Selection
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {[
+                'House Church',
+                'Life Group',
+                'Plug-in',
+                'Y2DN',
+                'Others',
+              ].map((option) => {
+                const isSelected = affiliations.includes(option);
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    disabled={isReadOnly}
+                    onClick={() => {
+                      if (isSelected) {
+                        setAffiliations(affiliations.filter((a) => a !== option));
+                      } else {
+                        setAffiliations([...affiliations, option]);
+                      }
+                    }}
+                    className={`p-2 rounded-xl text-left border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                      isSelected
+                        ? 'bg-[#1b4332] text-white border-[#1b4332] shadow-xs'
+                        : 'bg-white text-[#1b4332] border-[#e2ece2] hover:border-[#2d6a4f]'
+                    }`}
+                  >
+                    <span className="text-xs font-bold">{option}</span>
+                    <div
+                      className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${
+                        isSelected ? 'bg-[#74c69d] text-[#1b4332]' : 'bg-[#f7f9f7] border border-[#e2ece2]'
+                      }`}
+                    >
+                      {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {affiliations.includes('Others') && (
+              <div className="pt-1.5 space-y-1">
+                <label className="text-xs font-bold text-[#1b4332] block">
+                  Please specify other affiliation:
+                </label>
+                <input
+                  type="text"
+                  disabled={isReadOnly}
+                  value={customAffiliation}
+                  onChange={(e) => setCustomAffiliation(e.target.value)}
+                  placeholder="e.g. Worship Ministry, Ushering, Youth Fellowship"
+                  className={inputStyle}
+                />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Mobile No & Occupation */}

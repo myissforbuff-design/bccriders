@@ -130,7 +130,17 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [chapter, setChapter] = useState(member.chapter || '');
   const [civilStatus, setCivilStatus] = useState(member.civilStatus || 'Single');
   const [leadersContactNo, setLeadersContactNo] = useState(member.leadersContactNo || '');
-  const [affiliation, setAffiliation] = useState(member.affiliation || 'House Church');
+  const [affiliations, setAffiliations] = useState<string[]>(() => {
+    if (member.affiliation) {
+      return member.affiliation.split(',').map((s) => s.trim()).filter(Boolean);
+    }
+    return ['House Church'];
+  });
+  const [customAffiliation, setCustomAffiliation] = useState<string>('');
+
+  const affiliation = affiliations.includes('Others') && customAffiliation.trim()
+    ? [...affiliations.filter((a) => a !== 'Others'), customAffiliation.trim()].join(', ')
+    : affiliations.join(', ');
   const [occupation, setOccupation] = useState(member.occupation || '');
   const [occupationStatus, setOccupationStatus] = useState(member.occupationStatus || 'Active');
   const [lifeInsurance, setLifeInsurance] = useState(member.lifeInsurance || '');
@@ -476,18 +486,68 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                   className={inputStyle}
                 />
               </div>
-              <InteractiveSelect
-                label="Affiliation"
-                value={affiliation}
-                onChange={setAffiliation}
-                options={[
-                  { value: 'House Church', label: 'House Church' },
-                  { value: 'Life Group', label: 'Life Group' },
-                  { value: 'Plug-In', label: 'Plug-In' },
-                  { value: 'Y2DN', label: 'Y2DN' },
-                  { value: 'Others', label: 'Others' },
-                ]}
-              />
+              <div className="sm:col-span-2 space-y-2 pt-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-[#1b4332] block">
+                    Affiliation <span className="text-rose-500">*</span>
+                  </label>
+                  <span className="text-[10px] text-[#2d6a4f] font-semibold bg-[#e8f5e9] px-2 py-0.5 rounded-full">
+                    Allow Multiple Selection
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {[
+                    'House Church',
+                    'Life Group',
+                    'Plug-In',
+                    'Y2DN',
+                    'Others',
+                  ].map((option) => {
+                    const isSelected = affiliations.includes(option);
+                    return (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => {
+                          if (isSelected) {
+                            setAffiliations(affiliations.filter((a) => a !== option));
+                          } else {
+                            setAffiliations([...affiliations, option]);
+                          }
+                        }}
+                        className={`p-2 rounded-xl text-left border transition-all cursor-pointer flex items-center justify-between gap-2 ${
+                          isSelected
+                            ? 'bg-[#1b4332] text-white border-[#1b4332] shadow-xs'
+                            : 'bg-white text-[#1b4332] border-[#e2ece2] hover:border-[#2d6a4f]'
+                        }`}
+                      >
+                        <span className="text-xs font-bold">{option}</span>
+                        <div
+                          className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 ${
+                            isSelected ? 'bg-[#74c69d] text-[#1b4332]' : 'bg-[#f7f9f7] border border-[#e2ece2]'
+                          }`}
+                        >
+                          {isSelected && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {affiliations.includes('Others') && (
+                  <div className="pt-1.5 space-y-1">
+                    <label className="text-xs font-bold text-[#1b4332] block">
+                      Please specify other affiliation:
+                    </label>
+                    <input
+                      type="text"
+                      value={customAffiliation}
+                      onChange={(e) => setCustomAffiliation(e.target.value)}
+                      placeholder="e.g. Worship Ministry, Ushering, Youth Fellowship"
+                      className={inputStyle}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

@@ -33,6 +33,15 @@ import {
   LogOut,
   ChevronDown,
   Check,
+  Sparkles,
+  Download,
+  BarChart3,
+  Filter,
+  RefreshCw,
+  FileText,
+  Table,
+  Eye,
+  DollarSign,
 } from 'lucide-react';
 
 const MONTH_OPTIONS = [
@@ -54,6 +63,7 @@ const YEAR_OPTIONS = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 
 const SUB_TAB_OPTIONS = [
   { id: 'finance', label: 'Finance & Fee Settings', icon: Wallet, description: 'Manage club fees, dues, & custom collections' },
+  { id: 'reports', label: 'Reports & Export Center', icon: FileSpreadsheet, description: 'Export CSV data for members, transactions, and financial statements' },
   { id: 'security', label: 'System & Security', icon: Shield, description: 'Executive permissions and security controls' },
 ] as const;
 
@@ -61,7 +71,7 @@ export const Settings: React.FC = () => {
   const { currentUser, isAdmin, logout } = useAuth();
 
   // Settings Sub-Navigation Dropdown & Tabs
-  const [activeSubTab, setActiveSubTab] = useState<'finance' | 'security'>('finance');
+  const [activeSubTab, setActiveSubTab] = useState<'finance' | 'reports' | 'security'>('finance');
   const [isSubTabDropdownOpen, setIsSubTabDropdownOpen] = useState(false);
   const subTabDropdownRef = React.useRef<HTMLDivElement>(null);
 
@@ -112,6 +122,7 @@ export const Settings: React.FC = () => {
   const [editingCollection, setEditingCollection] = useState<DynamicCollection | null>(null);
   const [colName, setColName] = useState('');
   const [colAmount, setColAmount] = useState<number>(500);
+  const [colTargetAmount, setColTargetAmount] = useState<string>('');
   const [colDescription, setColDescription] = useState('');
 
   // Custom Delete Confirmation Modal State
@@ -121,10 +132,350 @@ export const Settings: React.FC = () => {
     name: string;
   } | null>(null);
 
+  // Reports & Export Center State
+  const [reportYearFilter, setReportYearFilter] = useState<string>('All');
+  const [reportPayments, setReportPayments] = useState<any[]>([]);
+  const [reportExpenses, setReportExpenses] = useState<any[]>([]);
+  const [reportUsers, setReportUsers] = useState<User[]>([]);
+  const [previewModal, setPreviewModal] = useState<{
+    title: string;
+    subtitle: string;
+    headers: string[];
+    rows: (string | number)[][];
+    onDownload: () => void;
+  } | null>(null);
+
   useModalDismiss(showMonthlyDueModal, () => setShowMonthlyDueModal(false));
   useModalDismiss(showCollectionModal, () => setShowCollectionModal(false));
   useModalDismiss(Boolean(deleteTarget), () => setDeleteTarget(null));
   useModalDismiss(showLogoutModal, () => setShowLogoutModal(false));
+  useModalDismiss(Boolean(previewModal), () => setPreviewModal(null));
+
+  const loadReportsData = () => {
+    // Users
+    const uList = store.getUsers();
+    setReportUsers(uList);
+
+    // Payments
+    const pList = store.getPayments();
+    setReportPayments(pList);
+
+    // Expenses
+    let expList: any[] = [];
+    try {
+      const expItem = localStorage.getItem('brc_finance_expenses');
+      if (expItem) expList = JSON.parse(expItem);
+    } catch (e) {
+      console.error(e);
+    }
+    setReportExpenses(expList);
+
+    // Sync from MongoDB if available
+    fetch('/api/mongodb/liquidationLogs')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          setReportExpenses(data.data);
+          localStorage.setItem('brc_finance_expenses', JSON.stringify(data.data));
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    loadReportsData();
+  }, []);
+
+  const escapeCSVCell = (val: any): string => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
+  const downloadCSVFile = (filename: string, headers: string[], rows: (string | number)[][]) => {
+    const allLines = [
+      headers.map(escapeCSVCell).join(','),
+      ...rows.map((r) => r.map(escapeCSVCell).join(',')),
+    ];
+    const csvContent = allLines.join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const getMembersReportData = () => {
+    const headers = [
+      'Member ID',
+      'Full Name',
+      'Email',
+      'Phone Number',
+      'Role',
+      'Approval Status',
+      'Local Chapter',
+      'Chapter Position',
+      'Church Network',
+      'Motorcycle Model',
+      'Plate / License No',
+      'Emergency Contact Name',
+      'Emergency Phone',
+      'Joined Date',
+    ];
+
+    const activeOrAllUsers = reportUsers.filter(
+      (u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')
+    );
+
+    const rows = activeOrAllUsers.map((u) => [
+      u.memberNumber || u.id || 'N/A',
+      u.name || 'N/A',
+      u.email || 'N/A',
+      u.phone || 'N/A',
+      u.role || 'Member',
+      u.approvalStatus || 'Approved',
+      u.chapter || 'Main Chapter',
+      u.position || 'Member',
+      u.churchNetwork || 'N/A',
+      u.motorcycleModel || 'N/A',
+      u.plateNumber || 'N/A',
+      u.emergencyContactName || 'N/A',
+      u.emergencyContactPhone || 'N/A',
+      u.joinedAt || u.createdAt || 'N/A',
+    ]);
+
+    return { headers, rows };
+  };
+
+  const getTransactionsReportData = () => {
+    const headers = [
+      'Transaction ID',
+      'Paid Date',
+      'Member ID',
+      'Member Name',
+      'Item Category',
+      'Item Description / Covered Period',
+      'Amount (PHP)',
+      'Payment Status',
+      'Payment Method',
+      'Reference / Receipt No',
+      'Notes',
+      'Updated At',
+    ];
+
+    const filtered =
+      reportYearFilter !== 'All'
+        ? reportPayments.filter(
+            (p) =>
+              p.paidDate?.includes(reportYearFilter) ||
+              p.createdAt?.includes(reportYearFilter) ||
+              p.coveredMonth?.includes(reportYearFilter)
+          )
+        : reportPayments;
+
+    const userMap = new Map(reportUsers.map((u) => [u.id, u.name]));
+
+    const rows = filtered.map((p) => [
+      p.id,
+      p.paidDate || p.createdAt || 'N/A',
+      p.userMemberNo || p.userId || 'N/A',
+      userMap.get(p.userId) || p.userMemberNo || 'N/A',
+      p.itemType,
+      p.customItemName || p.coveredMonth || 'N/A',
+      Number(p.amount) || 0,
+      p.status,
+      p.paymentMethod || 'Cash/G-Cash',
+      p.referenceNo || 'N/A',
+      p.notes || '',
+      p.updatedAt || 'N/A',
+    ]);
+
+    return { headers, rows };
+  };
+
+  const getExpensesReportData = () => {
+    const headers = [
+      'Expense ID',
+      'Date Disbursed',
+      'Category',
+      'Title / Particulars',
+      'Disbursed To / Vendor',
+      'Amount (PHP)',
+      'Payment Method',
+      'Receipt / Voucher Ref',
+      'Approved By',
+      'Notes',
+    ];
+
+    const filtered =
+      reportYearFilter !== 'All'
+        ? reportExpenses.filter(
+            (e) =>
+              e.date?.includes(reportYearFilter) ||
+              e.createdAt?.includes(reportYearFilter)
+          )
+        : reportExpenses;
+
+    const rows = filtered.map((e) => [
+      e.id,
+      e.date || e.createdAt || 'N/A',
+      e.category || 'General Expense',
+      e.title || 'N/A',
+      e.disbursedTo || e.vendor || 'N/A',
+      Number(e.amount) || 0,
+      e.paymentMethod || 'Cash',
+      e.receiptRef || e.voucherNo || 'N/A',
+      e.approvedBy || 'Admin',
+      e.notes || '',
+    ]);
+
+    return { headers, rows };
+  };
+
+  const getFinancialStatementReportData = () => {
+    const pFiltered =
+      reportYearFilter !== 'All'
+        ? reportPayments.filter(
+            (p) =>
+              p.paidDate?.includes(reportYearFilter) ||
+              p.createdAt?.includes(reportYearFilter) ||
+              p.coveredMonth?.includes(reportYearFilter)
+          )
+        : reportPayments;
+
+    const eFiltered =
+      reportYearFilter !== 'All'
+        ? reportExpenses.filter(
+            (e) =>
+              e.date?.includes(reportYearFilter) ||
+              e.createdAt?.includes(reportYearFilter)
+          )
+        : reportExpenses;
+
+    const paidPayments = pFiltered.filter((p) => p.status === 'Paid');
+    const pendingPayments = pFiltered.filter(
+      (p) => p.status === 'Pending' || p.status === 'Overdue'
+    );
+
+    const totalIncome = paidPayments.reduce(
+      (acc, p) => acc + (Number(p.amount) || 0),
+      0
+    );
+    const totalExpenses = eFiltered.reduce(
+      (acc, e) => acc + (Number(e.amount) || 0),
+      0
+    );
+    const netSurplus = totalIncome - totalExpenses;
+    const totalReceivables = pendingPayments.reduce(
+      (acc, p) => acc + (Number(p.amount) || 0),
+      0
+    );
+
+    const incomeByType: Record<string, number> = {};
+    paidPayments.forEach((p) => {
+      const key = p.itemType || 'Other';
+      incomeByType[key] = (incomeByType[key] || 0) + (Number(p.amount) || 0);
+    });
+
+    const expenseByCategory: Record<string, number> = {};
+    eFiltered.forEach((e) => {
+      const key = e.category || 'General Expense';
+      expenseByCategory[key] =
+        (expenseByCategory[key] || 0) + (Number(e.amount) || 0);
+    });
+
+    const headers = ['Financial Metric / Category', 'Value (PHP)', 'Percentage / Notes'];
+
+    const rows: (string | number)[][] = [
+      ['--- EXECUTIVE FINANCIAL SUMMARY ---', '', ''],
+      ['Total Income Collected (Inflows)', totalIncome.toFixed(2), '100%'],
+      ['Total Disbursements / Liquidation (Outflows)', totalExpenses.toFixed(2), ''],
+      ['Net Operating Cash Flow Surplus / (Deficit)', netSurplus.toFixed(2), totalIncome > 0 ? `${((netSurplus / totalIncome) * 100).toFixed(1)}% margin` : 'N/A'],
+      ['Accounts Receivable (Pending Dues)', totalReceivables.toFixed(2), 'Uncollected Inflows'],
+      ['', '', ''],
+      ['--- INFLOW BREAKDOWN BY ITEM TYPE ---', '', ''],
+    ];
+
+    Object.entries(incomeByType).forEach(([cat, amt]) => {
+      const pct = totalIncome > 0 ? `${((amt / totalIncome) * 100).toFixed(1)}%` : '0%';
+      rows.push([cat, amt.toFixed(2), pct]);
+    });
+
+    rows.push(['', '', '']);
+    rows.push(['--- OUTFLOW BREAKDOWN BY EXPENSE CATEGORY ---', '', '']);
+
+    Object.entries(expenseByCategory).forEach(([cat, amt]) => {
+      const pct = totalExpenses > 0 ? `${((amt / totalExpenses) * 100).toFixed(1)}%` : '0%';
+      rows.push([cat, amt.toFixed(2), pct]);
+    });
+
+    return { headers, rows };
+  };
+
+  const getMemberComplianceReportData = () => {
+    const headers = [
+      'Member ID',
+      'Member Name',
+      'Chapter',
+      'Membership Fee Paid (PHP)',
+      'Total Monthly Dues Paid (PHP)',
+      'Upfront Annual Promo Enrolled',
+      'Pending / Overdue Dues Months Count',
+      'Total Outstanding Balance (PHP)',
+      'Financial Compliance Standing',
+    ];
+
+    const activeMembers = reportUsers.filter(
+      (u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')
+    );
+
+    const rows = activeMembers.map((u) => {
+      const userPayments = reportPayments.filter((p) => p.userId === u.id);
+      const mfPaid = userPayments
+        .filter((p) => p.itemType === 'Membership Fee' && p.status === 'Paid')
+        .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+
+      const duesPaid = userPayments
+        .filter((p) => p.itemType === 'Monthly Due' && p.status === 'Paid')
+        .reduce((acc, p) => acc + (Number(p.amount) || 0), 0);
+
+      const hasAnnualPromo = userPayments.some(
+        (p) => p.itemType === 'Annual Upfront Promo' && p.status === 'Paid'
+      );
+
+      const pendingRecs = userPayments.filter(
+        (p) => p.status === 'Pending' || p.status === 'Overdue'
+      );
+      const pendingCount = pendingRecs.length;
+      const pendingTotal = pendingRecs.reduce(
+        (acc, p) => acc + (Number(p.amount) || 0),
+        0
+      );
+
+      let standing = 'Good Standing (Up to Date)';
+      if (pendingCount > 0 && pendingCount <= 2) standing = 'Pending Dues';
+      if (pendingCount > 2) standing = 'Overdue / Action Needed';
+      if (hasAnnualPromo) standing = 'Good Standing (Annual Upfront Paid)';
+
+      return [
+        u.memberNumber || u.id,
+        u.name,
+        u.chapter || 'Main Chapter',
+        mfPaid.toFixed(2),
+        duesPaid.toFixed(2),
+        hasAnnualPromo ? 'YES' : 'NO',
+        pendingCount,
+        pendingTotal.toFixed(2),
+        standing,
+      ];
+    });
+
+    return { headers, rows };
+  };
 
   useEffect(() => {
     // Load approved members for collection calculations (excluding admin accounts)
@@ -326,6 +677,7 @@ export const Settings: React.FC = () => {
     setEditingCollection(null);
     setColName('');
     setColAmount(500);
+    setColTargetAmount('');
     setColDescription('');
     setShowCollectionModal(true);
   };
@@ -334,6 +686,7 @@ export const Settings: React.FC = () => {
     setEditingCollection(col);
     setColName(col.name);
     setColAmount(col.amount);
+    setColTargetAmount(col.targetAmount !== undefined && col.targetAmount !== null ? String(col.targetAmount) : '');
     setColDescription(col.description || '');
     setShowCollectionModal(true);
   };
@@ -342,17 +695,21 @@ export const Settings: React.FC = () => {
     e.preventDefault();
     if (!colName.trim()) return;
 
+    const parsedTarget = colTargetAmount.trim() !== '' && !isNaN(Number(colTargetAmount)) ? Number(colTargetAmount) : undefined;
+
     if (editingCollection) {
       store.updateDynamicCollection({
         ...editingCollection,
         name: colName.trim(),
         amount: Number(colAmount) || 0,
+        targetAmount: parsedTarget,
         description: colDescription.trim(),
       });
     } else {
       store.createDynamicCollection({
         name: colName.trim(),
         amount: Number(colAmount) || 0,
+        targetAmount: parsedTarget,
         status: 'Active',
         description: colDescription.trim(),
       });
@@ -495,6 +852,7 @@ export const Settings: React.FC = () => {
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 rounded-xl bg-[#1b4332] text-white shrink-0 shadow-xs">
               {activeSubTab === 'finance' && <Wallet className="w-4 h-4 text-[#74c69d]" />}
+              {activeSubTab === 'reports' && <FileSpreadsheet className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'security' && <Shield className="w-4 h-4 text-[#74c69d]" />}
             </div>
             <div className="truncate">
@@ -528,7 +886,7 @@ export const Settings: React.FC = () => {
                     key={tab.id}
                     type="button"
                     onClick={() => {
-                      setActiveSubTab(tab.id as 'finance' | 'security');
+                      setActiveSubTab(tab.id as 'finance' | 'reports' | 'security');
                       setIsSubTabDropdownOpen(false);
                     }}
                     className={`w-full flex items-center justify-between gap-3 p-3 rounded-xl transition-all cursor-pointer text-left ${
@@ -709,7 +1067,7 @@ export const Settings: React.FC = () => {
                               Due Amount Per Member
                             </span>
                             <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
-                              ₱{due.amount.toLocaleString()}
+                              ₱{(Number(due.amount) || 0).toLocaleString()}
                             </span>
                           </div>
 
@@ -718,7 +1076,7 @@ export const Settings: React.FC = () => {
                               Total Pending Collection
                             </span>
                             <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
-                              ₱{totalPendingCollection.toLocaleString()}
+                              ₱{(Number(totalPendingCollection) || 0).toLocaleString()}
                             </span>
                             <span className="text-[9px] text-[#2d6a4f] block mt-0.5 truncate">
                               ({approvedMemberCount} members × ₱{due.amount})
@@ -736,6 +1094,71 @@ export const Settings: React.FC = () => {
                   })}
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Promotional Campaigns & Special Packages Section */}
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-3.5 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 pb-3 border-b border-[#e2ece2]">
+              <div>
+                <h3 className="font-heading text-base sm:text-lg font-black text-[#1b4332] flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
+                  <span>Promotional Campaigns & Packages</span>
+                </h3>
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 sm:mt-1">
+                  Active promotional offers, upfront annual discounts, and seasonal campaign rates
+                </p>
+              </div>
+              <span className="self-start sm:self-center text-[10px] sm:text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1.5 shrink-0">
+                <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-700 shrink-0" />
+                <span>January Campaign Window</span>
+              </span>
+            </div>
+
+            <div className="p-3 sm:p-5 rounded-2xl bg-gradient-to-br from-[#f7f9f7] via-emerald-50/60 to-[#f7f9f7] border border-[#e2ece2] space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                  <span className="px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-amber-400 text-slate-950 uppercase tracking-wider whitespace-nowrap">
+                    Annual Upfront Promo
+                  </span>
+                  <span className="text-xs font-bold text-[#1b4332]">Full Year Monthly Dues Package</span>
+                </div>
+                <span className={`text-[9px] sm:text-[10px] font-black px-2.5 py-0.5 rounded-full border self-start sm:self-auto shrink-0 ${
+                  new Date().getMonth() === 0
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-amber-100 text-amber-800 border-amber-300'
+                }`}>
+                  {new Date().getMonth() === 0 ? '🟢 Active Campaign (January)' : '🗓️ Available in January'}
+                </span>
+              </div>
+
+              <p className="text-xs text-[#52605d] leading-relaxed">
+                Members who pay for a full year upfront during the month of <strong>January</strong> receive a discounted flat rate of <strong>₱1,000</strong> for all 12 monthly dues (regular value: ₱1,200/year at ₱100/month).
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
+                <div className="bg-white p-3 rounded-xl border border-[#e2ece2] flex flex-col justify-center min-w-0">
+                  <span className="text-[10px] text-[#52605d] font-bold block uppercase tracking-wider">Promo Price</span>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className="text-base sm:text-lg font-black text-[#1b4332]">₱1,000.00</span>
+                    <span className="text-xs text-[#52605d] font-semibold">/ yr</span>
+                  </div>
+                </div>
+                <div className="bg-white p-3 rounded-xl border border-[#e2ece2] flex flex-col justify-center min-w-0">
+                  <span className="text-[10px] text-[#52605d] font-bold block uppercase tracking-wider">Regular Value</span>
+                  <div className="flex items-baseline gap-1 mt-0.5">
+                    <span className="text-base sm:text-lg font-black text-slate-400 line-through">₱1,200.00</span>
+                    <span className="text-xs text-slate-400 font-semibold">/ yr</span>
+                  </div>
+                </div>
+                <div className="bg-emerald-100/80 p-3 rounded-xl border border-emerald-200 flex flex-col justify-center min-w-0">
+                  <span className="text-[10px] text-emerald-800 font-extrabold block uppercase tracking-wider">Member Savings</span>
+                  <div className="flex items-baseline gap-1.5 mt-0.5 flex-wrap">
+                    <span className="text-base sm:text-lg font-black text-emerald-900">₱200.00</span>
+                    <span className="text-xs font-extrabold text-emerald-700">(16.7% OFF)</span>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -775,7 +1198,10 @@ export const Settings: React.FC = () => {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   {dynamicCollections.map((col) => {
-                    const totalTargetCollection = approvedMemberCount * col.amount;
+                    const totalTargetCollection =
+                      col.targetAmount !== undefined && col.targetAmount !== null && !isNaN(Number(col.targetAmount)) && Number(col.targetAmount) > 0
+                        ? Number(col.targetAmount)
+                        : approvedMemberCount * col.amount;
                     return (
                       <div
                         key={col.id}
@@ -831,7 +1257,7 @@ export const Settings: React.FC = () => {
                               Set Collection Amount
                             </span>
                             <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
-                              ₱{col.amount.toLocaleString()}
+                              ₱{(Number(col.amount) || 0).toLocaleString()}
                             </span>
                           </div>
 
@@ -840,7 +1266,7 @@ export const Settings: React.FC = () => {
                               Expected Target Collection
                             </span>
                             <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
-                              ₱{totalTargetCollection.toLocaleString()}
+                              ₱{(Number(totalTargetCollection) || 0).toLocaleString()}
                             </span>
                           </div>
                         </div>
@@ -854,7 +1280,579 @@ export const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* SUB TAB 2: SYSTEM SECURITY */}
+      {/* SUB TAB 2: REPORTS & EXPORT CENTER */}
+      {activeSubTab === 'reports' && (
+        <div className="space-y-6 sm:space-y-8">
+          {/* Header & Controls Card */}
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-4 sm:space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#e2ece2]">
+              <div>
+                <h2 className="font-heading text-base sm:text-lg md:text-xl font-black text-[#1b4332] flex items-center gap-2">
+                  <FileSpreadsheet className="w-6 h-6 text-[#2d6a4f]" />
+                  Reports & Export Center
+                </h2>
+                <p className="text-xs text-[#52605d] mt-1">
+                  Export audit-ready CSV ledgers, active member directories, transaction history, and accounting financial statements
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={loadReportsData}
+                  className="px-3 py-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                  title="Refresh Data"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                  <span>Refresh</span>
+                </button>
+
+                <div className="flex items-center gap-1.5 bg-[#f7f9f7] px-3 py-1.5 rounded-xl border border-[#e2ece2]">
+                  <Filter className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                  <span className="text-[11px] font-bold text-[#52605d]">Year:</span>
+                  <select
+                    value={reportYearFilter}
+                    onChange={(e) => setReportYearFilter(e.target.value)}
+                    className="bg-transparent text-xs font-extrabold text-[#1b4332] focus:outline-none cursor-pointer"
+                  >
+                    <option value="All">All Time</option>
+                    <option value="2026">2026</option>
+                    <option value="2025">2025</option>
+                    <option value="2024">2024</option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const stmtData = getFinancialStatementReportData();
+                    downloadCSVFile(
+                      `BRC_Master_Executive_Financial_Report_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`,
+                      stmtData.headers,
+                      stmtData.rows
+                    );
+                  }}
+                  className="px-4 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-extrabold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer hover:scale-[1.02]"
+                >
+                  <Download className="w-3.5 h-3.5 text-amber-300" />
+                  <span>Master CSV Bundle</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Accounting Metrics Bar */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+              <div className="bg-[#f7f9f7] p-3.5 sm:p-4 rounded-2xl border border-[#e2ece2]">
+                <div className="flex items-center gap-2 mb-1">
+                  <Users className="w-4 h-4 text-[#2d6a4f]" />
+                  <span className="text-[10px] font-bold uppercase text-[#52605d]">Active Members</span>
+                </div>
+                <span className="text-base sm:text-lg font-black text-[#1b4332]">
+                  {reportUsers.filter((u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')).length}
+                </span>
+                <span className="text-[10px] text-[#52605d] block">Approved Membership Roster</span>
+              </div>
+
+              <div className="bg-emerald-50/70 p-3.5 sm:p-4 rounded-2xl border border-emerald-200">
+                <div className="flex items-center gap-2 mb-1">
+                  <Wallet className="w-4 h-4 text-emerald-700" />
+                  <span className="text-[10px] font-extrabold uppercase text-emerald-900">Total Income</span>
+                </div>
+                <span className="text-base sm:text-lg font-black text-emerald-950">
+                  ₱
+                  {reportPayments
+                    .filter((p) => p.status === 'Paid')
+                    .reduce((acc, p) => acc + (Number(p.amount) || 0), 0)
+                    .toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[10px] text-emerald-800 block">Total Collections</span>
+              </div>
+
+              <div className="bg-rose-50/70 p-3.5 sm:p-4 rounded-2xl border border-rose-200">
+                <div className="flex items-center gap-2 mb-1">
+                  <TrendingUp className="w-4 h-4 text-rose-700" />
+                  <span className="text-[10px] font-extrabold uppercase text-rose-900">Disbursements</span>
+                </div>
+                <span className="text-base sm:text-lg font-black text-rose-950">
+                  ₱
+                  {reportExpenses
+                    .reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
+                    .toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[10px] text-rose-800 block">Total Liquidation Expenses</span>
+              </div>
+
+              <div className="bg-amber-50/70 p-3.5 sm:p-4 rounded-2xl border border-amber-200">
+                <div className="flex items-center gap-2 mb-1">
+                  <BarChart3 className="w-4 h-4 text-amber-700" />
+                  <span className="text-[10px] font-extrabold uppercase text-amber-900">Net Surplus</span>
+                </div>
+                <span className="text-base sm:text-lg font-black text-amber-950">
+                  ₱
+                  {(
+                    reportPayments
+                      .filter((p) => p.status === 'Paid')
+                      .reduce((acc, p) => acc + (Number(p.amount) || 0), 0) -
+                    reportExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
+                  ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+                <span className="text-[10px] text-amber-800 block">Net Operating Cash Flow</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Export Report Options Grid */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
+            {/* Card 1: Members Directory CSV */}
+            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                    <Users className="w-5 h-5 text-emerald-700" />
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 uppercase">
+                    Member Records
+                  </span>
+                </div>
+                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
+                  Active Members Data Directory
+                </h3>
+                <p className="text-xs text-[#52605d] leading-relaxed">
+                  Export full profile records of active and approved members, including contact numbers, chapters, designations, motorcycle details, and church network affiliations.
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#1b4332]">
+                  {reportUsers.filter((u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')).length} Member Profiles
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getMembersReportData();
+                      setPreviewModal({
+                        title: 'Active Members Directory Preview',
+                        subtitle: 'Sample view of member directory CSV records',
+                        headers: data.headers,
+                        rows: data.rows,
+                        onDownload: () => downloadCSVFile(`BRC_Active_Members_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    title="Preview Data"
+                  >
+                    <Eye className="w-4 h-4 text-[#2d6a4f]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getMembersReportData();
+                      downloadCSVFile(`BRC_Active_Members_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 2: Transaction Data & Collections Register CSV */}
+            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
+                    <Wallet className="w-5 h-5 text-blue-700" />
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 uppercase">
+                    Collections Register
+                  </span>
+                </div>
+                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
+                  Transaction Data & Revenue Ledger
+                </h3>
+                <p className="text-xs text-[#52605d] leading-relaxed">
+                  Export complete itemized receipt logs for membership fees, monthly dues, upfront annual promos, and custom project collections with payment methods and reference numbers.
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#1b4332]">
+                  {reportPayments.length} Transaction Records
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getTransactionsReportData();
+                      setPreviewModal({
+                        title: 'Transaction Data Ledger Preview',
+                        subtitle: 'Sample view of collections & dues receipt transactions',
+                        headers: data.headers,
+                        rows: data.rows,
+                        onDownload: () => downloadCSVFile(`BRC_Transactions_Register_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    title="Preview Data"
+                  >
+                    <Eye className="w-4 h-4 text-[#2d6a4f]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getTransactionsReportData();
+                      downloadCSVFile(`BRC_Transactions_Register_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 3: Disbursements & Expenses Register CSV */}
+            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-800 flex items-center justify-center font-bold">
+                    <TrendingUp className="w-5 h-5 text-rose-700" />
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-900 uppercase">
+                    Disbursements Log
+                  </span>
+                </div>
+                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
+                  Disbursements & Expense Register
+                </h3>
+                <p className="text-xs text-[#52605d] leading-relaxed">
+                  Export liquidation records of all club disbursements, event expenses, CSR outreach, ride logistics, emergency assistance funds, and operational costs.
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#1b4332]">
+                  {reportExpenses.length} Expense Logs
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getExpensesReportData();
+                      setPreviewModal({
+                        title: 'Disbursements & Expense Register Preview',
+                        subtitle: 'Sample view of liquidation and expense records',
+                        headers: data.headers,
+                        rows: data.rows,
+                        onDownload: () => downloadCSVFile(`BRC_Expenses_Disbursements_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    title="Preview Data"
+                  >
+                    <Eye className="w-4 h-4 text-[#2d6a4f]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getExpensesReportData();
+                      downloadCSVFile(`BRC_Expenses_Disbursements_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4: Accounting Financial Statement CSV */}
+            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold">
+                    <BarChart3 className="w-5 h-5 text-purple-700" />
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-900 uppercase">
+                    Financial Statement
+                  </span>
+                </div>
+                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
+                  Executive Financial Report & Cash Flow
+                </h3>
+                <p className="text-xs text-[#52605d] leading-relaxed">
+                  Export executive financial statements with Executive Revenue vs Disbursement summaries, Category-by-category Inflow breakdowns, and Net Operating Surplus margins.
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#1b4332]">
+                  Accounting Summary
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getFinancialStatementReportData();
+                      setPreviewModal({
+                        title: 'Executive Financial Statement Preview',
+                        subtitle: 'Overview of revenue, expenses, and net surplus',
+                        headers: data.headers,
+                        rows: data.rows,
+                        onDownload: () => downloadCSVFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    title="Preview Data"
+                  >
+                    <Eye className="w-4 h-4 text-[#2d6a4f]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getFinancialStatementReportData();
+                      downloadCSVFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 5: Member Dues Compliance & Aging Ledger CSV */}
+            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">
+                    <FileSpreadsheet className="w-5 h-5 text-teal-700" />
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-teal-100 text-teal-900 uppercase">
+                    Aging & Compliance
+                  </span>
+                </div>
+                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
+                  Member Dues Compliance Ledger
+                </h3>
+                <p className="text-xs text-[#52605d] leading-relaxed">
+                  Export per-member compliance ledger displaying total dues paid, upfront annual promo enrollment status, pending months count, and outstanding balances.
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#1b4332]">
+                  {reportUsers.filter((u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')).length} Compliance Records
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getMemberComplianceReportData();
+                      setPreviewModal({
+                        title: 'Member Dues Compliance Ledger Preview',
+                        subtitle: 'Sample view of member compliance and overdue dues status',
+                        headers: data.headers,
+                        rows: data.rows,
+                        onDownload: () => downloadCSVFile(`BRC_Member_Compliance_Ledger_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    title="Preview Data"
+                  >
+                    <Eye className="w-4 h-4 text-[#2d6a4f]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getMemberComplianceReportData();
+                      downloadCSVFile(`BRC_Member_Compliance_Ledger_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Card 6: Dynamic Custom Collections Ledger CSV */}
+            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                    <Layers className="w-5 h-5 text-amber-700" />
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 uppercase">
+                    Custom Projects
+                  </span>
+                </div>
+                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
+                  Dynamic Collections & Special Projects Ledger
+                </h3>
+                <p className="text-xs text-[#52605d] leading-relaxed">
+                  Export progress ledgers for dynamic custom collections (e.g. Anniversary Vest, Building Fund, CSR Drive) detailing target goals, collected amounts, and progress percentages.
+                </p>
+              </div>
+
+              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-[#1b4332]">
+                  {dynamicCollections.length} Collection Items
+                </span>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const headers = [
+                        'Collection ID',
+                        'Collection Name',
+                        'Per-Member Amount (PHP)',
+                        'Status',
+                      ];
+                      const rows = dynamicCollections.map((c) => [c.id, c.name, c.amount, c.status]);
+                      setPreviewModal({
+                        title: 'Dynamic Custom Collections Preview',
+                        subtitle: 'Overview of custom collection items and status',
+                        headers,
+                        rows,
+                        onDownload: () => downloadCSVFile(`BRC_Dynamic_Collections_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows),
+                      });
+                    }}
+                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    title="Preview Data"
+                  >
+                    <Eye className="w-4 h-4 text-[#2d6a4f]" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const headers = [
+                        'Collection ID',
+                        'Collection Name',
+                        'Per-Member Amount (PHP)',
+                        'Status',
+                      ];
+                      const rows = dynamicCollections.map((c) => [c.id, c.name, c.amount, c.status]);
+                      downloadCSVFile(`BRC_Dynamic_Collections_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Export CSV</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Interactive Report Data Preview Modal */}
+          <AnimatePresence>
+            {previewModal && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="bg-white rounded-3xl max-w-4xl w-full max-h-[85vh] flex flex-col border border-[#e2ece2] shadow-2xl overflow-hidden"
+                >
+                  {/* Modal Header */}
+                  <div className="p-4 sm:p-6 bg-[#f7f9f7] border-b border-[#e2ece2] flex items-center justify-between gap-4">
+                    <div>
+                      <h3 className="font-heading font-black text-base sm:text-lg text-[#1b4332] flex items-center gap-2">
+                        <Table className="w-5 h-5 text-[#2d6a4f]" />
+                        {previewModal.title}
+                      </h3>
+                      <p className="text-xs text-[#52605d] mt-0.5">{previewModal.subtitle}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewModal(null)}
+                      className="p-2 rounded-full hover:bg-stone-200 text-stone-600 transition-colors cursor-pointer"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Modal Scrollable Table Body */}
+                  <div className="p-4 sm:p-6 overflow-auto flex-1">
+                    {previewModal.rows.length === 0 ? (
+                      <div className="text-center py-12 text-xs text-[#52605d] font-bold">
+                        No records found for the selected period filter.
+                      </div>
+                    ) : (
+                      <div className="border border-[#e2ece2] rounded-2xl overflow-hidden shadow-xs">
+                        <table className="w-full text-left text-xs">
+                          <thead className="bg-[#1b4332] text-white font-extrabold uppercase text-[10px] tracking-wider">
+                            <tr>
+                              {previewModal.headers.map((h, i) => (
+                                <th key={i} className="px-3 py-2.5 whitespace-nowrap">
+                                  {h}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-[#e2ece2] bg-white font-medium text-[#1b4332]">
+                            {previewModal.rows.slice(0, 50).map((row, rIdx) => (
+                              <tr key={rIdx} className="hover:bg-[#f7f9f7] transition-colors">
+                                {row.map((cell, cIdx) => (
+                                  <td key={cIdx} className="px-3 py-2 whitespace-nowrap max-w-xs truncate">
+                                    {String(cell)}
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                    {previewModal.rows.length > 50 && (
+                      <p className="text-[11px] text-[#52605d] italic text-center mt-3">
+                        Showing first 50 rows of {previewModal.rows.length} total records. Download CSV to view full dataset.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Modal Footer */}
+                  <div className="p-4 bg-[#f7f9f7] border-t border-[#e2ece2] flex items-center justify-between gap-3">
+                    <span className="text-xs font-bold text-[#52605d]">
+                      {previewModal.rows.length} Total Rows Recorded
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPreviewModal(null)}
+                        className="px-4 py-2 rounded-xl border border-[#e2ece2] text-xs font-bold text-[#52605d] hover:bg-white cursor-pointer"
+                      >
+                        Close
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          previewModal.onDownload();
+                          setPreviewModal(null);
+                        }}
+                        className="px-4 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        <span>Download Full CSV</span>
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* SUB TAB 3: SYSTEM SECURITY */}
       {activeSubTab === 'security' && (
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#e2ece2] shadow-xs space-y-6">
           <div className="pb-4 border-b border-[#e2ece2]">
@@ -1066,6 +2064,28 @@ export const Settings: React.FC = () => {
                     />
                     <span className="absolute left-3 top-3 text-xs font-bold text-[#52605d]">₱</span>
                   </div>
+                </div>
+
+                {/* Expected Target Collection */}
+                <div>
+                  <label className="font-bold text-[#1b4332] mb-1 block">
+                    Expected Target Collection (₱) <span className="text-[10px] font-normal text-[#52605d]">(Optional)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={colTargetAmount}
+                      onChange={(e) => setColTargetAmount(e.target.value)}
+                      placeholder={`Auto: ₱${(approvedMemberCount * (Number(colAmount) || 0)).toLocaleString()}`}
+                      className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                    />
+                    <span className="absolute left-3 top-3 text-xs font-bold text-[#52605d]">₱</span>
+                  </div>
+                  <p className="text-[10px] text-[#52605d] mt-1">
+                    Custom target goal amount, or leave blank to auto-calculate (₱{colAmount || 0} × {approvedMemberCount} members).
+                  </p>
                 </div>
 
                 {/* Description */}

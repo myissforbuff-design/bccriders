@@ -261,6 +261,7 @@ export interface DynamicCollection {
   id: string;
   name: string;
   amount: number;
+  targetAmount?: number;
   month?: string;
   year?: number;
   status: 'Active' | 'Completed' | 'Archived';

@@ -30,9 +30,10 @@ import {
   Building,
   ShoppingBag,
   PieChart,
+  Sparkles,
 } from 'lucide-react';
 
-export type FinanceItemType = 'Membership Fee' | 'Monthly Due' | 'Vest Payment' | 'Other';
+export type FinanceItemType = 'Membership Fee' | 'Monthly Due' | 'Vest Payment' | 'Annual Upfront Promo' | 'Other';
 
 export interface FinanceRecord {
   id: string;
@@ -117,8 +118,12 @@ export const Finances: React.FC = () => {
   const [records, setRecords] = useState<FinanceRecord[]>([]);
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
-  // Main Mode Toggle: "funds" or "expenses"
-  const [activeTab, setActiveTab] = useState<'funds' | 'expenses'>('funds');
+  // Main Mode Toggle: "funds", "expenses", or "accounts"
+  const [activeTab, setActiveTab] = useState<'funds' | 'expenses' | 'accounts'>('funds');
+
+  // Filters & Search for Accounts
+  const [accountSearchQuery, setAccountSearchQuery] = useState('');
+  const [accountMemberId, setAccountMemberId] = useState<string>('my_account');
 
   // Filters & Search for Funds
   const [searchQuery, setSearchQuery] = useState('');
@@ -436,11 +441,12 @@ export const Finances: React.FC = () => {
   const dynamicColsList = store.getDynamicCollections();
 
   const paymentOptionsList = [
-    { value: 'opt_membership_fee', label: `Membership Fee (₱${(finSettings.membershipFee || 200).toLocaleString()})` },
+    { value: 'opt_membership_fee', label: `Membership Fee (₱${(Number(finSettings?.membershipFee) || 200).toLocaleString()})` },
     { value: 'opt_monthly_due', label: 'Monthly Due' },
+    { value: 'opt_annual_promo', label: 'Annual Upfront Promo - ₱1,000 (Full Year Dues - January Special)' },
     ...dynamicColsList.map(col => ({
       value: `dc_${col.id}`,
-      label: `Custom Collection: ${col.name} (₱${col.amount.toLocaleString()})`
+      label: `Custom Collection: ${col.name} (₱${(Number(col?.amount) || 0).toLocaleString()})`
     })),
     { value: 'opt_other', label: 'Other / Custom Payment Item' }
   ];
@@ -482,6 +488,11 @@ export const Finances: React.FC = () => {
       } else {
         setRecAmount('100');
       }
+    } else if (val === 'opt_annual_promo') {
+      setRecItemType('Annual Upfront Promo');
+      setRecCustomItemName('Annual Upfront Promo (Full Year Dues)');
+      setRecAmount('1000');
+      setRecStatus('Paid');
     } else if (val.startsWith('dc_')) {
       const colId = val.replace('dc_', '');
       const col = dynamicColsList.find(c => c.id === colId);
@@ -511,7 +522,7 @@ export const Finances: React.FC = () => {
       if (presetRecord.coveredMonth) {
         const parts = presetRecord.coveredMonth.split(' ');
         setRecMonth(parts[0] || 'August');
-        setRecYear(parts[1] || '2026');
+        setRecYear(parts[1] || parts[0] || '2026');
       } else {
         setRecMonth('August');
         setRecYear('2026');
@@ -530,6 +541,8 @@ export const Finances: React.FC = () => {
         setRecOptionKey('opt_membership_fee');
       } else if (presetRecord.itemType === 'Monthly Due') {
         setRecOptionKey('opt_monthly_due');
+      } else if (presetRecord.itemType === 'Annual Upfront Promo') {
+        setRecOptionKey('opt_annual_promo');
       } else if (presetRecord.customItemName) {
         const matchedCol = dCols.find(c => c.name === presetRecord.customItemName);
         setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_other');
@@ -573,7 +586,33 @@ export const Finances: React.FC = () => {
     const amountNum = parseFloat(recAmount) || 0;
     const selectedUser = users.find(u => u.id === recUserId);
     const todayStr = new Date().toISOString().split('T')[0];
-    const coveredMonthStr = recItemType === 'Monthly Due' ? `${recMonth} ${recYear}` : undefined;
+    const coveredMonthStr = recItemType === 'Monthly Due' 
+      ? `${recMonth} ${recYear}` 
+      : recItemType === 'Annual Upfront Promo'
+      ? `Full Year ${recYear}`
+      : undefined;
+    const effectiveStatus = (recItemType === 'Monthly Due' || recItemType === 'Annual Upfront Promo') ? 'Paid' : recStatus;
+
+    // Base working records list
+    let workingRecords = records;
+
+    // If Annual Upfront Promo is selected, mark all existing pending monthly dues for this user in recYear as Paid
+    if (recItemType === 'Annual Upfront Promo' && recUserId) {
+      workingRecords = workingRecords.map(r => {
+        if (r.userId === recUserId && r.itemType === 'Monthly Due' && r.coveredMonth?.includes(recYear) && (r.status === 'Pending' || r.status === 'Overdue')) {
+          const satisfiedRec: FinanceRecord = {
+            ...r,
+            status: 'Paid',
+            paidDate: todayStr,
+            notes: 'Satisfied by Annual Upfront Promo Package',
+            updatedAt: todayStr,
+          };
+          syncRecordToMongo(satisfiedRec);
+          return satisfiedRec;
+        }
+        return r;
+      });
+    }
 
     if (editingRecord) {
       const updatedRecord: FinanceRecord = {
@@ -583,25 +622,25 @@ export const Finances: React.FC = () => {
         userMemberNo: selectedUser?.memberNumber || editingRecord.userMemberNo,
         itemType: recItemType,
         coveredMonth: coveredMonthStr,
-        customItemName: recItemType === 'Other' ? recCustomItemName : undefined,
+        customItemName: recItemType === 'Other' ? recCustomItemName : (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo (Full Year Dues)' : undefined),
         amount: amountNum,
-        status: recStatus,
+        status: effectiveStatus,
         dueDate: recDueDate,
-        paidDate: recStatus === 'Paid' ? todayStr : editingRecord.paidDate,
+        paidDate: effectiveStatus === 'Paid' ? todayStr : editingRecord.paidDate,
         paymentMethod: recMethod,
         referenceNo: undefined,
-        notes: recNotes.trim() || undefined,
+        notes: recItemType === 'Monthly Due' ? undefined : (recNotes.trim() || (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo Package (Full Year Dues)' : undefined)),
         updatedAt: todayStr,
       };
 
-      const updated = records.map(r => (r.id === editingRecord.id ? updatedRecord : r));
+      const updated = workingRecords.map(r => (r.id === editingRecord.id ? updatedRecord : r));
       saveRecordsToStorage(updated);
       syncRecordToMongo(updatedRecord);
     } else {
       // Look for an existing pending record for this user and coveredMonth/Monthly Due
       let existingPending = null;
       if (recItemType === 'Monthly Due' && coveredMonthStr) {
-        existingPending = records.find(r =>
+        existingPending = workingRecords.find(r =>
           r.userId === recUserId &&
           r.itemType === 'Monthly Due' &&
           (r.coveredMonth === coveredMonthStr || r.id.includes(coveredMonthStr)) &&
@@ -616,13 +655,13 @@ export const Finances: React.FC = () => {
           userMemberNo: selectedUser?.memberNumber || existingPending.userMemberNo,
           amount: amountNum,
           dueDate: recDueDate,
-          paidDate: recStatus === 'Paid' ? todayStr : undefined,
-          status: recStatus,
+          paidDate: effectiveStatus === 'Paid' ? todayStr : undefined,
+          status: effectiveStatus,
           paymentMethod: recMethod,
-          notes: recNotes.trim() || existingPending.notes,
+          notes: recItemType === 'Monthly Due' ? existingPending.notes : (recNotes.trim() || existingPending.notes),
           updatedAt: todayStr,
         };
-        const updated = records.map(r => (r.id === existingPending.id ? updatedRecord : r));
+        const updated = workingRecords.map(r => (r.id === existingPending.id ? updatedRecord : r));
         saveRecordsToStorage(updated);
         syncRecordToMongo(updatedRecord);
       } else {
@@ -633,17 +672,17 @@ export const Finances: React.FC = () => {
           userMemberNo: selectedUser?.memberNumber || 'BRC-N/A',
           itemType: recItemType,
           coveredMonth: coveredMonthStr,
-          customItemName: recItemType === 'Other' ? recCustomItemName : undefined,
+          customItemName: recItemType === 'Other' ? recCustomItemName : (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo (Full Year Dues)' : undefined),
           amount: amountNum,
           dueDate: recDueDate,
-          paidDate: recStatus === 'Paid' ? todayStr : undefined,
-          status: recStatus,
+          paidDate: effectiveStatus === 'Paid' ? todayStr : undefined,
+          status: effectiveStatus,
           paymentMethod: recMethod,
           referenceNo: undefined,
-          notes: recNotes.trim() || undefined,
+          notes: recItemType === 'Monthly Due' ? undefined : (recNotes.trim() || (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo Package (Full Year Dues)' : undefined)),
           updatedAt: todayStr,
         };
-        saveRecordsToStorage([...records, newRec]);
+        saveRecordsToStorage([...workingRecords, newRec]);
         syncRecordToMongo(newRec);
       }
     }
@@ -773,8 +812,38 @@ export const Finances: React.FC = () => {
     return rec.itemType;
   };
 
+  // Helper for Date Formatting
+  const formatDisplayDate = (dateVal?: string): string => {
+    if (!dateVal) return '-';
+    // Match simple YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(dateVal)) {
+      try {
+        const [year, month, day] = dateVal.split('-').map(Number);
+        const d = new Date(year, month - 1, day);
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      } catch {
+        return dateVal;
+      }
+    }
+    // Match ISO timestamp strings or generic dates
+    try {
+      const d = new Date(dateVal);
+      if (!isNaN(d.getTime())) {
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      }
+    } catch {
+      // fallback
+    }
+    return dateVal;
+  };
+
   // Filtered Funds Records
   const filteredRecords = records.filter(r => {
+    // Hide pending monthly dues in the Funds tab ledger
+    if (r.itemType === 'Monthly Due' && r.status === 'Pending') {
+      return false;
+    }
+
     const title = getItemTitle(r).toLowerCase();
     const matchesSearch =
       r.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -863,76 +932,76 @@ export const Finances: React.FC = () => {
   return (
     <div className="space-y-6 pb-12 font-sans">
       {/* Global Overview Stats Banner */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
         {/* Total Funds Collected */}
-        <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
-            <Coins className="w-6 h-6 stroke-[2.2]" />
+        <div className="p-3 sm:p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2.5 sm:gap-4 min-w-0">
+          <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+            <Coins className="w-4 h-4 sm:w-6 sm:h-6 stroke-[2.2]" />
           </div>
-          <div>
-            <span className="text-[11px] text-[#52605d] font-bold block uppercase tracking-wider">Total Funds Collected</span>
-            <p className="font-heading text-xl font-black text-[#1b4332]">
-              ₱{totalCollected.toLocaleString()}.00
+          <div className="min-w-0 flex-1">
+            <span className="text-[9px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider truncate">Total Funds Collected</span>
+            <p className="font-heading text-sm sm:text-xl font-black text-[#1b4332] truncate">
+              ₱{(Number(totalCollected) || 0).toLocaleString()}.00
             </p>
-            <span className="text-[10px] text-[#2d6a4f] font-semibold">{totalPaidCount} verified member payments</span>
+            <span className="text-[9px] sm:text-[10px] text-[#2d6a4f] font-semibold line-clamp-1">{totalPaidCount} verified member payments</span>
           </div>
         </div>
 
         {/* Total Liquidated Expenses */}
-        <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center shrink-0">
-            <TrendingDown className="w-6 h-6 stroke-[2.2]" />
+        <div className="p-3 sm:p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2.5 sm:gap-4 min-w-0">
+          <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-rose-100 text-rose-800 flex items-center justify-center shrink-0">
+            <TrendingDown className="w-4 h-4 sm:w-6 sm:h-6 stroke-[2.2]" />
           </div>
-          <div>
-            <span className="text-[11px] text-[#52605d] font-bold block uppercase tracking-wider">Total Club Expenses</span>
-            <p className="font-heading text-xl font-black text-rose-800">
-              ₱{totalExpenses.toLocaleString()}.00
+          <div className="min-w-0 flex-1">
+            <span className="text-[9px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider truncate">Total Club Expenses</span>
+            <p className="font-heading text-sm sm:text-xl font-black text-rose-800 truncate">
+              ₱{(Number(totalExpenses) || 0).toLocaleString()}.00
             </p>
-            <span className="text-[10px] text-rose-700 font-semibold">{expenses.length} liquidated expense items</span>
+            <span className="text-[9px] sm:text-[10px] text-rose-700 font-semibold line-clamp-1">{expenses.length} liquidated expense items</span>
           </div>
         </div>
 
         {/* Net Treasury Balance */}
-        <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${
+        <div className="p-3 sm:p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2.5 sm:gap-4 min-w-0">
+          <div className={`w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 ${
             netBalance >= 0 ? 'bg-emerald-100 text-emerald-900' : 'bg-rose-100 text-rose-900'
           }`}>
-            <Wallet className="w-6 h-6 stroke-[2.2]" />
+            <Wallet className="w-4 h-4 sm:w-6 sm:h-6 stroke-[2.2]" />
           </div>
-          <div>
-            <span className="text-[11px] text-[#52605d] font-bold block uppercase tracking-wider">Net Treasury Balance</span>
-            <p className={`font-heading text-xl font-black ${
+          <div className="min-w-0 flex-1">
+            <span className="text-[9px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider truncate">Net Treasury Balance</span>
+            <p className={`font-heading text-sm sm:text-xl font-black truncate ${
               netBalance >= 0 ? 'text-[#1b4332]' : 'text-rose-700'
             }`}>
-              ₱{netBalance.toLocaleString()}.00
+              ₱{(Number(netBalance) || 0).toLocaleString()}.00
             </p>
-            <span className="text-[10px] text-[#52605d] font-semibold">Funds Collected minus Expenses</span>
+            <span className="text-[9px] sm:text-[10px] text-[#52605d] font-semibold line-clamp-1">Funds Collected minus Expenses</span>
           </div>
         </div>
 
         {/* Pending Collections */}
-        <div className="p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-            <Clock className="w-6 h-6 stroke-[2.2]" />
+        <div className="p-3 sm:p-5 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2.5 sm:gap-4 min-w-0">
+          <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+            <Clock className="w-4 h-4 sm:w-6 sm:h-6 stroke-[2.2]" />
           </div>
-          <div>
-            <span className="text-[11px] text-[#52605d] font-bold block uppercase tracking-wider">Pending Collections</span>
-            <p className="font-heading text-xl font-black text-amber-900">
-              ₱{totalPending.toLocaleString()}.00
+          <div className="min-w-0 flex-1">
+            <span className="text-[9px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider truncate">Pending Collections</span>
+            <p className="font-heading text-sm sm:text-xl font-black text-amber-900 truncate">
+              ₱{(Number(totalPending) || 0).toLocaleString()}.00
             </p>
-            <span className="text-[10px] text-amber-700 font-semibold">Uncollected dues & pending fees</span>
+            <span className="text-[9px] sm:text-[10px] text-amber-700 font-semibold line-clamp-1">Uncollected dues & pending fees</span>
           </div>
         </div>
       </div>
 
-      {/* TWO-BUTTON GROUP / TAB NAVIGATION */}
+      {/* THREE-BUTTON GROUP / TAB NAVIGATION */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4 bg-white p-2 sm:p-2.5 rounded-2xl border border-[#e2ece2] shadow-xs">
-        <div className="flex p-1 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] w-full sm:w-auto">
+        <div className="flex p-1 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] w-full sm:w-auto overflow-x-auto">
           {/* Button 1: Funds */}
           <button
             type="button"
             onClick={() => setActiveTab('funds')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
               activeTab === 'funds'
                 ? 'bg-[#1b4332] text-white shadow-sm'
                 : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
@@ -946,7 +1015,7 @@ export const Finances: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('expenses')}
-            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-6 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
               activeTab === 'expenses'
                 ? 'bg-[#1b4332] text-white shadow-sm'
                 : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
@@ -955,11 +1024,25 @@ export const Finances: React.FC = () => {
             <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
             <span>Expenses</span>
           </button>
+
+          {/* Button 3: Accounts */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('accounts')}
+            className={`flex-1 sm:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+              activeTab === 'accounts'
+                ? 'bg-[#1b4332] text-white shadow-sm'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
+            }`}
+          >
+            <UserIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span>Accounts</span>
+          </button>
         </div>
 
         {/* Tab Action Button */}
         {canManageFinances ? (
-          activeTab === 'funds' ? (
+          activeTab === 'funds' || activeTab === 'accounts' ? (
             <button
               type="button"
               onClick={() => handleOpenLogRecord()}
@@ -1036,6 +1119,7 @@ export const Finances: React.FC = () => {
                       { value: 'All', label: 'All Items' },
                       { value: 'Membership Fee', label: 'Membership Fee' },
                       { value: 'Monthly Due', label: 'Monthly Due' },
+                      { value: 'Annual Upfront Promo', label: 'Annual Upfront Promo' },
                       { value: 'Vest Payment', label: 'Vest Payment' },
                       { value: 'Other', label: 'Other' },
                     ]}
@@ -1112,7 +1196,7 @@ export const Finances: React.FC = () => {
                       </div>
                       <div className="text-right">
                         <span className="text-[10px] text-[#52605d] block uppercase font-bold">Amount</span>
-                        <span className="font-black text-[#1b4332] text-sm">₱{rec.amount.toLocaleString()}.00</span>
+                        <span className="font-black text-[#1b4332] text-sm">₱{(Number(rec.amount) || 0).toLocaleString()}.00</span>
                       </div>
                     </div>
 
@@ -1124,7 +1208,7 @@ export const Finances: React.FC = () => {
 
                       <div className="text-right">
                         <span className="text-[10px] text-[#52605d] block uppercase font-bold">Date Paid</span>
-                        <span className="font-medium text-[#1b4332] text-xs">{rec.paidDate || rec.dueDate}</span>
+                        <span className="font-medium text-[#1b4332] text-xs">{formatDisplayDate(rec.paidDate || rec.dueDate)}</span>
                       </div>
                     </div>
 
@@ -1211,12 +1295,12 @@ export const Finances: React.FC = () => {
 
                         {/* Amount */}
                         <td className="py-3.5 px-3 font-black text-[#1b4332]">
-                          ₱{rec.amount.toLocaleString()}.00
+                          ₱{(Number(rec.amount) || 0).toLocaleString()}.00
                         </td>
 
                         {/* Dates */}
                         <td className="py-3.5 px-3 text-[#52605d]">
-                          <p className="font-medium text-[#1b4332] text-[11px]">{rec.paidDate || rec.dueDate}</p>
+                          <p className="font-medium text-[#1b4332] text-[11px]">{formatDisplayDate(rec.paidDate || rec.dueDate)}</p>
                         </td>
 
                         {/* Method */}
@@ -1409,7 +1493,7 @@ export const Finances: React.FC = () => {
                     <div className="text-right shrink-0">
                       <span className="text-[10px] text-rose-700 font-bold block uppercase">Disbursed</span>
                       <span className="font-black text-rose-700 text-sm">
-                        - ₱{exp.amount.toLocaleString()}.00
+                        - ₱{(Number(exp.amount) || 0).toLocaleString()}.00
                       </span>
                     </div>
                   </div>
@@ -1417,7 +1501,7 @@ export const Finances: React.FC = () => {
                   <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#e2ece2]">
                     <div>
                       <span className="text-[10px] text-[#52605d] block uppercase font-bold">Date</span>
-                      <span className="font-medium text-[#1b4332]">{exp.date}</span>
+                      <span className="font-medium text-[#1b4332]">{formatDisplayDate(exp.date)}</span>
                     </div>
                     <div>
                       <span className="text-[10px] text-[#52605d] block uppercase font-bold">Receipt / Ref #</span>
@@ -1515,12 +1599,12 @@ export const Finances: React.FC = () => {
 
                       {/* Amount */}
                       <td className="py-3.5 px-3 font-black text-rose-700">
-                        - ₱{exp.amount.toLocaleString()}.00
+                        - ₱{(Number(exp.amount) || 0).toLocaleString()}.00
                       </td>
 
                       {/* Date */}
                       <td className="py-3.5 px-3 text-[#52605d] font-medium">
-                        {exp.date}
+                        {formatDisplayDate(exp.date)}
                       </td>
 
                       {/* Receipt / Ref # */}
@@ -1613,6 +1697,360 @@ export const Finances: React.FC = () => {
         </div>
       )}
 
+      {/* TAB CONTENT 3: ACCOUNTS (MEMBER FINANCIAL ACCOUNTS & TRANSACTIONS) */}
+      {activeTab === 'accounts' && (
+        <div className="bg-white rounded-3xl p-4 sm:p-6 border border-[#e2ece2] shadow-xs space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-[#e2ece2]">
+            <div>
+              <h3 className="font-heading text-base font-extrabold text-[#1b4332] flex items-center gap-2">
+                <UserIcon className="w-4 h-4 text-[#2d6a4f]" />
+                <span>Member Accounts & Transaction Status</span>
+              </h3>
+              <p className="text-xs text-[#52605d]">
+                View individual member financial accounts, membership fee status, monthly dues, and transaction histories.
+              </p>
+            </div>
+
+            {/* Admin Member Selector */}
+            {canManageFinances && (
+              <div className="flex items-center gap-2 min-w-[240px]">
+                <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Member Account:</span>
+                <div className="flex-1">
+                  <CustomSelect
+                    value={accountMemberId}
+                    onChange={setAccountMemberId}
+                    options={[
+                      { value: 'my_account', label: `My Account (${currentUser?.name || 'Member'})` },
+                      { value: 'all_members', label: '📋 All Members Overview' },
+                      ...users.map(u => ({
+                        value: u.id,
+                        label: `${u.name} (${u.memberNumber || 'BRC-MEMBER'})`,
+                      })),
+                    ]}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* MODE A: ALL MEMBERS OVERVIEW (When Admin selects 'all_members') */}
+          {canManageFinances && accountMemberId === 'all_members' ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="relative w-full sm:w-80">
+                  <Search className="w-4 h-4 text-[#52605d] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search member name or member #..."
+                    value={accountSearchQuery}
+                    onChange={e => setAccountSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                  />
+                </div>
+              </div>
+
+              {/* Members Accounts Directory Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-[#e2ece2] text-[#52605d] uppercase font-bold tracking-wider text-[10px] bg-[#f7f9f7]">
+                      <th className="py-3 px-4">Member Info</th>
+                      <th className="py-3 px-3">Membership Fee</th>
+                      <th className="py-3 px-3">Latest Monthly Due</th>
+                      <th className="py-3 px-3">Total Dues Paid</th>
+                      <th className="py-3 px-3">Pending Dues</th>
+                      <th className="py-3 px-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[#e2ece2]">
+                    {users
+                      .filter(u =>
+                        u.name.toLowerCase().includes(accountSearchQuery.toLowerCase()) ||
+                        (u.memberNumber && u.memberNumber.toLowerCase().includes(accountSearchQuery.toLowerCase()))
+                      )
+                      .map(u => {
+                        const uRecs = records.filter(r => r.userId === u.id);
+                        const mf = uRecs.find(r => r.itemType === 'Membership Fee');
+                        const mfStatus = mf?.status || 'Pending';
+                        
+                        const mDues = uRecs.filter(r => r.itemType === 'Monthly Due');
+                        const latestDue = mDues.slice().sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0];
+                        
+                        const totalPaid = uRecs.filter(r => r.status === 'Paid').reduce((sum, r) => sum + r.amount, 0);
+                        const pendingCount = uRecs.filter(r => r.status === 'Pending' || r.status === 'Overdue').length;
+
+                        return (
+                          <tr key={u.id} className="hover:bg-[#f7f9f7]/60 transition-colors">
+                            <td className="py-3.5 px-4 font-black text-[#1b4332]">
+                              <p className="text-xs font-black">{u.name}</p>
+                              <span className="text-[10px] text-[#52605d] font-mono">{u.memberNumber || 'BRC-MEMBER'}</span>
+                            </td>
+                            <td className="py-3.5 px-3">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                mfStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                Membership Fee: {mfStatus}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-3">
+                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                (latestDue?.status || 'Pending') === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                              }`}>
+                                Monthly Due: {latestDue?.status || 'Pending'}
+                              </span>
+                            </td>
+                            <td className="py-3.5 px-3 font-bold text-[#1b4332]">
+                              ₱{totalPaid.toLocaleString()}.00
+                            </td>
+                            <td className="py-3.5 px-3 font-bold text-amber-800">
+                              {pendingCount > 0 ? `${pendingCount} item(s) pending` : 'All Paid'}
+                            </td>
+                            <td className="py-3.5 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => setAccountMemberId(u.id)}
+                                className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-[11px] font-bold cursor-pointer transition-all"
+                              >
+                                View Transactions
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            /* MODE B: INDIVIDUAL MEMBER ACCOUNT STATEMENT (For logged in member or selected member) */
+            (() => {
+              const targetMemberId =
+                accountMemberId === 'my_account' || !canManageFinances
+                  ? currentUser?.id || ''
+                  : accountMemberId;
+
+              const targetUser =
+                users.find(u => u.id === targetMemberId) ||
+                (currentUser?.id === targetMemberId ? currentUser : null);
+
+              const memberName = targetUser?.name || currentUser?.name || 'Member';
+              const memberNo = targetUser?.memberNumber || currentUser?.memberNumber || 'BRC-MEMBER';
+
+              const uRecords = records.filter(r => r.userId === targetMemberId);
+
+              // Membership Fee Status
+              const mfRec = uRecords.find(r => r.itemType === 'Membership Fee');
+              const mfStatus = mfRec?.status || 'Pending';
+              const mfAmount = mfRec?.amount || 200;
+
+              // Latest Monthly Due Status
+              const monthlyDueRecs = uRecords.filter(r => r.itemType === 'Monthly Due');
+              const latestMonthlyDueRec = monthlyDueRecs.slice().sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0];
+              const monthlyDueStatus = latestMonthlyDueRec?.status || 'Pending';
+              const monthlyDueAmount = latestMonthlyDueRec?.amount || 200;
+              const monthlyDueMonth = latestMonthlyDueRec?.coveredMonth || 'Current';
+
+              // Totals
+              const totalPaid = uRecords.filter(r => r.status === 'Paid').reduce((sum, r) => sum + r.amount, 0);
+              const totalPending = uRecords.filter(r => r.status === 'Pending' || r.status === 'Overdue').reduce((sum, r) => sum + r.amount, 0);
+
+              // Filter member records for transaction history
+              const filteredMemberRecs = uRecords.filter(r => {
+                const title = getItemTitle(r).toLowerCase();
+                const q = accountSearchQuery.toLowerCase();
+                return (
+                  title.includes(q) ||
+                  r.itemType.toLowerCase().includes(q) ||
+                  r.status.toLowerCase().includes(q) ||
+                  (r.referenceNo && r.referenceNo.toLowerCase().includes(q))
+                );
+              });
+
+              return (
+                <div className="space-y-4">
+                  {/* MEMBER TRANSACTIONS HISTORY HEADER & SEARCH */}
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#f7f9f7] p-3.5 sm:p-4 rounded-2xl border border-[#e2ece2]">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-[#1b4332] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                        <FileText className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-heading text-xs sm:text-sm font-extrabold text-[#1b4332] leading-snug">
+                          Statement of Transactions
+                        </h4>
+                        <p className="text-[10px] sm:text-xs text-[#52605d] font-medium">
+                          Showing transactions for <span className="font-bold text-[#1b4332]">{memberName}</span> <span className="font-mono text-[10px] text-[#2d6a4f]">({memberNo})</span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="relative w-full sm:w-64 shrink-0">
+                      <Search className="w-3.5 h-3.5 text-[#52605d] absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Search transactions..."
+                        value={accountSearchQuery}
+                        onChange={e => setAccountSearchQuery(e.target.value)}
+                        className="w-full pl-8 pr-3 py-2 bg-white border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* MOBILE CARDS VIEW (Visible on small screens) */}
+                  <div className="block sm:hidden space-y-2.5">
+                    {filteredMemberRecs.length === 0 ? (
+                      <div className="p-6 text-center text-[#52605d] bg-[#f7f9f7] rounded-2xl border border-[#e2ece2]">
+                        <AlertCircle className="w-6 h-6 text-stone-300 mx-auto mb-1" />
+                        <p className="font-bold text-stone-600 text-xs">No transaction records found</p>
+                      </div>
+                    ) : (
+                      filteredMemberRecs.map(rec => {
+                        const isPaid = rec.status === 'Paid';
+                        const isPending = rec.status === 'Pending';
+                        const isOverdue = rec.status === 'Overdue';
+
+                        return (
+                          <div
+                            key={rec.id}
+                            className="p-3.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-2xl space-y-2.5 hover:border-[#2d6a4f] transition-all"
+                          >
+                            <div className="flex items-start justify-between gap-2 border-b border-[#e2ece2] pb-2">
+                              <div>
+                                <h5 className="font-bold text-xs text-[#1b4332] leading-tight">
+                                  {getItemTitle(rec)}
+                                </h5>
+                                <p className="text-[10px] text-[#52605d] mt-0.5 font-medium">
+                                  Period: <span className="font-semibold text-[#1b4332]">{rec.coveredMonth || formatDisplayDate(rec.dueDate)}</span>
+                                </p>
+                              </div>
+                              <span
+                                className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider shrink-0 ${
+                                  isPaid
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : isPending
+                                    ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                                    : isOverdue
+                                    ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                                    : 'bg-stone-200 text-stone-700'
+                                }`}
+                              >
+                                {rec.itemType === 'Membership Fee'
+                                  ? `Membership Fee: ${rec.status}`
+                                  : rec.itemType === 'Monthly Due'
+                                  ? `Monthly Due: ${rec.status}`
+                                  : rec.status}
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2 text-[10px]">
+                              <div>
+                                <span className="text-[#52605d] font-bold block">Amount:</span>
+                                <span className="text-xs font-black text-[#1b4332]">
+                                  ₱{(Number(rec.amount) || 0).toLocaleString()}.00
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[#52605d] font-bold block">Method:</span>
+                                <span className="font-semibold text-[#1b4332]">
+                                  {rec.paymentMethod || 'GCash'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[#52605d] font-bold block">Reference No:</span>
+                                <span className="font-mono text-[#1b4332] font-semibold">
+                                  {rec.referenceNo || '-'}
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-[#52605d] font-bold block">Date Updated:</span>
+                                <span className="font-semibold text-[#1b4332]">
+                                  {formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+
+                  {/* DESKTOP TABLE VIEW (Visible on tablet/desktop screens) */}
+                  <div className="hidden sm:block overflow-x-auto rounded-2xl border border-[#e2ece2]">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[#e2ece2] text-[#52605d] uppercase font-bold tracking-wider text-[10px] bg-[#f7f9f7]">
+                          <th className="py-3 px-4">Transaction Item</th>
+                          <th className="py-3 px-3">Covered Month / Date</th>
+                          <th className="py-3 px-3">Amount</th>
+                          <th className="py-3 px-3">Status</th>
+                          <th className="py-3 px-3">Payment Method</th>
+                          <th className="py-3 px-3">Ref #</th>
+                          <th className="py-3 px-3">Date Updated</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#e2ece2]">
+                        {filteredMemberRecs.length === 0 ? (
+                          <tr>
+                            <td colSpan={7} className="py-8 text-center text-[#52605d]">
+                              <AlertCircle className="w-6 h-6 text-stone-300 mx-auto mb-1" />
+                              <p className="font-bold text-stone-600 text-xs">No transaction records found</p>
+                            </td>
+                          </tr>
+                        ) : (
+                          filteredMemberRecs.map(rec => {
+                            const isPaid = rec.status === 'Paid';
+                            const isPending = rec.status === 'Pending';
+                            const isOverdue = rec.status === 'Overdue';
+
+                            return (
+                              <tr key={rec.id} className="hover:bg-[#f7f9f7]/60 transition-colors">
+                                <td className="py-3.5 px-4 font-black text-[#1b4332]">
+                                  {getItemTitle(rec)}
+                                </td>
+                                <td className="py-3.5 px-3 text-[#52605d] font-medium">
+                                  {rec.coveredMonth || formatDisplayDate(rec.dueDate)}
+                                </td>
+                                <td className="py-3.5 px-3 font-black text-[#1b4332]">
+                                  ₱{(Number(rec.amount) || 0).toLocaleString()}.00
+                                </td>
+                                <td className="py-3.5 px-3">
+                                  <span
+                                    className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                                      isPaid
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : isPending
+                                        ? 'bg-amber-100 text-amber-800'
+                                        : isOverdue
+                                        ? 'bg-rose-100 text-rose-800'
+                                        : 'bg-stone-200 text-stone-700'
+                                    }`}
+                                  >
+                                    {rec.itemType === 'Membership Fee' ? `Membership Fee: ${rec.status}` : rec.itemType === 'Monthly Due' ? `Monthly Due: ${rec.status}` : rec.status}
+                                  </span>
+                                </td>
+                                <td className="py-3.5 px-3 text-[#52605d] font-medium">
+                                  {rec.paymentMethod || 'GCash'}
+                                </td>
+                                <td className="py-3.5 px-3 font-mono text-[#1b4332]">
+                                  {rec.referenceNo || '-'}
+                                </td>
+                                <td className="py-3.5 px-3 text-[#52605d] font-medium">
+                                  {formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            })()
+          )}
+        </div>
+      )}
+
       {/* MODAL: RECORD PAYMENT (FUNDS) */}
       {showAddRecordModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
@@ -1688,6 +2126,31 @@ export const Finances: React.FC = () => {
                   </div>
                 )}
 
+                {/* Annual Upfront Promo Banner & Year Selection */}
+                {recItemType === 'Annual Upfront Promo' && (
+                  <div className="p-3.5 bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-50 rounded-xl border border-emerald-200 space-y-2.5">
+                    <div className="flex items-center gap-2">
+                      <span className="bg-amber-400 text-slate-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-full shadow-xs">
+                        January Annual Promo
+                      </span>
+                      <span className="text-xs font-bold text-[#1b4332]">₱1,000.00 Upfront Rate</span>
+                    </div>
+                    <p className="text-[11px] text-emerald-900 leading-snug">
+                      🎉 Covers all 12 monthly dues for the selected year in advance! Regular value is ₱1,200/year (₱100/mo). Member saves <strong>₱200</strong>!
+                    </p>
+                    <div>
+                      <label className="block text-[11px] font-bold text-[#1b4332] mb-1">
+                        Select Covered Year
+                      </label>
+                      <CustomSelect
+                        value={recYear}
+                        onChange={setRecYear}
+                        options={YEARS_LIST}
+                      />
+                    </div>
+                  </div>
+                )}
+
                 {/* Custom Item Name if Other */}
                 {recItemType === 'Other' && (
                   <div>
@@ -1705,32 +2168,34 @@ export const Finances: React.FC = () => {
                   </div>
                 )}
 
-                {/* Amount & Status */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                      Amount (₱)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={recAmount}
-                      onChange={e => setRecAmount(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-black text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                      required
-                    />
-                  </div>
+                {/* Amount & Status (hidden for Monthly Due) */}
+                {recItemType !== 'Monthly Due' && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                        Amount (₱)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={recAmount}
+                        onChange={e => setRecAmount(e.target.value)}
+                        className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-black text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        required
+                      />
+                    </div>
 
-                  <div>
-                    <CustomSelect
-                      label="Payment Status"
-                      value={recStatus}
-                      onChange={val => setRecStatus(val as any)}
-                      options={['Paid', 'Pending', 'Overdue', 'Waived']}
-                    />
+                    <div>
+                      <CustomSelect
+                        label="Payment Status"
+                        value={recStatus}
+                        onChange={val => setRecStatus(val as any)}
+                        options={['Paid', 'Pending', 'Overdue', 'Waived']}
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* Payment Method */}
                 <div>
@@ -1761,19 +2226,21 @@ export const Finances: React.FC = () => {
                   />
                 </div>
 
-                {/* Notes */}
-                <div>
-                  <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                    Notes / Remarks
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Size L vest order, receipt verified by Treasurer"
-                    value={recNotes}
-                    onChange={e => setRecNotes(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
-                  />
-                </div>
+                {/* Notes (hidden for Monthly Due) */}
+                {recItemType !== 'Monthly Due' && (
+                  <div>
+                    <label className="block text-xs font-bold text-[#1b4332] mb-1">
+                      Notes / Remarks
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Size L vest order, receipt verified by Treasurer"
+                      value={recNotes}
+                      onChange={e => setRecNotes(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-3 mt-4 border-t border-[#e2ece2] shrink-0">
@@ -1992,7 +2459,7 @@ export const Finances: React.FC = () => {
               <div className="pt-2 border-t border-[#e2ece2] flex items-center justify-between">
                 <span className="text-xs font-bold text-[#52605d]">Record Amount:</span>
                 <span className="text-sm font-black text-rose-700">
-                  ₱{deleteTarget.amount.toLocaleString()}.00
+                  ₱{(Number(deleteTarget?.amount) || 0).toLocaleString()}.00
                 </span>
               </div>
             </div>

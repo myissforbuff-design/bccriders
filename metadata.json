@@ -1,6 +1,6 @@
 {
   "name": "BCC Riders Club",
   "description": "Comprehensive ERP system for BCC Riders Club featuring membership tracking, annual dues payments, event scheduling, community ride board, rider milestone profiles, mileage leaderboards, offline route maps, and push alerts.",
-  "requestFramePermissions": ["camera", "geolocation", "notifications"],
+  "requestFramePermissions": ["camera", "notifications"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
