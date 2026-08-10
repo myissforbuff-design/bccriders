@@ -769,7 +769,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                 >
                   <div className="border-b border-[#e2ece2] pb-2.5 sm:pb-3">
                     <h2 className="font-heading font-black text-xs sm:text-lg text-[#1b4332] uppercase tracking-wide">
-                      Page 1: Personal Information
+                      Personal Information
                     </h2>
                     <p className="text-[10px] sm:text-xs text-[#52605d]">
                       Please fill out your personal details. Required fields are marked with an asterisk (*).
@@ -986,7 +986,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                 >
                   <div className="border-b border-[#e2ece2] pb-2.5 sm:pb-3">
                     <h2 className="font-heading font-black text-xs sm:text-lg text-[#1b4332] uppercase tracking-wide">
-                      Page 2: BCC Information
+                      BCC Information
                     </h2>
                     <p className="text-[10px] sm:text-xs text-[#52605d]">
                       Select your church network, local chapter, and affiliation details. Required fields are marked with (*).
@@ -1058,7 +1058,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                 >
                   <div className="border-b border-[#e2ece2] pb-2.5 sm:pb-3">
                     <h2 className="font-heading font-black text-xs sm:text-lg text-[#1b4332] uppercase tracking-wide">
-                      Page 3: Emergency Contact
+                      Emergency Contact
                     </h2>
                     <p className="text-[10px] sm:text-xs text-[#52605d]">
                       Provide a primary emergency contact person for ride safety and dispatch. All fields marked with (*) are required.
@@ -1121,7 +1121,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                 >
                   <div className="border-b border-[#e2ece2] pb-2.5 sm:pb-3">
                     <h2 className="font-heading font-black text-xs sm:text-lg text-[#1b4332] uppercase tracking-wide">
-                      Page 4: Motorcycle & Driver's License Information
+                      Motorcycle & Driver's License Information
                     </h2>
                     <p className="text-[10px] sm:text-xs text-[#52605d]">
                       Provide your motorcycle details, registration info, Driver's License details, and LTO 2026 Restriction Codes.
@@ -1557,7 +1557,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                 >
                   <div className="border-b border-[#e2ece2] pb-2.5 sm:pb-3">
                     <h2 className="font-heading font-black text-xs sm:text-lg text-[#1b4332] uppercase tracking-wide">
-                      Page 5: Applicant's Declaration
+                      Applicant's Declaration
                     </h2>
                     <p className="text-[10px] sm:text-xs text-[#52605d]">
                       Read the membership agreement declaration and sign using your mouse or touchscreen.
