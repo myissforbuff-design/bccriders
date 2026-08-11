@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { jsPDF } from 'jspdf';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { store } from '../lib/db';
@@ -134,16 +135,89 @@ export const Settings: React.FC = () => {
 
   // Reports & Export Center State
   const [reportYearFilter, setReportYearFilter] = useState<string>('All');
+  const [isYearDropdownOpen, setIsYearDropdownOpen] = useState(false);
+  const yearDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        yearDropdownRef.current &&
+        !yearDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsYearDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
   const [reportPayments, setReportPayments] = useState<any[]>([]);
   const [reportExpenses, setReportExpenses] = useState<any[]>([]);
   const [reportUsers, setReportUsers] = useState<User[]>([]);
+
+  const availableYears = React.useMemo(() => {
+    const yearSet = new Set<string>();
+
+    const extractYear = (val?: string) => {
+      if (!val) return;
+      const match = val.match(/\b(20\d\d)\b/);
+      if (match) {
+        yearSet.add(match[1]);
+      }
+    };
+
+    reportPayments.forEach((p) => {
+      extractYear(p.paidDate);
+      extractYear(p.createdAt);
+      extractYear(p.coveredMonth);
+      extractYear(p.dueDate);
+    });
+
+    reportExpenses.forEach((e) => {
+      extractYear(e.date);
+      extractYear(e.createdAt);
+    });
+
+    if (yearSet.size === 0) {
+      yearSet.add(new Date().getFullYear().toString());
+    }
+
+    return Array.from(yearSet).sort((a, b) => Number(b) - Number(a));
+  }, [reportPayments, reportExpenses]);
   const [previewModal, setPreviewModal] = useState<{
     title: string;
     subtitle: string;
     headers: string[];
     rows: (string | number)[][];
     onDownload: () => void;
+    onXlsDownload?: () => void;
+    onPdfDownload?: () => void;
   } | null>(null);
+
+  const modalScrollRef = useRef<HTMLDivElement | null>(null);
+  const [isDraggingModal, setIsDraggingModal] = useState(false);
+  const [modalStartX, setModalStartX] = useState(0);
+  const [modalScrollLeft, setModalScrollLeft] = useState(0);
+
+  const handleModalMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!modalScrollRef.current) return;
+    setIsDraggingModal(true);
+    setModalStartX(e.pageX - modalScrollRef.current.offsetLeft);
+    setModalScrollLeft(modalScrollRef.current.scrollLeft);
+  };
+
+  const handleModalMouseLeaveOrUp = () => {
+    setIsDraggingModal(false);
+  };
+
+  const handleModalMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!isDraggingModal || !modalScrollRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - modalScrollRef.current.offsetLeft;
+    const walk = (x - modalStartX) * 1.5;
+    modalScrollRef.current.scrollLeft = modalScrollLeft - walk;
+  };
 
   useModalDismiss(showMonthlyDueModal, () => setShowMonthlyDueModal(false));
   useModalDismiss(showCollectionModal, () => setShowCollectionModal(false));
@@ -152,31 +226,110 @@ export const Settings: React.FC = () => {
   useModalDismiss(Boolean(previewModal), () => setPreviewModal(null));
 
   const loadReportsData = () => {
-    // Users
-    const uList = store.getUsers();
+    // Users (Exclude Admin)
+    const uList = store.getUsers().filter((u) => {
+      const isUserAdmin =
+        u.role === 'admin' ||
+        u.role?.toLowerCase() === 'admin' ||
+        u.role?.toLowerCase() === 'administrator' ||
+        u.id === 'usr_admin' ||
+        u.id === 'admin' ||
+        u.username?.toLowerCase() === 'admin' ||
+        u.email?.toLowerCase().includes('admin@');
+      return !isUserAdmin;
+    });
     setReportUsers(uList);
 
-    // Payments
-    const pList = store.getPayments();
-    setReportPayments(pList);
+    // Payments & Dues (Include Membership Fees, Dues, and all Finance Records, Exclude Admin)
+    let finList: any[] = [];
+    try {
+      const item = localStorage.getItem('bcc_finance_records_v3');
+      if (item) {
+        const parsed = JSON.parse(item);
+        if (Array.isArray(parsed)) finList = parsed;
+      }
+    } catch (e) {
+      console.error(e);
+    }
 
-    // Expenses
+    // Combine with store payments if any missing
+    const combinedPayments = [...finList];
+    const existingIds = new Set(finList.map((p) => p.id));
+    store.getPayments().forEach((p) => {
+      if (!existingIds.has(p.id)) {
+        combinedPayments.push({
+          id: p.id,
+          userId: p.userId,
+          userName: p.userName,
+          itemType: p.type || 'Other',
+          amount: p.amount,
+          status: p.status,
+          paymentMethod: p.paymentMethod,
+          paidDate: p.createdAt,
+          createdAt: p.createdAt,
+          updatedAt: p.createdAt,
+          notes: p.description,
+        });
+      }
+    });
+
+    const adminUserIds = new Set(
+      store
+        .getUsers()
+        .filter(
+          (u) =>
+            u.role === 'admin' ||
+            u.role?.toLowerCase() === 'admin' ||
+            u.id === 'usr_admin' ||
+            u.id === 'admin'
+        )
+        .map((u) => u.id)
+    );
+
+    const filterNonAdminPayments = (arr: any[]) =>
+      arr.filter(
+        (p) =>
+          !adminUserIds.has(p.userId) &&
+          p.userId !== 'usr_admin' &&
+          p.userId !== 'admin' &&
+          p.userName !== 'Admin' &&
+          p.userName?.toLowerCase() !== 'admin'
+      );
+
+    setReportPayments(filterNonAdminPayments(combinedPayments));
+
+    fetch('/api/mongodb/financeLogs')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.data)) {
+          setReportPayments(filterNonAdminPayments(data.data));
+          localStorage.setItem('bcc_finance_records_v3', JSON.stringify(data.data));
+        }
+      })
+      .catch(() => {});
+
+    // Expenses (Sync from bcc_expense_records_v1 & MongoDB liquidationLogs)
     let expList: any[] = [];
     try {
-      const expItem = localStorage.getItem('brc_finance_expenses');
-      if (expItem) expList = JSON.parse(expItem);
+      const expItem = localStorage.getItem('bcc_expense_records_v1');
+      if (expItem) {
+        const parsed = JSON.parse(expItem);
+        if (Array.isArray(parsed)) expList = parsed;
+      }
     } catch (e) {
       console.error(e);
     }
     setReportExpenses(expList);
 
-    // Sync from MongoDB if available
     fetch('/api/mongodb/liquidationLogs')
       .then((res) => res.json())
       .then((data) => {
-        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        if (data.success && Array.isArray(data.data)) {
           setReportExpenses(data.data);
-          localStorage.setItem('brc_finance_expenses', JSON.stringify(data.data));
+          localStorage.setItem('bcc_expense_records_v1', JSON.stringify(data.data));
+          try {
+            localStorage.removeItem('brc_finance_expenses');
+          } catch {}
         }
       })
       .catch(() => {});
@@ -209,6 +362,127 @@ export const Settings: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const downloadXLSFile = (filename: string, headers: string[], rows: (string | number)[][]) => {
+    let tableRowsHtml = '';
+
+    rows.forEach((row) => {
+      const cell1 = String(row[0] || '').trim();
+      const rawCell2 = row[1] !== undefined && row[1] !== '' ? String(row[1]) : '';
+
+      const isBorderLine = cell1.startsWith('---') || cell1.startsWith('===');
+      if (isBorderLine) {
+        return;
+      }
+
+      const isMainTitle = cell1 === 'BCC RIDERS CLUB - FINANCIAL STATEMENT';
+      const isSectionHeader = ['FUNDS', 'EXPENSES', 'SUPPLEMENTARY ACCOUNTS'].includes(cell1);
+      const isTotalRow = cell1.startsWith('Total');
+      const isNetRow = cell1.startsWith('NET INCOME');
+
+      if (isMainTitle) {
+        tableRowsHtml += `
+          <tr>
+            <td colspan="2" style="font-weight: bold; font-size: 11pt; text-align: center; background-color: #1b4332; color: #ffffff; padding: 8px; border: 1px solid #1b4332;">
+              ${cell1} ${rawCell2 ? `(${rawCell2})` : ''}
+            </td>
+          </tr>
+        `;
+      } else if (isSectionHeader) {
+        tableRowsHtml += `
+          <tr>
+            <td style="font-weight: bold; font-size: 10pt; background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 6px 10px;">${cell1}</td>
+            <td style="border: 1px solid #cbd5e1; background-color: #f8fafc;"></td>
+          </tr>
+        `;
+      } else if (isTotalRow) {
+        const numVal = Number(rawCell2);
+        const formattedAmount = !isNaN(numVal) ? `₱${numVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : rawCell2;
+        tableRowsHtml += `
+          <tr>
+            <td style="font-weight: bold; border: 1px solid #cbd5e1; padding: 6px 10px; background-color: #ffffff;">${cell1}</td>
+            <td style="font-weight: bold; border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right; background-color: #ffffff;">${formattedAmount}</td>
+          </tr>
+        `;
+      } else if (isNetRow) {
+        const numVal = Number(rawCell2);
+        const formattedAmount = !isNaN(numVal) ? `₱${numVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : rawCell2;
+        tableRowsHtml += `
+          <tr>
+            <td style="font-weight: bold; font-size: 11pt; border: 1px solid #cbd5e1; padding: 8px 10px; background-color: #f0fdf4; color: #166534;">${cell1}</td>
+            <td style="font-weight: bold; font-size: 11pt; border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right; background-color: #f0fdf4; color: #166534;">${formattedAmount}</td>
+          </tr>
+        `;
+      } else if (cell1 === '' && rawCell2 === '') {
+        tableRowsHtml += `
+          <tr>
+            <td style="height: 12px; border: none;"></td>
+            <td style="height: 12px; border: none;"></td>
+          </tr>
+        `;
+      } else {
+        const isIndented = String(row[0] || '').startsWith('  ');
+        const numVal = Number(rawCell2);
+        const formattedAmount = rawCell2 !== '' && !isNaN(numVal) ? `₱${numVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : rawCell2;
+        tableRowsHtml += `
+          <tr>
+            <td style="border: 1px solid #cbd5e1; padding: 5px 10px ${isIndented ? '; padding-left: 24px' : ''};">${cell1}</td>
+            <td style="border: 1px solid #cbd5e1; padding: 5px 10px; text-align: right;">${formattedAmount}</td>
+          </tr>
+        `;
+      }
+    });
+
+    const excelHtml = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>Sheet1</x:Name>
+                <x:WorksheetOptions>
+                  <x:DisplayGridlines/>
+                </x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>
+          table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
+          th { font-weight: bold; background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 6px 12px; }
+          td { border: 1px solid #cbd5e1; padding: 6px 12px; }
+        </style>
+      </head>
+      <body>
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 320px; text-align: left; border: 1px solid #cbd5e1;">${headers[0] || 'Account / Line Item'}</th>
+              <th style="width: 180px; text-align: right; border: 1px solid #cbd5e1;">${headers[1] || 'Amount (PHP)'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tableRowsHtml}
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename.replace(/\.csv$/, '.xls'));
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const getMembersReportData = () => {
     const headers = [
       'Member ID',
@@ -228,7 +502,12 @@ export const Settings: React.FC = () => {
     ];
 
     const activeOrAllUsers = reportUsers.filter(
-      (u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')
+      (u) =>
+        u.role !== 'admin' &&
+        u.role?.toLowerCase() !== 'admin' &&
+        u.id !== 'usr_admin' &&
+        u.id !== 'admin' &&
+        (u.approvalStatus === 'Approved' || !u.approvalStatus)
     );
 
     const rows = activeOrAllUsers.map((u) => [
@@ -273,7 +552,8 @@ export const Settings: React.FC = () => {
             (p) =>
               p.paidDate?.includes(reportYearFilter) ||
               p.createdAt?.includes(reportYearFilter) ||
-              p.coveredMonth?.includes(reportYearFilter)
+              p.coveredMonth?.includes(reportYearFilter) ||
+              p.dueDate?.includes(reportYearFilter)
           )
         : reportPayments;
 
@@ -283,9 +563,9 @@ export const Settings: React.FC = () => {
       p.id,
       p.paidDate || p.createdAt || 'N/A',
       p.userMemberNo || p.userId || 'N/A',
-      userMap.get(p.userId) || p.userMemberNo || 'N/A',
-      p.itemType,
-      p.customItemName || p.coveredMonth || 'N/A',
+      userMap.get(p.userId) || p.userName || p.userMemberNo || 'N/A',
+      p.itemType || p.type || 'Other',
+      p.customItemName || p.coveredMonth || p.description || 'N/A',
       Number(p.amount) || 0,
       p.status,
       p.paymentMethod || 'Cash/G-Cash',
@@ -343,7 +623,8 @@ export const Settings: React.FC = () => {
             (p) =>
               p.paidDate?.includes(reportYearFilter) ||
               p.createdAt?.includes(reportYearFilter) ||
-              p.coveredMonth?.includes(reportYearFilter)
+              p.coveredMonth?.includes(reportYearFilter) ||
+              p.dueDate?.includes(reportYearFilter)
           )
         : reportPayments;
 
@@ -377,7 +658,7 @@ export const Settings: React.FC = () => {
 
     const incomeByType: Record<string, number> = {};
     paidPayments.forEach((p) => {
-      const key = p.itemType || 'Other';
+      const key = p.itemType || p.type || 'Other Funds';
       incomeByType[key] = (incomeByType[key] || 0) + (Number(p.amount) || 0);
     });
 
@@ -388,32 +669,331 @@ export const Settings: React.FC = () => {
         (expenseByCategory[key] || 0) + (Number(e.amount) || 0);
     });
 
-    const headers = ['Financial Metric / Category', 'Value (PHP)', 'Percentage / Notes'];
+    const headers = ['Account / Line Item', 'Amount (PHP)'];
 
     const rows: (string | number)[][] = [
-      ['--- EXECUTIVE FINANCIAL SUMMARY ---', '', ''],
-      ['Total Income Collected (Inflows)', totalIncome.toFixed(2), '100%'],
-      ['Total Disbursements / Liquidation (Outflows)', totalExpenses.toFixed(2), ''],
-      ['Net Operating Cash Flow Surplus / (Deficit)', netSurplus.toFixed(2), totalIncome > 0 ? `${((netSurplus / totalIncome) * 100).toFixed(1)}% margin` : 'N/A'],
-      ['Accounts Receivable (Pending Dues)', totalReceivables.toFixed(2), 'Uncollected Inflows'],
-      ['', '', ''],
-      ['--- INFLOW BREAKDOWN BY ITEM TYPE ---', '', ''],
+      ['BCC RIDERS CLUB - FINANCIAL STATEMENT', reportYearFilter === 'All' ? 'All Time' : `FY ${reportYearFilter}`],
+      ['', ''],
+      ['FUNDS', ''],
     ];
 
-    Object.entries(incomeByType).forEach(([cat, amt]) => {
-      const pct = totalIncome > 0 ? `${((amt / totalIncome) * 100).toFixed(1)}%` : '0%';
-      rows.push([cat, amt.toFixed(2), pct]);
-    });
+    if (Object.keys(incomeByType).length === 0) {
+      rows.push(['  No funds items recorded', '0.00']);
+    } else {
+      Object.entries(incomeByType).forEach(([cat, amt]) => {
+        rows.push([`  ${cat}`, amt.toFixed(2)]);
+      });
+    }
 
-    rows.push(['', '', '']);
-    rows.push(['--- OUTFLOW BREAKDOWN BY EXPENSE CATEGORY ---', '', '']);
+    rows.push(['Total Funds', totalIncome.toFixed(2)]);
+    rows.push(['', '']);
+    rows.push(['EXPENSES', '']);
 
-    Object.entries(expenseByCategory).forEach(([cat, amt]) => {
-      const pct = totalExpenses > 0 ? `${((amt / totalExpenses) * 100).toFixed(1)}%` : '0%';
-      rows.push([cat, amt.toFixed(2), pct]);
-    });
+    if (Object.keys(expenseByCategory).length === 0) {
+      rows.push(['  No expense items recorded', '0.00']);
+    } else {
+      Object.entries(expenseByCategory).forEach(([cat, amt]) => {
+        rows.push([`  ${cat}`, amt.toFixed(2)]);
+      });
+    }
+
+    rows.push(['Total Expenses', totalExpenses.toFixed(2)]);
+    rows.push(['', '']);
+    rows.push(['NET INCOME (OPERATING SURPLUS)', netSurplus.toFixed(2)]);
+    rows.push(['', '']);
+    rows.push(['SUPPLEMENTARY ACCOUNTS', '']);
+    rows.push(['Accounts Receivable (Pending Dues)', totalReceivables.toFixed(2)]);
 
     return { headers, rows };
+  };
+
+  const exportFinancialStatementPDF = () => {
+    const pFiltered =
+      reportYearFilter !== 'All'
+        ? reportPayments.filter(
+            (p) =>
+              p.paidDate?.includes(reportYearFilter) ||
+              p.createdAt?.includes(reportYearFilter) ||
+              p.coveredMonth?.includes(reportYearFilter) ||
+              p.dueDate?.includes(reportYearFilter)
+          )
+        : reportPayments;
+
+    const eFiltered =
+      reportYearFilter !== 'All'
+        ? reportExpenses.filter(
+            (e) =>
+              e.date?.includes(reportYearFilter) ||
+              e.createdAt?.includes(reportYearFilter)
+          )
+        : reportExpenses;
+
+    const paidPayments = pFiltered.filter((p) => p.status === 'Paid');
+    const pendingPayments = pFiltered.filter(
+      (p) => p.status === 'Pending' || p.status === 'Overdue'
+    );
+
+    const totalIncome = paidPayments.reduce(
+      (acc, p) => acc + (Number(p.amount) || 0),
+      0
+    );
+    const totalExpenses = eFiltered.reduce(
+      (acc, e) => acc + (Number(e.amount) || 0),
+      0
+    );
+    const netSurplus = totalIncome - totalExpenses;
+    const totalReceivables = pendingPayments.reduce(
+      (acc, p) => acc + (Number(p.amount) || 0),
+      0
+    );
+
+    const incomeByType: Record<string, number> = {};
+    paidPayments.forEach((p) => {
+      const key = p.itemType || p.type || 'Other Funds';
+      incomeByType[key] = (incomeByType[key] || 0) + (Number(p.amount) || 0);
+    });
+
+    const expenseByCategory: Record<string, number> = {};
+    eFiltered.forEach((e) => {
+      const key = e.category || 'General Expense';
+      expenseByCategory[key] =
+        (expenseByCategory[key] || 0) + (Number(e.amount) || 0);
+    });
+
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 18;
+    let y = 18;
+
+    // Header Top: Company Name Left, Income Statement Right
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(27, 67, 50); // Primary dark green
+    doc.text('BCC Riders Club', margin, y);
+
+    doc.setFontSize(16);
+    doc.setTextColor(27, 67, 50);
+    doc.text('Income Statement', pageWidth - margin, y, { align: 'right' });
+
+    y += 6;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(82, 96, 93);
+    const periodText =
+      reportYearFilter === 'All'
+        ? 'For All Recorded Fiscal Periods'
+        : `For the Year Ended December 31, ${reportYearFilter}`;
+    doc.text(periodText, pageWidth - margin, y, { align: 'right' });
+    doc.text(
+      `Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
+      margin,
+      y
+    );
+
+    y += 4;
+    // Subdued divider line
+    doc.setDrawColor(226, 236, 226);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+
+    y += 8;
+
+    // SECTION 1: FUNDS
+    // Funds Header Banner
+    doc.setFillColor(27, 67, 50); // Dark Green #1b4332
+    doc.rect(margin, y, pageWidth - margin * 2, 7, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    doc.text('Funds', margin + 4, y + 5);
+    doc.text('Amount (PHP)', pageWidth - margin - 4, y + 5, { align: 'right' });
+
+    y += 7;
+
+    const incomeEntries = Object.entries(incomeByType);
+    if (incomeEntries.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(107, 114, 128);
+      doc.text('No funds recorded for this period', margin + 8, y + 5);
+      doc.text('0.00', pageWidth - margin - 4, y + 5, { align: 'right' });
+      y += 7;
+    } else {
+      incomeEntries.forEach(([cat, amt]) => {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(31, 41, 55);
+        doc.text(cat, margin + 8, y + 5);
+        doc.text(
+          amt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          pageWidth - margin - 4,
+          y + 5,
+          { align: 'right' }
+        );
+
+        doc.setDrawColor(243, 244, 246);
+        doc.line(margin + 4, y + 6.5, pageWidth - margin - 4, y + 6.5);
+        y += 6.5;
+      });
+    }
+
+    // Total Funds Row
+    doc.setFillColor(240, 247, 244);
+    doc.rect(margin, y, pageWidth - margin * 2, 7, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(27, 67, 50);
+    doc.text('Total Funds', margin + 4, y + 5);
+    doc.text(
+      totalIncome.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      pageWidth - margin - 4,
+      y + 5,
+      { align: 'right' }
+    );
+
+    doc.setDrawColor(183, 228, 199);
+    doc.line(margin, y, pageWidth - margin, y);
+    doc.line(margin, y + 7, pageWidth - margin, y + 7);
+
+    y += 12;
+
+    // SECTION 2: EXPENSES
+    // Expenses Header Banner
+    doc.setFillColor(27, 67, 50); // Dark Green #1b4332
+    doc.rect(margin, y, pageWidth - margin * 2, 7, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    doc.text('Expenses', margin + 4, y + 5);
+    doc.text('Amount (PHP)', pageWidth - margin - 4, y + 5, { align: 'right' });
+
+    y += 7;
+
+    const expenseEntries = Object.entries(expenseByCategory);
+    if (expenseEntries.length === 0) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(107, 114, 128);
+      doc.text('No expenses recorded for this period', margin + 8, y + 5);
+      doc.text('0.00', pageWidth - margin - 4, y + 5, { align: 'right' });
+      y += 7;
+    } else {
+      expenseEntries.forEach(([cat, amt]) => {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(31, 41, 55);
+        doc.text(cat, margin + 8, y + 5);
+        doc.text(
+          amt.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          pageWidth - margin - 4,
+          y + 5,
+          { align: 'right' }
+        );
+
+        doc.setDrawColor(243, 244, 246);
+        doc.line(margin + 4, y + 6.5, pageWidth - margin - 4, y + 6.5);
+        y += 6.5;
+      });
+    }
+
+    // Total Expenses Row
+    doc.setFillColor(240, 247, 244);
+    doc.rect(margin, y, pageWidth - margin * 2, 7, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(27, 67, 50);
+    doc.text('Total Expenses', margin + 4, y + 5);
+    doc.text(
+      totalExpenses.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      pageWidth - margin - 4,
+      y + 5,
+      { align: 'right' }
+    );
+
+    doc.setDrawColor(183, 228, 199);
+    doc.line(margin, y, pageWidth - margin, y);
+    doc.line(margin, y + 7, pageWidth - margin, y + 7);
+
+    y += 12;
+
+    // SECTION 3: NET INCOME
+    doc.setFillColor(232, 245, 233); // #e8f5e9
+    doc.setDrawColor(45, 106, 79); // #2d6a4f
+    doc.setLineWidth(0.4);
+    doc.rect(margin, y, pageWidth - margin * 2, 8.5, 'FD');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10.5);
+    doc.setTextColor(27, 67, 50);
+    doc.text('Net Income / Operating Surplus', margin + 4, y + 5.8);
+
+    const netIncomeFormatted = netSurplus.toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    doc.text(netIncomeFormatted, pageWidth - margin - 4, y + 5.8, { align: 'right' });
+
+    // Double underline for Net Income
+    const netTextWidth = doc.getTextWidth(netIncomeFormatted);
+    doc.setDrawColor(27, 67, 50);
+    doc.setLineWidth(0.4);
+    doc.line(
+      pageWidth - margin - 4 - netTextWidth,
+      y + 6.8,
+      pageWidth - margin - 4,
+      y + 6.8
+    );
+    doc.line(
+      pageWidth - margin - 4 - netTextWidth,
+      y + 7.5,
+      pageWidth - margin - 4,
+      y + 7.5
+    );
+
+    y += 15;
+
+    // Supplementary Info: Accounts Receivable
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(82, 96, 93);
+    doc.text('SUPPLEMENTARY ACCOUNTS:', margin, y);
+
+    y += 5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(55, 65, 81);
+    doc.text('Accounts Receivable (Pending / Uncollected Dues)', margin + 4, y);
+    doc.text(
+      totalReceivables.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      pageWidth - margin - 4,
+      y,
+      { align: 'right' }
+    );
+
+    // Footer
+    const totalPages = (doc as any).internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(156, 163, 175);
+      doc.text(
+        'BCC Riders Club • Executive Income Statement & Accounting Ledger',
+        margin,
+        pageHeight - 8
+      );
+      doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 8, { align: 'right' });
+    }
+
+    doc.save(`BRC_Income_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const getMemberComplianceReportData = () => {
@@ -430,7 +1010,12 @@ export const Settings: React.FC = () => {
     ];
 
     const activeMembers = reportUsers.filter(
-      (u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')
+      (u) =>
+        u.role !== 'admin' &&
+        u.role?.toLowerCase() !== 'admin' &&
+        u.id !== 'usr_admin' &&
+        u.id !== 'admin' &&
+        (u.approvalStatus === 'Approved' || !u.approvalStatus)
     );
 
     const rows = activeMembers.map((u) => {
@@ -1307,19 +1892,62 @@ export const Settings: React.FC = () => {
                   <span>Refresh</span>
                 </button>
 
-                <div className="flex items-center gap-1.5 bg-[#f7f9f7] px-3 py-1.5 rounded-xl border border-[#e2ece2]">
-                  <Filter className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                  <span className="text-[11px] font-bold text-[#52605d]">Year:</span>
-                  <select
-                    value={reportYearFilter}
-                    onChange={(e) => setReportYearFilter(e.target.value)}
-                    className="bg-transparent text-xs font-extrabold text-[#1b4332] focus:outline-none cursor-pointer"
+                <div className="relative" ref={yearDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => setIsYearDropdownOpen(!isYearDropdownOpen)}
+                    className="flex items-center gap-1.5 bg-[#f7f9f7] hover:bg-[#e8f5e9] px-3 py-1.5 rounded-xl border border-[#e2ece2] text-xs font-bold transition-all cursor-pointer"
                   >
-                    <option value="All">All Time</option>
-                    <option value="2026">2026</option>
-                    <option value="2025">2025</option>
-                    <option value="2024">2024</option>
-                  </select>
+                    <Filter className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                    <span className="text-[11px] font-bold text-[#52605d]">Year:</span>
+                    <span className="font-extrabold text-[#1b4332]">
+                      {reportYearFilter === 'All' ? 'All Time' : reportYearFilter}
+                    </span>
+                    <ChevronDown
+                      className={`w-3.5 h-3.5 text-[#2d6a4f] transition-transform duration-200 ${
+                        isYearDropdownOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+
+                  <AnimatePresence>
+                    {isYearDropdownOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -6, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute right-0 sm:left-0 mt-1.5 w-36 bg-white border border-[#e2ece2] rounded-2xl shadow-xl z-50 overflow-hidden py-1"
+                      >
+                        {[
+                          { value: 'All', label: 'All Time' },
+                          ...availableYears.map((yr) => ({ value: yr, label: yr })),
+                        ].map((opt) => {
+                          const isSelected = reportYearFilter === opt.value;
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => {
+                                setReportYearFilter(opt.value);
+                                setIsYearDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-3.5 py-2 text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                                isSelected
+                                  ? 'bg-[#e8f5e9] text-[#1b4332] font-black'
+                                  : 'text-[#52605d] hover:bg-[#f7f9f7] hover:text-[#1b4332]'
+                              }`}
+                            >
+                              <span>{opt.label}</span>
+                              {isSelected && (
+                                <Check className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
 
                 <button
@@ -1335,7 +1963,6 @@ export const Settings: React.FC = () => {
                   className="px-4 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-extrabold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer hover:scale-[1.02]"
                 >
                   <Download className="w-3.5 h-3.5 text-amber-300" />
-                  <span>Master CSV Bundle</span>
                 </button>
               </div>
             </div>
@@ -1453,7 +2080,6 @@ export const Settings: React.FC = () => {
                     className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Export CSV</span>
                   </button>
                 </div>
               </div>
@@ -1509,7 +2135,6 @@ export const Settings: React.FC = () => {
                     className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Export CSV</span>
                   </button>
                 </div>
               </div>
@@ -1565,7 +2190,6 @@ export const Settings: React.FC = () => {
                     className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Export CSV</span>
                   </button>
                 </div>
               </div>
@@ -1605,6 +2229,8 @@ export const Settings: React.FC = () => {
                         headers: data.headers,
                         rows: data.rows,
                         onDownload: () => downloadCSVFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                        onXlsDownload: () => downloadXLSFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.xls`, data.headers, data.rows),
+                        onPdfDownload: exportFinancialStatementPDF,
                       });
                     }}
                     className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
@@ -1618,10 +2244,29 @@ export const Settings: React.FC = () => {
                       const data = getFinancialStatementReportData();
                       downloadCSVFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Export CSV"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Export CSV</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const data = getFinancialStatementReportData();
+                      downloadXLSFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.xls`, data.headers, data.rows);
+                    }}
+                    className="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Export Formatted Excel (.xls)"
+                  >
+                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={exportFinancialStatementPDF}
+                    className="px-3.5 py-2 rounded-xl bg-purple-900 hover:bg-purple-950 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Export PDF"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -1677,7 +2322,6 @@ export const Settings: React.FC = () => {
                     className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Export CSV</span>
                   </button>
                 </div>
               </div>
@@ -1745,7 +2389,6 @@ export const Settings: React.FC = () => {
                     className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
-                    <span>Export CSV</span>
                   </button>
                 </div>
               </div>
@@ -1787,31 +2430,59 @@ export const Settings: React.FC = () => {
                         No records found for the selected period filter.
                       </div>
                     ) : (
-                      <div className="border border-[#e2ece2] rounded-2xl overflow-hidden shadow-xs">
-                        <table className="w-full text-left text-xs">
-                          <thead className="bg-[#1b4332] text-white font-extrabold uppercase text-[10px] tracking-wider">
-                            <tr>
-                              {previewModal.headers.map((h, i) => (
-                                <th key={i} className="px-3 py-2.5 whitespace-nowrap">
-                                  {h}
-                                </th>
-                              ))}
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-[#e2ece2] bg-white font-medium text-[#1b4332]">
-                            {previewModal.rows.slice(0, 50).map((row, rIdx) => (
-                              <tr key={rIdx} className="hover:bg-[#f7f9f7] transition-colors">
-                                {row.map((cell, cIdx) => (
-                                  <td key={cIdx} className="px-3 py-2 whitespace-nowrap max-w-xs truncate">
-                                    {String(cell)}
-                                  </td>
+                      <div
+                        ref={modalScrollRef}
+                        onMouseDown={handleModalMouseDown}
+                        onMouseLeave={handleModalMouseLeaveOrUp}
+                        onMouseUp={handleModalMouseLeaveOrUp}
+                        onMouseMove={handleModalMouseMove}
+                        className={`border border-[#e2ece2] rounded-2xl overflow-x-auto shadow-xs select-none touch-pan-x ${
+                          isDraggingModal ? 'cursor-grabbing' : 'cursor-grab'
+                        }`}
+                      >
+                          <table className="w-full text-left text-xs min-w-max">
+                            <thead className="bg-[#1b4332] text-white font-extrabold uppercase text-[10px] tracking-wider">
+                              <tr>
+                                {previewModal.headers.map((h, i) => (
+                                  <th key={i} className="px-3.5 py-2.5 whitespace-nowrap">
+                                    {h}
+                                  </th>
                                 ))}
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    )}
+                            </thead>
+                            <tbody className="divide-y divide-[#e2ece2] bg-white font-medium text-[#1b4332]">
+                              {previewModal.rows.slice(0, 100).map((row, rIdx) => {
+                                const firstCell = String(row[0] || '').trim();
+                                if (firstCell.startsWith('---') || firstCell.startsWith('===')) {
+                                  return null;
+                                }
+                                const isHeaderRow = ['FUNDS', 'EXPENSES', 'SUPPLEMENTARY ACCOUNTS', 'BCC RIDERS CLUB - FINANCIAL STATEMENT'].includes(firstCell);
+                                const isTotalRow = firstCell.startsWith('Total') || firstCell.startsWith('NET INCOME');
+
+                                return (
+                                  <tr
+                                    key={rIdx}
+                                    className={`hover:bg-[#f7f9f7] transition-colors ${
+                                      isHeaderRow ? 'bg-[#e8f5e9] font-black text-[#1b4332]' : ''
+                                    } ${isTotalRow ? 'bg-[#f0f7f4] font-black text-[#1b4332]' : ''}`}
+                                  >
+                                    {row.map((cell, cIdx) => (
+                                      <td
+                                        key={cIdx}
+                                        className={`px-3.5 py-2 whitespace-nowrap max-w-sm truncate ${
+                                          cIdx === 1 ? 'text-right font-mono font-bold' : ''
+                                        }`}
+                                      >
+                                        {String(cell)}
+                                      </td>
+                                    ))}
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
                     {previewModal.rows.length > 50 && (
                       <p className="text-[11px] text-[#52605d] italic text-center mt-3">
                         Showing first 50 rows of {previewModal.rows.length} total records. Download CSV to view full dataset.
@@ -1832,6 +2503,34 @@ export const Settings: React.FC = () => {
                       >
                         Close
                       </button>
+                      {previewModal.onXlsDownload && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            previewModal.onXlsDownload!();
+                            setPreviewModal(null);
+                          }}
+                          className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                          title="Export Formatted Excel (.xls)"
+                        >
+                          <FileSpreadsheet className="w-3.5 h-3.5" />
+                          <span>Excel</span>
+                        </button>
+                      )}
+                      {previewModal.onPdfDownload && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            previewModal.onPdfDownload!();
+                            setPreviewModal(null);
+                          }}
+                          className="px-4 py-2 rounded-xl bg-purple-900 hover:bg-purple-950 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                          title="Export PDF"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>PDF</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => {
@@ -1839,9 +2538,10 @@ export const Settings: React.FC = () => {
                           setPreviewModal(null);
                         }}
                         className="px-4 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                        title="Export CSV"
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>Download Full CSV</span>
+                        <span>CSV</span>
                       </button>
                     </div>
                   </div>

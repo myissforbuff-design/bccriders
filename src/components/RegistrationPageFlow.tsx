@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { User } from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { uploadStorageFile } from '../lib/db';
 import { PhilippineAddressSelector, PhilippineAddressValue } from './PhilippineAddressSelector';
 import { OfficialLoader } from './OfficialLoader';
 import { CustomSelect } from './CustomSelect';
@@ -33,7 +34,9 @@ import {
   Save,
   X,
   Check,
+  Crop,
 } from 'lucide-react';
+import { ImageCropperModal } from './ImageCropperModal';
 
 interface RegistrationPageFlowProps {
   onSuccess: (newUser: User) => void;
@@ -104,6 +107,8 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
   const [avatarDataUrl, setAvatarDataUrl] = useState<string>('');
   const [avatarFileName, setAvatarFileName] = useState<string>('');
   const [avatarMsg, setAvatarMsg] = useState<string>('');
+  const [cropperOpen, setCropperOpen] = useState<boolean>(false);
+  const [cropperSrc, setCropperSrc] = useState<string>('');
   const [firstName, setFirstName] = useState<string>('');
   const [lastName, setLastName] = useState<string>('');
   const [phAddress, setPhAddress] = useState<PhilippineAddressValue | null>(null);
@@ -121,6 +126,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
   // 2. BCC Information State
   const [network, setNetwork] = useState<string>('');
   const [chapter, setChapter] = useState<string>('');
+  const [leadersName, setLeadersName] = useState<string>('');
   const [leadersContactNo, setLeadersContactNo] = useState<string>('');
   const [affiliations, setAffiliations] = useState<string[]>([]);
   const [customAffiliation, setCustomAffiliation] = useState<string>('');
@@ -227,6 +233,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
     password, // Password will be automatically excluded by hook
     network,
     chapter,
+    leadersName,
     leadersContactNo,
     affiliations,
     customAffiliation,
@@ -289,6 +296,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
       if (restoredData.email !== undefined) setEmail(restoredData.email);
       if (restoredData.network !== undefined) setNetwork(restoredData.network);
       if (restoredData.chapter !== undefined) setChapter(restoredData.chapter);
+      if (restoredData.leadersName !== undefined) setLeadersName(restoredData.leadersName);
       if (restoredData.leadersContactNo !== undefined) setLeadersContactNo(restoredData.leadersContactNo);
       if (restoredData.affiliations && Array.isArray(restoredData.affiliations)) {
         setAffiliations(restoredData.affiliations);
@@ -342,57 +350,29 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
     }
   }, [birthdate]);
 
-  // Avatar Image Upload with automatic formatting if > 2MB
+  // Avatar Image Upload with interactive cropping modal
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setAvatarFileName(file.name);
-    const sizeInMb = file.size / (1024 * 1024);
-
     const reader = new FileReader();
     reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        // If file > 2MB, compress & format to KB
-        if (sizeInMb > 2) {
-          const canvas = document.createElement('canvas');
-          const maxDim = 500;
-          let width = img.width;
-          let height = img.height;
-
-          if (width > height) {
-            if (width > maxDim) {
-              height = Math.round((height * maxDim) / width);
-              width = maxDim;
-            }
-          } else {
-            if (height > maxDim) {
-              width = Math.round((width * maxDim) / height);
-              height = maxDim;
-            }
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(img, 0, 0, width, height);
-            const compressedUrl = canvas.toDataURL('image/jpeg', 0.75);
-            setAvatarDataUrl(compressedUrl);
-            const approxKb = Math.round((compressedUrl.length * 0.75) / 1024);
-            setAvatarMsg(
-              `Original image (${sizeInMb.toFixed(1)} MB) exceeded 2MB. Automatically formatted and resized to ${approxKb} KB.`
-            );
-          }
-        } else {
-          setAvatarDataUrl(event.target?.result as string);
-          setAvatarMsg(`Uploaded successfully (${Math.round(file.size / 1024)} KB).`);
-        }
-      };
-      img.src = event.target?.result as string;
+      if (event.target?.result) {
+        setCropperSrc(event.target.result as string);
+        setCropperOpen(true);
+      }
     };
     reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleCropComplete = async (croppedDataUrl: string) => {
+    const compressed = await uploadStorageFile(croppedDataUrl);
+    const finalUrl = compressed || croppedDataUrl;
+    setAvatarDataUrl(finalUrl);
+    const approxKb = Math.round((finalUrl.length * 0.75) / 1024);
+    setAvatarMsg(`Avatar cropped and saved successfully (${approxKb} KB).`);
   };
 
   // Signature Canvas Drawing Handlers
@@ -490,15 +470,21 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
     password.trim() &&
     phAddress &&
     phAddress.fullAddressString &&
-    phAddress.fullAddressString.trim().length > 0
+    phAddress.fullAddressString.trim().length > 0 &&
+    mobileNo.trim().length === 11
   );
 
   const isPage2Valid = Boolean(
-    network.trim() && chapter.trim() && (affiliations.length > 0 || customAffiliation.trim())
+    network.trim() &&
+    chapter.trim() &&
+    (affiliations.length > 0 || customAffiliation.trim()) &&
+    (!leadersContactNo.trim() || leadersContactNo.trim().length === 11)
   );
 
   const isPage3Valid = Boolean(
-    emergencyFullName.trim() && emergencyRelationship.trim() && emergencyPhone.trim()
+    emergencyFullName.trim() &&
+    emergencyRelationship.trim() &&
+    emergencyPhone.trim().length === 11
   );
 
   const isPage4Valid = Boolean(
@@ -555,6 +541,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
         licenseExpiryDate,
         network,
         chapter,
+        leadersName,
         leadersContactNo,
         affiliation,
         emergencyContact: {
@@ -814,6 +801,32 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                           onChange={handleAvatarChange}
                           className="block w-full text-[10px] sm:text-xs text-[#52605d] file:mr-2 sm:file:mr-4 file:py-1.5 file:px-3 sm:file:py-2 sm:file:px-4 file:rounded-xl file:border-0 file:text-[10px] sm:file:text-xs file:font-bold file:bg-[#1b4332] file:text-white hover:file:bg-[#2d6a4f] cursor-pointer truncate"
                         />
+                        {avatarDataUrl && (
+                          <div className="flex items-center gap-2 pt-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCropperSrc(avatarDataUrl);
+                                setCropperOpen(true);
+                              }}
+                              className="py-1 px-2.5 rounded-lg border border-[#2d6a4f]/30 bg-white text-[#2d6a4f] font-bold text-[10px] sm:text-xs hover:bg-[#2d6a4f]/10 transition-colors cursor-pointer inline-flex items-center gap-1"
+                            >
+                              <Crop className="w-3 h-3 text-[#2d6a4f]" />
+                              <span>Crop / Adjust Photo</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAvatarDataUrl('');
+                                setAvatarFileName('');
+                                setAvatarMsg('');
+                              }}
+                              className="py-1 px-2.5 rounded-lg border border-rose-200 text-rose-600 font-bold text-[10px] sm:text-xs hover:bg-rose-50 cursor-pointer"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
                         {avatarMsg && (
                           <p className="text-[10px] sm:text-[11px] font-semibold text-[#2d6a4f]">
                             {avatarMsg}
@@ -903,14 +916,23 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                     />
 
                     <div className="space-y-1">
-                      <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Mobile No.</label>
+                      <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                        Mobile No. <span className="text-rose-500">*</span> <span className="text-gray-500 font-normal text-[9px]">(11 digits required)</span>
+                      </label>
                       <input
-                        type="text"
+                        type="tel"
+                        inputMode="numeric"
+                        maxLength={11}
                         value={mobileNo}
-                        onChange={(e) => setMobileNo(e.target.value)}
-                        placeholder="0917 123 4567"
+                        onChange={(e) => setMobileNo(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                        placeholder="09171234567"
                         className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
                       />
+                      {mobileNo && mobileNo.length !== 11 && (
+                        <p className="text-[10px] text-amber-700 font-semibold">
+                          Must be exactly 11 digits ({mobileNo.length}/11)
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -1017,29 +1039,49 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                     searchable
                   />
 
+                  <div className="space-y-1">
+                    <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                      Chapter <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={chapter}
+                      onChange={(e) => setChapter(e.target.value)}
+                      placeholder="e.g. Buhangin Main Chapter"
+                      className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
+                    />
+                  </div>
+
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                        Chapter <span className="text-rose-500">*</span>
-                      </label>
+                      <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Leader's Name</label>
                       <input
                         type="text"
-                        value={chapter}
-                        onChange={(e) => setChapter(e.target.value)}
-                        placeholder="e.g. Buhangin Main Chapter"
+                        value={leadersName}
+                        onChange={(e) => setLeadersName(e.target.value)}
+                        placeholder="e.g. Pastor / Leader John Doe"
                         className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
                       />
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Leader's Contact No.</label>
+                      <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                        Leader's Contact No. <span className="text-gray-500 font-normal text-[9px]">(11 digits required)</span>
+                      </label>
                       <input
-                        type="text"
+                        type="tel"
+                        inputMode="numeric"
+                        maxLength={11}
                         value={leadersContactNo}
-                        onChange={(e) => setLeadersContactNo(e.target.value)}
-                        placeholder="0918 987 6543"
+                        onChange={(e) => setLeadersContactNo(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                        placeholder="09189876543"
                         className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
                       />
+                      {leadersContactNo && leadersContactNo.length !== 11 && (
+                        <p className="text-[10px] text-amber-700 font-semibold">
+                          Must be exactly 11 digits ({leadersContactNo.length}/11)
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -1163,15 +1205,22 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
 
                     <div className="space-y-1">
                       <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                        Contact Phone <span className="text-rose-500">*</span>
+                        Contact Phone <span className="text-rose-500">*</span> <span className="text-gray-500 font-normal text-[9px]">(11 digits required)</span>
                       </label>
                       <input
-                        type="text"
+                        type="tel"
+                        inputMode="numeric"
+                        maxLength={11}
                         value={emergencyPhone}
-                        onChange={(e) => setEmergencyPhone(e.target.value)}
-                        placeholder="0917 999 8888"
+                        onChange={(e) => setEmergencyPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                        placeholder="09179998888"
                         className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
                       />
+                      {emergencyPhone && emergencyPhone.length !== 11 && (
+                        <p className="text-[10px] text-amber-700 font-semibold">
+                          Must be exactly 11 digits ({emergencyPhone.length}/11)
+                        </p>
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -1283,12 +1332,16 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                       />
 
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Vehicle's Years of Service</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Vehicle's Years of Service <span className="text-gray-500 font-normal text-[9px]">(Numbers only)</span>
+                        </label>
                         <input
                           type="text"
+                          inputMode="numeric"
+                          maxLength={3}
                           value={bikeYearsInService}
-                          onChange={(e) => setBikeYearsInService(e.target.value)}
-                          placeholder="e.g. 2 years / Brand New"
+                          onChange={(e) => setBikeYearsInService(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                          placeholder="e.g. 2"
                           className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
                         />
                       </div>
@@ -1301,9 +1354,6 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                           <span>Motorcycle Photo</span>
                           <span className="text-rose-600 font-extrabold">* Required</span>
                         </label>
-                        <span className="text-[9px] text-[#2d6a4f] font-semibold bg-[#d8f3dc] px-2 py-0.5 rounded-full">
-                          MongoDB Lightweight Compression (&lt;100KB)
-                        </span>
                       </div>
 
                       {bikePhotoUrl ? (
@@ -1338,7 +1388,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                             <span className="truncate font-mono">{bikePhotoFileName || 'Motorcycle Image'}</span>
                             <span className="text-emerald-400 font-bold shrink-0 flex items-center gap-1">
                               <CheckCircle2 className="w-3 h-3" />
-                              Ready for MongoDB
+                              Uploaded
                             </span>
                           </div>
                         </div>
@@ -1824,6 +1874,14 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
           </div>
         )}
       </AnimatePresence>
+      {/* Avatar Image Cropper Modal */}
+      <ImageCropperModal
+        isOpen={cropperOpen}
+        imageSrc={cropperSrc}
+        onClose={() => setCropperOpen(false)}
+        onCropComplete={handleCropComplete}
+        title="Crop Profile Avatar"
+      />
     </motion.div>
   );
 };

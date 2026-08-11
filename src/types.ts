@@ -74,6 +74,7 @@ export interface User {
   network?: string;
   chapter?: string;
   civilStatus?: string;
+  leadersName?: string;
   leadersContactNo?: string;
   affiliation?: 'House Church' | 'Life Group' | 'Plug-In' | 'Y2DN' | 'Others' | string;
   mobileNo?: string;

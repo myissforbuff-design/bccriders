@@ -29,7 +29,13 @@ export const PhilippineAddressSelector: React.FC<PhilippineAddressSelectorProps>
 }) => {
   const [selectedRegionCode, setSelectedRegionCode] = useState<string>(value?.regionCode || '');
   const [selectedProvinceCode, setSelectedProvinceCode] = useState<string>(value?.provinceCode || '');
+  const [customProvince, setCustomProvince] = useState<string>(
+    value?.provinceCode === 'OTHER' ? value?.provinceName || '' : ''
+  );
   const [selectedCityCode, setSelectedCityCode] = useState<string>(value?.cityCode || '');
+  const [customCity, setCustomCity] = useState<string>(
+    value?.cityCode === 'OTHER' ? value?.cityName || '' : ''
+  );
   const [selectedBarangayCode, setSelectedBarangayCode] = useState<string>(value?.barangayCode || '');
   const [customBarangay, setCustomBarangay] = useState<string>(
     value?.barangayCode === 'OTHER' ? value?.barangayName || '' : ''
@@ -55,9 +61,16 @@ export const PhilippineAddressSelector: React.FC<PhilippineAddressSelectorProps>
   // Update parent whenever any field changes
   useEffect(() => {
     const rName = selectedRegion?.name || '';
-    const pName = isNCR ? 'Metro Manila (NCR)' : selectedProvince?.name || '';
-    const cName = selectedCity?.name || '';
-    
+    const pName = isNCR
+      ? 'Metro Manila (NCR)'
+      : selectedProvinceCode === 'OTHER'
+      ? customProvince.trim()
+      : selectedProvince?.name || '';
+    const cName =
+      selectedCityCode === 'OTHER'
+        ? customCity.trim()
+        : selectedCity?.name || '';
+
     let bName = '';
     if (selectedBarangayCode === 'OTHER') {
       bName = customBarangay.trim();
@@ -88,7 +101,16 @@ export const PhilippineAddressSelector: React.FC<PhilippineAddressSelectorProps>
       streetAddress: streetAddress,
       fullAddressString,
     });
-  }, [selectedRegionCode, selectedProvinceCode, selectedCityCode, selectedBarangayCode, customBarangay, streetAddress]);
+  }, [
+    selectedRegionCode,
+    selectedProvinceCode,
+    customProvince,
+    selectedCityCode,
+    customCity,
+    selectedBarangayCode,
+    customBarangay,
+    streetAddress,
+  ]);
 
   // Handle Region Change
   const handleRegionChange = (regionCode: string) => {
@@ -102,7 +124,9 @@ export const PhilippineAddressSelector: React.FC<PhilippineAddressSelectorProps>
       setSelectedProvinceCode('');
     }
 
+    setCustomProvince('');
     setSelectedCityCode('');
+    setCustomCity('');
     setSelectedBarangayCode('');
     setCustomBarangay('');
   };
@@ -110,7 +134,9 @@ export const PhilippineAddressSelector: React.FC<PhilippineAddressSelectorProps>
   // Handle Province Change
   const handleProvinceChange = (provCode: string) => {
     setSelectedProvinceCode(provCode);
+    if (provCode !== 'OTHER') setCustomProvince('');
     setSelectedCityCode('');
+    setCustomCity('');
     setSelectedBarangayCode('');
     setCustomBarangay('');
   };
@@ -118,21 +144,34 @@ export const PhilippineAddressSelector: React.FC<PhilippineAddressSelectorProps>
   // Handle City Change
   const handleCityChange = (cityCode: string) => {
     setSelectedCityCode(cityCode);
+    if (cityCode !== 'OTHER') setCustomCity('');
     setSelectedBarangayCode('');
     setCustomBarangay('');
   };
 
   // Options arrays for CustomSelect
   const regionOptions = PH_ADDRESS_DATA.map((r) => ({ value: r.code, label: r.name }));
-  const provinceOptions = availableProvinces.map((p) => ({ value: p.code, label: p.name }));
-  const cityOptions = availableCities.map((c) => ({ value: c.code, label: c.name }));
   
-  const barangayOptions = availableCities.length > 0
-    ? [
-        ...availableBarangays.map((b) => ({ value: b.code, label: b.name })),
-        { value: 'OTHER', label: '➕ Other / Enter Custom Barangay Name...' },
-      ]
-    : [];
+  const provinceOptions = [
+    ...availableProvinces.map((p) => ({ value: p.code, label: p.name })),
+    ...(selectedRegionCode && !isNCR
+      ? [{ value: 'OTHER', label: '➕ Other / Enter Custom Province...' }]
+      : []),
+  ];
+
+  const cityOptions = [
+    ...availableCities.map((c) => ({ value: c.code, label: c.name })),
+    ...((isNCR && selectedRegionCode) || selectedProvinceCode
+      ? [{ value: 'OTHER', label: '➕ Other / Enter Custom City / Municipality...' }]
+      : []),
+  ];
+
+  const barangayOptions = [
+    ...availableBarangays.map((b) => ({ value: b.code, label: b.name })),
+    ...(selectedCityCode
+      ? [{ value: 'OTHER', label: '➕ Other / Enter Custom Barangay Name...' }]
+      : []),
+  ];
 
   return (
     <div className="space-y-3 p-3 sm:p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2]">
@@ -169,41 +208,74 @@ export const PhilippineAddressSelector: React.FC<PhilippineAddressSelectorProps>
               />
             </div>
           ) : (
-            <CustomSelect
-              label="Province"
-              required={!isNCR}
-              disabled={disabled || !selectedRegionCode || availableProvinces.length === 0}
-              value={selectedProvinceCode}
-              onChange={handleProvinceChange}
-              options={provinceOptions}
-              placeholder={!selectedRegionCode ? 'Select Region first' : 'Select Province...'}
-              searchable
-            />
+            <>
+              <CustomSelect
+                label="Province"
+                required={!isNCR}
+                disabled={disabled || !selectedRegionCode}
+                value={selectedProvinceCode}
+                onChange={handleProvinceChange}
+                options={provinceOptions}
+                placeholder={!selectedRegionCode ? 'Select Region first' : 'Select Province...'}
+                searchable
+              />
+              {selectedProvinceCode === 'OTHER' && (
+                <div className="pt-1.5 animate-fadeIn">
+                  <label className="text-[10px] sm:text-xs font-bold text-[#2d6a4f] block mb-1">
+                    Enter Custom Province Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    disabled={disabled}
+                    type="text"
+                    value={customProvince}
+                    onChange={(e) => setCustomProvince(e.target.value)}
+                    placeholder="e.g. Province Name"
+                    className="w-full px-2.5 py-2 sm:py-2.5 rounded-xl bg-white border border-[#2d6a4f] text-[#1b4332] text-[10px] sm:text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#2d6a4f]/20 placeholder:text-gray-400"
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
 
         {/* 3. City / Municipality Dropdown */}
-        <CustomSelect
-          label="City / Municipality"
-          required
-          disabled={
-            disabled ||
-            !selectedRegionCode ||
-            (!isNCR && !selectedProvinceCode) ||
-            availableCities.length === 0
-          }
-          value={selectedCityCode}
-          onChange={handleCityChange}
-          options={cityOptions}
-          placeholder={
-            !selectedRegionCode
-              ? 'Select Region first'
-              : !isNCR && !selectedProvinceCode
-              ? 'Select Province first'
-              : 'Select City / Municipality...'
-          }
-          searchable
-        />
+        <div className="space-y-1">
+          <CustomSelect
+            label="City / Municipality"
+            required
+            disabled={
+              disabled ||
+              !selectedRegionCode ||
+              (!isNCR && !selectedProvinceCode)
+            }
+            value={selectedCityCode}
+            onChange={handleCityChange}
+            options={cityOptions}
+            placeholder={
+              !selectedRegionCode
+                ? 'Select Region first'
+                : !isNCR && !selectedProvinceCode
+                ? 'Select Province first'
+                : 'Select City / Municipality...'
+            }
+            searchable
+          />
+          {selectedCityCode === 'OTHER' && (
+            <div className="pt-1.5 animate-fadeIn">
+              <label className="text-[10px] sm:text-xs font-bold text-[#2d6a4f] block mb-1">
+                Enter Custom City / Municipality Name <span className="text-rose-500">*</span>
+              </label>
+              <input
+                disabled={disabled}
+                type="text"
+                value={customCity}
+                onChange={(e) => setCustomCity(e.target.value)}
+                placeholder="e.g. City or Municipality Name"
+                className="w-full px-2.5 py-2 sm:py-2.5 rounded-xl bg-white border border-[#2d6a4f] text-[#1b4332] text-[10px] sm:text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-[#2d6a4f]/20 placeholder:text-gray-400"
+              />
+            </div>
+          )}
+        </div>
 
         {/* 4. Barangay Dropdown */}
         <div className="space-y-1">

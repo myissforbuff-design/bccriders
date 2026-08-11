@@ -11,7 +11,7 @@ let isGlobalListenerAttached = false;
 let isProgrammaticBack = false;
 
 function handleGlobalKeyDown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && modalStack.length > 0) {
+  if ((e.key === 'Escape' || e.key === 'Esc') && modalStack.length > 0) {
     e.preventDefault();
     e.stopPropagation();
     const top = modalStack[modalStack.length - 1];
@@ -66,13 +66,17 @@ export function useModalDismiss(isOpen: boolean, onClose: () => void) {
       const index = modalStack.findIndex((item) => item.id === id);
       if (index !== -1) {
         const [removed] = modalStack.splice(index, 1);
-        if (removed.pushedHistory && window.history.state?.modalId === id) {
-          isProgrammaticBack = true;
-          try {
-            window.history.back();
-          } catch {
-            isProgrammaticBack = false;
-          }
+        if (removed.pushedHistory) {
+          setTimeout(() => {
+            if (window.history.state?.modalId === id) {
+              isProgrammaticBack = true;
+              try {
+                window.history.back();
+              } catch {
+                isProgrammaticBack = false;
+              }
+            }
+          }, 0);
         }
       }
     };

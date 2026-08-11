@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store, safeFetchJson } from '../lib/db';
 import { User } from '../types';
 import { CustomSelect } from './CustomSelect';
@@ -24,6 +25,7 @@ import {
   Tag,
   ChevronLeft,
   ChevronRight,
+  ArrowLeft,
   TrendingDown,
   FileText,
   DollarSign,
@@ -123,7 +125,15 @@ export const Finances: React.FC = () => {
 
   // Filters & Search for Accounts
   const [accountSearchQuery, setAccountSearchQuery] = useState('');
-  const [accountMemberId, setAccountMemberId] = useState<string>('my_account');
+  const [accountMemberId, setAccountMemberId] = useState<string>(() => (isAdmin || currentUser?.role === 'admin') ? 'all_members' : 'my_account');
+  const [accountMembersCurrentPage, setAccountMembersCurrentPage] = useState(1);
+  const [accountTxCurrentPage, setAccountTxCurrentPage] = useState(1);
+
+  useEffect(() => {
+    if ((isAdmin || currentUser?.role === 'admin') && accountMemberId === 'my_account') {
+      setAccountMemberId('all_members');
+    }
+  }, [isAdmin, currentUser, accountMemberId]);
 
   // Filters & Search for Funds
   const [searchQuery, setSearchQuery] = useState('');
@@ -151,7 +161,7 @@ export const Finances: React.FC = () => {
   const [recCustomItemName, setRecCustomItemName] = useState('');
   const [recAmount, setRecAmount] = useState('200');
   const [recStatus, setRecStatus] = useState<'Paid' | 'Pending' | 'Overdue' | 'Waived'>('Paid');
-  const [recMethod, setRecMethod] = useState<'GCash' | 'Cash' | 'Bank Transfer' | 'Credit Card' | 'Other'>('GCash');
+  const [recMethod, setRecMethod] = useState<'GCash' | 'Cash' | 'Bank Transfer' | 'Credit Card' | 'Other'>('Cash');
   const [recRefNo, setRecRefNo] = useState('');
   const [recNotes, setRecNotes] = useState('');
   const [recDueDate, setRecDueDate] = useState(() => new Date().toISOString().split('T')[0]);
@@ -167,8 +177,36 @@ export const Finances: React.FC = () => {
   const [expDate, setExpDate] = useState(() => new Date().toISOString().split('T')[0]);
   const [expReceiptRef, setExpReceiptRef] = useState('');
   const [expPayee, setExpPayee] = useState('');
-  const [expLoggedBy, setExpLoggedBy] = useState('Treasury Admin');
+  const [expLoggedBy, setExpLoggedBy] = useState(() => {
+    const allUsers = store.getUsers();
+    const officerUsers = allUsers.filter(u => u.role && u.role.toLowerCase() !== 'member');
+    return officerUsers.length > 0 ? officerUsers[0].name : 'No officers assigned yet';
+  });
   const [expNotes, setExpNotes] = useState('');
+
+  // Officers options list for Liquidate Expense modal
+  const officerOptions = useMemo(() => {
+    const allUsers = store.getUsers();
+    const officerUsers = allUsers.filter(u => u.role && u.role.toLowerCase() !== 'member');
+
+    if (officerUsers.length === 0) {
+      return [{ value: 'No officers assigned yet', label: 'No officers assigned yet' }];
+    }
+
+    const optionsMap = new Map<string, { value: string; label: string }>();
+
+    officerUsers.forEach(u => {
+      const roleTitle = u.role === 'admin' ? 'System Admin' : u.role;
+      const label = `${u.name} (${roleTitle})`;
+      optionsMap.set(u.name, { value: u.name, label });
+    });
+
+    if (expLoggedBy && !optionsMap.has(expLoggedBy)) {
+      optionsMap.set(expLoggedBy, { value: expLoggedBy, label: expLoggedBy });
+    }
+
+    return Array.from(optionsMap.values());
+  }, [users, expLoggedBy]);
 
   // Delete Confirmation Modal State
   const [deleteTarget, setDeleteTarget] = useState<{
@@ -178,6 +216,16 @@ export const Finances: React.FC = () => {
     subtitle?: string;
     amount: number;
   } | null>(null);
+
+  useModalDismiss(showAddRecordModal, () => {
+    setShowAddRecordModal(false);
+    setEditingRecord(null);
+  });
+  useModalDismiss(showExpenseModal, () => {
+    setShowExpenseModal(false);
+    setEditingExpense(null);
+  });
+  useModalDismiss(Boolean(deleteTarget), () => setDeleteTarget(null));
 
   // Load Users, Funds, and Expenses
   useEffect(() => {
@@ -233,7 +281,7 @@ export const Finances: React.FC = () => {
             dueDate: u.joinDate || todayStr,
             paidDate: todayStr,
             status: 'Paid',
-            paymentMethod: 'GCash',
+            paymentMethod: 'Cash',
             referenceNo: undefined,
             notes: 'Payment recorded upon member approval',
             updatedAt: todayStr,
@@ -531,7 +579,7 @@ export const Finances: React.FC = () => {
       setRecCustomItemName(presetRecord.customItemName || '');
       setRecAmount(presetRecord.amount.toString());
       setRecStatus(presetRecord.status);
-      setRecMethod(presetRecord.paymentMethod || 'GCash');
+      setRecMethod(presetRecord.paymentMethod || 'Cash');
       setRecRefNo(presetRecord.referenceNo || '');
       setRecNotes(presetRecord.notes || '');
       setRecDueDate(presetRecord.dueDate);
@@ -553,7 +601,7 @@ export const Finances: React.FC = () => {
       setEditingRecord(null);
       setRecUserId(users[0]?.id || '');
       setRecStatus('Paid');
-      setRecMethod('GCash');
+      setRecMethod('Cash');
       setRecRefNo('');
       setRecNotes('');
       setRecDueDate(new Date().toISOString().split('T')[0]);
@@ -561,7 +609,7 @@ export const Finances: React.FC = () => {
       setRecOptionKey('opt_monthly_due');
       setRecItemType('Monthly Due');
       const now = new Date();
-      const currentMonthName = MONTHS_LIST[now.getMonth()]?.value || 'August';
+      const currentMonthName = MONTHS_LIST[now.getMonth()] || 'August';
       const currentYearStr = String(now.getFullYear()) || '2026';
       setRecMonth(currentMonthName);
       setRecYear(currentYearStr);
@@ -723,7 +771,14 @@ export const Finances: React.FC = () => {
       setExpDate(new Date().toISOString().split('T')[0]);
       setExpReceiptRef('');
       setExpPayee('');
-      setExpLoggedBy('Treasury Admin');
+      const allUsers = store.getUsers();
+      const officerUsers = allUsers.filter(u => u.role && u.role.toLowerCase() !== 'member');
+      if (officerUsers.length > 0) {
+        const isCurrentOfficer = currentUser && officerUsers.some(u => u.id === currentUser.id);
+        setExpLoggedBy(isCurrentOfficer ? currentUser.name : officerUsers[0].name);
+      } else {
+        setExpLoggedBy('No officers assigned yet');
+      }
       setExpNotes('');
     }
     setShowExpenseModal(true);
@@ -745,7 +800,7 @@ export const Finances: React.FC = () => {
         date: expDate || todayStr,
         receiptRef: expReceiptRef.trim() || undefined,
         payeeOrDisbursedTo: expPayee.trim() || undefined,
-        loggedBy: expLoggedBy.trim() || 'Treasury Admin',
+        loggedBy: expLoggedBy.trim() || 'No officers assigned yet',
         notes: expNotes.trim() || undefined,
         updatedAt: todayStr,
       };
@@ -761,7 +816,7 @@ export const Finances: React.FC = () => {
         date: expDate || todayStr,
         receiptRef: expReceiptRef.trim() || undefined,
         payeeOrDisbursedTo: expPayee.trim() || undefined,
-        loggedBy: expLoggedBy.trim() || 'Treasury Admin',
+        loggedBy: expLoggedBy.trim() || 'No officers assigned yet',
         notes: expNotes.trim() || undefined,
         updatedAt: todayStr,
       };
@@ -789,9 +844,63 @@ export const Finances: React.FC = () => {
     if (!canManageFinances || !deleteTarget) return;
 
     if (deleteTarget.type === 'fund') {
-      const updated = records.filter(r => r.id !== deleteTarget.id);
-      saveRecordsToStorage(updated);
-      deleteRecordFromMongo(deleteTarget.id);
+      const targetRecord = records.find(r => r.id === deleteTarget.id);
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      if (targetRecord && targetRecord.itemType === 'Monthly Due' && targetRecord.status === 'Paid') {
+        // Revert paid monthly due back to pending so pending collections update
+        const revertedRecord: FinanceRecord = {
+          ...targetRecord,
+          status: 'Pending',
+          paidDate: undefined,
+          paymentMethod: 'GCash',
+          notes: `Automated pending monthly due for ${targetRecord.coveredMonth || 'covered month'}`,
+          updatedAt: todayStr,
+        };
+        const updated = records.map(r => (r.id === targetRecord.id ? revertedRecord : r));
+        saveRecordsToStorage(updated);
+        syncRecordToMongo(revertedRecord);
+      } else if (targetRecord && targetRecord.itemType === 'Annual Upfront Promo') {
+        // Revert all satisfied monthly dues for this promo back to pending and remove promo record
+        const updated = records
+          .filter(r => r.id !== deleteTarget.id)
+          .map(r => {
+            if (
+              r.userId === targetRecord.userId &&
+              r.itemType === 'Monthly Due' &&
+              (r.notes?.includes('Satisfied by Annual Upfront Promo Package') || r.notes?.includes('Annual Upfront Promo'))
+            ) {
+              const revertedDue: FinanceRecord = {
+                ...r,
+                status: 'Pending',
+                paidDate: undefined,
+                notes: `Automated pending monthly due for ${r.coveredMonth || 'covered month'}`,
+                updatedAt: todayStr,
+              };
+              syncRecordToMongo(revertedDue);
+              return revertedDue;
+            }
+            return r;
+          });
+        saveRecordsToStorage(updated);
+        deleteRecordFromMongo(deleteTarget.id);
+      } else if (targetRecord && targetRecord.itemType === 'Membership Fee' && targetRecord.status === 'Paid') {
+        // Revert paid membership fee back to pending so pending collections update
+        const revertedFee: FinanceRecord = {
+          ...targetRecord,
+          status: 'Pending',
+          paidDate: undefined,
+          notes: 'Pending membership fee payment',
+          updatedAt: todayStr,
+        };
+        const updated = records.map(r => (r.id === targetRecord.id ? revertedFee : r));
+        saveRecordsToStorage(updated);
+        syncRecordToMongo(revertedFee);
+      } else {
+        const updated = records.filter(r => r.id !== deleteTarget.id);
+        saveRecordsToStorage(updated);
+        deleteRecordFromMongo(deleteTarget.id);
+      }
     } else {
       const updated = expenses.filter(x => x.id !== deleteTarget.id);
       saveExpensesToStorage(updated);
@@ -886,6 +995,11 @@ export const Finances: React.FC = () => {
     setExpenseCurrentPage(1);
   }, [expenseSearchQuery, expenseCategoryFilter]);
 
+  useEffect(() => {
+    setAccountMembersCurrentPage(1);
+    setAccountTxCurrentPage(1);
+  }, [accountSearchQuery, accountMemberId]);
+
   const totalExpensePages = Math.ceil(filteredExpenses.length / itemsPerPage) || 1;
   const validExpensePage = Math.min(Math.max(expenseCurrentPage, 1), totalExpensePages);
   const paginatedExpenses = filteredExpenses.slice(
@@ -931,6 +1045,65 @@ export const Finances: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-12 font-sans">
+      {/* Non-Admin Personal Contribution Overview Banner */}
+      {!canManageFinances && (() => {
+        const myMemberRecords = records.filter(r => r.userId === currentUser?.id);
+        const myTotalPaidFromJoining = myMemberRecords.filter(r => r.status === 'Paid').reduce((sum, r) => sum + r.amount, 0);
+        const myMfPaid = myMemberRecords.filter(r => r.status === 'Paid' && r.itemType === 'Membership Fee').reduce((sum, r) => sum + r.amount, 0);
+        const myDuesPaid = myMemberRecords.filter(r => r.status === 'Paid' && r.itemType === 'Monthly Due').reduce((sum, r) => sum + r.amount, 0);
+        const myOtherPaid = myMemberRecords.filter(r => r.status === 'Paid' && r.itemType !== 'Membership Fee' && r.itemType !== 'Monthly Due').reduce((sum, r) => sum + r.amount, 0);
+        const myPendingDues = myMemberRecords.filter(r => r.status === 'Pending' || r.status === 'Overdue').reduce((sum, r) => sum + r.amount, 0);
+
+        return (
+          <div className="hidden md:block p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-[#1b4332] via-[#2d6a4f] to-[#1b4332] text-white shadow-md space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/15 pb-3">
+              <div>
+                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[#74c69d] block">
+                  Your Total Paid (Joining to Present)
+                </span>
+                <h3 className="font-heading text-2xl sm:text-3xl font-black text-white mt-0.5">
+                  ₱{myTotalPaidFromJoining.toLocaleString()}.00
+                </h3>
+                <p className="text-xs text-stone-200 mt-0.5 font-medium">
+                  Total money paid to the club for <span className="font-bold text-white">{currentUser?.name}</span> <span className="font-mono text-stone-300">({currentUser?.memberNumber || 'BRC-MEMBER'})</span>
+                </p>
+              </div>
+              <div className="flex items-center gap-2 self-start sm:self-center">
+                <span className="px-3 py-1 rounded-full bg-[#74c69d]/20 text-[#74c69d] text-xs font-extrabold border border-[#74c69d]/30">
+                  {myMemberRecords.filter(r => r.status === 'Paid').length} Verified Payments
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
+                <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Membership Fee</span>
+                <p className="text-sm sm:text-base font-black text-white">₱{myMfPaid.toLocaleString()}.00</p>
+                <span className="text-[10px] text-stone-200 block">{myMfPaid > 0 ? '✓ Fully Paid' : 'Pending'}</span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
+                <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Monthly Dues</span>
+                <p className="text-sm sm:text-base font-black text-white">₱{myDuesPaid.toLocaleString()}.00</p>
+                <span className="text-[10px] text-stone-200 block">{myMemberRecords.filter(r => r.itemType === 'Monthly Due' && r.status === 'Paid').length} month(s) paid</span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
+                <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Other Collections</span>
+                <p className="text-sm sm:text-base font-black text-white">₱{myOtherPaid.toLocaleString()}.00</p>
+                <span className="text-[10px] text-stone-200 block">Vests & special fees</span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
+                <span className="text-[10px] font-extrabold text-amber-300 uppercase block">Pending Balance</span>
+                <p className="text-sm sm:text-base font-black text-amber-200">₱{myPendingDues.toLocaleString()}.00</p>
+                <span className="text-[10px] text-stone-200 block">{myPendingDues > 0 ? 'Unsettled dues' : '✓ All Clear'}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Global Overview Stats Banner */}
       <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
         {/* Total Funds Collected */}
@@ -1062,9 +1235,7 @@ export const Finances: React.FC = () => {
             </button>
           )
         ) : (
-          <div className="w-full sm:w-auto px-3.5 py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-bold text-[#52605d] flex items-center justify-center gap-1.5 shrink-0">
-            <ShieldAlert className="w-3.5 h-3.5 text-[#2d6a4f]" />
-            <span>Read-Only Member View</span>
+          <div>
           </div>
         )}
       </div>
@@ -1172,7 +1343,6 @@ export const Finances: React.FC = () => {
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <p className="font-black text-[#1b4332] text-sm">{rec.userName}</p>
-                        <p className="text-[10px] text-[#52605d] font-mono">{rec.userMemberNo || 'BRC-MEMBER'}</p>
                       </div>
                       <span
                         className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
@@ -1203,12 +1373,12 @@ export const Finances: React.FC = () => {
                     <div className="flex items-center justify-between text-xs pt-1 border-t border-[#e2ece2]">
                       <div>
                         <span className="text-[10px] text-[#52605d] block uppercase font-bold">Payment Method</span>
-                        <span className="text-[#1b4332] font-semibold">{rec.paymentMethod || 'GCash'}</span>
+                        <span className="text-[#1b4332] font-semibold">{rec.status === 'Pending' ? '-' : (rec.paymentMethod || 'Cash')}</span>
                       </div>
 
                       <div className="text-right">
                         <span className="text-[10px] text-[#52605d] block uppercase font-bold">Date Paid</span>
-                        <span className="font-medium text-[#1b4332] text-xs">{formatDisplayDate(rec.paidDate || rec.dueDate)}</span>
+                        <span className="font-medium text-[#1b4332] text-xs">{rec.status === 'Pending' ? '-' : formatDisplayDate(rec.paidDate || rec.dueDate)}</span>
                       </div>
                     </div>
 
@@ -1280,12 +1450,7 @@ export const Finances: React.FC = () => {
                       <tr key={rec.id} className="hover:bg-[#f7f9f7]/60 transition-colors">
                         {/* Member */}
                         <td className="py-3.5 px-4 font-extrabold text-[#1b4332]">
-                          <div>
-                            <p className="text-xs font-black">{rec.userName}</p>
-                            <p className="text-[10px] text-[#52605d] font-mono font-semibold">
-                              {rec.userMemberNo || 'BRC-MEMBER'}
-                            </p>
-                          </div>
+                          <p className="text-xs font-black">{rec.userName}</p>
                         </td>
 
                         {/* Item Details */}
@@ -1300,12 +1465,14 @@ export const Finances: React.FC = () => {
 
                         {/* Dates */}
                         <td className="py-3.5 px-3 text-[#52605d]">
-                          <p className="font-medium text-[#1b4332] text-[11px]">{formatDisplayDate(rec.paidDate || rec.dueDate)}</p>
+                          <p className="font-medium text-[#1b4332] text-[11px]">
+                            {rec.status === 'Pending' ? '-' : formatDisplayDate(rec.paidDate || rec.dueDate)}
+                          </p>
                         </td>
 
                         {/* Method */}
                         <td className="py-3.5 px-3 text-[#52605d] font-medium">
-                          {rec.paymentMethod || 'GCash'}
+                          {rec.status === 'Pending' ? '-' : (rec.paymentMethod || 'Cash')}
                         </td>
 
                         {/* Status */}
@@ -1713,21 +1880,27 @@ export const Finances: React.FC = () => {
 
             {/* Admin Member Selector */}
             {canManageFinances && (
-              <div className="flex items-center gap-2 min-w-[240px]">
-                <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Member Account:</span>
-                <div className="flex-1">
-                  <CustomSelect
-                    value={accountMemberId}
-                    onChange={setAccountMemberId}
-                    options={[
-                      { value: 'my_account', label: `My Account (${currentUser?.name || 'Member'})` },
-                      { value: 'all_members', label: '📋 All Members Overview' },
-                      ...users.map(u => ({
-                        value: u.id,
-                        label: `${u.name} (${u.memberNumber || 'BRC-MEMBER'})`,
-                      })),
-                    ]}
-                  />
+              <div className="flex flex-wrap items-center gap-2 min-w-[240px]">
+                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                  <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Member Account:</span>
+                  <div className="flex-1">
+                    <CustomSelect
+                      value={accountMemberId}
+                      onChange={setAccountMemberId}
+                      options={[
+                        ...(isAdmin || currentUser?.role === 'admin'
+                          ? []
+                          : [{ value: 'my_account', label: `My Account (${currentUser?.name || 'Member'})` }]),
+                        { value: 'all_members', label: '📋 All Members Overview' },
+                        ...users
+                          .filter(u => u.role !== 'admin' && u.role?.toLowerCase() !== 'admin')
+                          .map(u => ({
+                            value: u.id,
+                            label: `${u.name} (${u.memberNumber || 'BRC-MEMBER'})`,
+                          })),
+                      ]}
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -1749,77 +1922,159 @@ export const Finances: React.FC = () => {
                 </div>
               </div>
 
-              {/* Members Accounts Directory Table */}
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-[#e2ece2] text-[#52605d] uppercase font-bold tracking-wider text-[10px] bg-[#f7f9f7]">
-                      <th className="py-3 px-4">Member Info</th>
-                      <th className="py-3 px-3">Membership Fee</th>
-                      <th className="py-3 px-3">Latest Monthly Due</th>
-                      <th className="py-3 px-3">Total Dues Paid</th>
-                      <th className="py-3 px-3">Pending Dues</th>
-                      <th className="py-3 px-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#e2ece2]">
-                    {users
-                      .filter(u =>
-                        u.name.toLowerCase().includes(accountSearchQuery.toLowerCase()) ||
-                        (u.memberNumber && u.memberNumber.toLowerCase().includes(accountSearchQuery.toLowerCase()))
-                      )
-                      .map(u => {
-                        const uRecs = records.filter(r => r.userId === u.id);
-                        const mf = uRecs.find(r => r.itemType === 'Membership Fee');
-                        const mfStatus = mf?.status || 'Pending';
-                        
-                        const mDues = uRecs.filter(r => r.itemType === 'Monthly Due');
-                        const latestDue = mDues.slice().sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0];
-                        
-                        const totalPaid = uRecs.filter(r => r.status === 'Paid').reduce((sum, r) => sum + r.amount, 0);
-                        const pendingCount = uRecs.filter(r => r.status === 'Pending' || r.status === 'Overdue').length;
+              {/* Members Accounts Cards Grid */}
+              {(() => {
+                const filteredAccountUsers = users
+                  .filter(u => u.role !== 'admin' && u.role?.toLowerCase() !== 'admin')
+                  .filter(u =>
+                    u.name.toLowerCase().includes(accountSearchQuery.toLowerCase()) ||
+                    (u.memberNumber && u.memberNumber.toLowerCase().includes(accountSearchQuery.toLowerCase()))
+                  );
+                const totalAccountMembersPages = Math.ceil(filteredAccountUsers.length / itemsPerPage) || 1;
+                const validAccountMembersPage = Math.min(Math.max(accountMembersCurrentPage, 1), totalAccountMembersPages);
+                const paginatedAccountUsers = filteredAccountUsers.slice(
+                  (validAccountMembersPage - 1) * itemsPerPage,
+                  validAccountMembersPage * itemsPerPage
+                );
 
-                        return (
-                          <tr key={u.id} className="hover:bg-[#f7f9f7]/60 transition-colors">
-                            <td className="py-3.5 px-4 font-black text-[#1b4332]">
-                              <p className="text-xs font-black">{u.name}</p>
-                              <span className="text-[10px] text-[#52605d] font-mono">{u.memberNumber || 'BRC-MEMBER'}</span>
-                            </td>
-                            <td className="py-3.5 px-3">
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                mfStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                              }`}>
-                                Membership Fee: {mfStatus}
-                              </span>
-                            </td>
-                            <td className="py-3.5 px-3">
-                              <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                                (latestDue?.status || 'Pending') === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                              }`}>
-                                Monthly Due: {latestDue?.status || 'Pending'}
-                              </span>
-                            </td>
-                            <td className="py-3.5 px-3 font-bold text-[#1b4332]">
-                              ₱{totalPaid.toLocaleString()}.00
-                            </td>
-                            <td className="py-3.5 px-3 font-bold text-amber-800">
-                              {pendingCount > 0 ? `${pendingCount} item(s) pending` : 'All Paid'}
-                            </td>
-                            <td className="py-3.5 px-4 text-right">
+                return (
+                  <>
+                    {filteredAccountUsers.length === 0 ? (
+                      <div className="py-12 px-4 text-center text-[#52605d] bg-[#f7f9f7] rounded-2xl border border-[#e2ece2]">
+                        <AlertCircle className="w-8 h-8 text-stone-300 mx-auto mb-2" />
+                        <p className="font-bold text-stone-600 text-sm">No member accounts match your search</p>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {paginatedAccountUsers.map(u => {
+                          const uRecs = records.filter(r => r.userId === u.id);
+                          const mf = uRecs.find(r => r.itemType === 'Membership Fee');
+                          const mfStatus = mf?.status || 'Pending';
+                          
+                          const mDues = uRecs.filter(r => r.itemType === 'Monthly Due');
+                          const latestDue = mDues.slice().sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0];
+                          const latestDueStatus = latestDue?.status || 'Pending';
+                          
+                          const totalPaid = uRecs.filter(r => r.status === 'Paid').reduce((sum, r) => sum + r.amount, 0);
+                          const pendingCount = uRecs.filter(r => r.status === 'Pending' || r.status === 'Overdue').length;
+
+                          return (
+                            <div
+                              key={u.id}
+                              className="bg-[#f7f9f7] border border-[#e2ece2] rounded-2xl p-4 space-y-3.5 hover:border-[#2d6a4f] hover:shadow-md transition-all flex flex-col justify-between"
+                            >
+                              {/* Header: Avatar, Name, Member Number */}
+                              <div className="flex items-center gap-3">
+                                <img
+                                  src={u.avatar || '/avatar.svg'}
+                                  alt={u.name}
+                                  className="w-11 h-11 rounded-full object-cover border-2 border-[#1b4332] shrink-0 bg-stone-100"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <h4 className="font-heading text-sm font-black text-[#1b4332] truncate">
+                                    {u.name}
+                                  </h4>
+                                  <p className="text-[11px] text-[#52605d] font-mono font-bold">
+                                    {u.memberNumber || 'BRC-MEMBER'}
+                                  </p>
+                                </div>
+                              </div>
+
+                              {/* Badges / Metrics Grid */}
+                              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-[#e2ece2]">
+                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
+                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-1">Membership Fee</span>
+                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                    mfStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                  }`}>
+                                    {mfStatus}
+                                  </span>
+                                </div>
+
+                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
+                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-1">Latest Monthly Due</span>
+                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                    latestDueStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                  }`}>
+                                    {latestDueStatus}
+                                  </span>
+                                </div>
+
+                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
+                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5">Total Dues Paid</span>
+                                  <span className="font-black text-[#1b4332] text-xs block">
+                                    ₱{totalPaid.toLocaleString()}.00
+                                  </span>
+                                </div>
+
+                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
+                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5">Pending Dues</span>
+                                  <span className={`font-black text-xs block ${pendingCount > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                                    {pendingCount > 0 ? `${pendingCount} item(s)` : 'All Paid'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Action Button */}
                               <button
                                 type="button"
                                 onClick={() => setAccountMemberId(u.id)}
-                                className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-[11px] font-bold cursor-pointer transition-all"
+                                className="w-full py-2.5 px-3 rounded-xl bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-xs font-extrabold cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-2xs mt-auto"
                               >
-                                View Transactions
+                                <FileText className="w-3.5 h-3.5" />
+                                <span>View Transactions</span>
                               </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                  </tbody>
-                </table>
-              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* PAGINATION CONTROLS FOR ALL MEMBERS */}
+                    {filteredAccountUsers.length > 0 && (
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+                        <div>
+                          Showing{' '}
+                          <span className="font-extrabold text-[#1b4332]">
+                            {(validAccountMembersPage - 1) * itemsPerPage + 1}
+                          </span>{' '}
+                          to{' '}
+                          <span className="font-extrabold text-[#1b4332]">
+                            {Math.min(validAccountMembersPage * itemsPerPage, filteredAccountUsers.length)}
+                          </span>{' '}
+                          of <span className="font-extrabold text-[#1b4332]">{filteredAccountUsers.length}</span> members
+                        </div>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            disabled={validAccountMembersPage === 1}
+                            onClick={() => setAccountMembersCurrentPage(prev => Math.max(prev - 1, 1))}
+                            className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                            <span>Previous</span>
+                          </button>
+
+                          <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                            {validAccountMembersPage} / {totalAccountMembersPages}
+                          </span>
+
+                          <button
+                            type="button"
+                            disabled={validAccountMembersPage >= totalAccountMembersPages}
+                            onClick={() => setAccountMembersCurrentPage(prev => Math.min(prev + 1, totalAccountMembersPages))}
+                            className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                          >
+                            <span>Next</span>
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           ) : (
             /* MODE B: INDIVIDUAL MEMBER ACCOUNT STATEMENT (For logged in member or selected member) */
@@ -1850,8 +2105,11 @@ export const Finances: React.FC = () => {
               const monthlyDueAmount = latestMonthlyDueRec?.amount || 200;
               const monthlyDueMonth = latestMonthlyDueRec?.coveredMonth || 'Current';
 
-              // Totals
+              // Totals & Category Breakdown
               const totalPaid = uRecords.filter(r => r.status === 'Paid').reduce((sum, r) => sum + r.amount, 0);
+              const mfPaid = uRecords.filter(r => r.status === 'Paid' && r.itemType === 'Membership Fee').reduce((sum, r) => sum + r.amount, 0);
+              const duesPaid = uRecords.filter(r => r.status === 'Paid' && r.itemType === 'Monthly Due').reduce((sum, r) => sum + r.amount, 0);
+              const otherPaid = uRecords.filter(r => r.status === 'Paid' && r.itemType !== 'Membership Fee' && r.itemType !== 'Monthly Due').reduce((sum, r) => sum + r.amount, 0);
               const totalPending = uRecords.filter(r => r.status === 'Pending' || r.status === 'Overdue').reduce((sum, r) => sum + r.amount, 0);
 
               // Filter member records for transaction history
@@ -1866,8 +2124,89 @@ export const Finances: React.FC = () => {
                 );
               });
 
+              const totalAccountTxPages = Math.ceil(filteredMemberRecs.length / itemsPerPage) || 1;
+              const validAccountTxPage = Math.min(Math.max(accountTxCurrentPage, 1), totalAccountTxPages);
+              const paginatedMemberRecs = filteredMemberRecs.slice(
+                (validAccountTxPage - 1) * itemsPerPage,
+                validAccountTxPage * itemsPerPage
+              );
+
               return (
                 <div className="space-y-4">
+                  {/* BACK TO ALL MEMBERS BUTTON */}
+                  {canManageFinances && accountMemberId !== 'all_members' && (
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => setAccountMemberId('all_members')}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs border border-[#1b4332]"
+                      >
+                        <ArrowLeft className="w-4 h-4" />
+                        <span>Back to All Members Overview</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* MEMBER PAYMENT SUMMARY BANNER */}
+                  <div className="hidden md:block p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#1b4332] via-[#2d6a4f] to-[#1b4332] text-white shadow-md space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/15 pb-3">
+                      <div>
+                        <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[#74c69d] block">
+                          Total Payments Paid to Club (Joining to Present)
+                        </span>
+                        <h3 className="font-heading text-2xl sm:text-3xl font-black text-white mt-0.5">
+                          ₱{totalPaid.toLocaleString()}.00
+                        </h3>
+                        <p className="text-xs text-stone-200 mt-0.5 font-medium">
+                          Accumulated paid transactions for <span className="font-bold text-white">{memberName}</span> <span className="font-mono text-stone-300">({memberNo})</span>
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 self-start sm:self-center">
+                        <span className="px-3 py-1 rounded-full bg-[#74c69d]/20 text-[#74c69d] text-xs font-extrabold border border-[#74c69d]/30">
+                          {uRecords.filter(r => r.status === 'Paid').length} Verified Payments
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Breakdown Grid */}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
+                      {/* Membership Fee Paid */}
+                      <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
+                        <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Membership Fee</span>
+                        <p className="text-sm sm:text-base font-black text-white">₱{mfPaid.toLocaleString()}.00</p>
+                        <span className="text-[10px] text-stone-200 block">
+                          {mfPaid > 0 ? '✓ Fully Paid' : 'Pending'}
+                        </span>
+                      </div>
+
+                      {/* Monthly Dues Paid */}
+                      <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
+                        <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Monthly Dues</span>
+                        <p className="text-sm sm:text-base font-black text-white">₱{duesPaid.toLocaleString()}.00</p>
+                        <span className="text-[10px] text-stone-200 block">
+                          {uRecords.filter(r => r.itemType === 'Monthly Due' && r.status === 'Paid').length} month(s) paid
+                        </span>
+                      </div>
+
+                      {/* Other Collections Paid */}
+                      <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
+                        <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Other Collections</span>
+                        <p className="text-sm sm:text-base font-black text-white">₱{otherPaid.toLocaleString()}.00</p>
+                        <span className="text-[10px] text-stone-200 block">
+                          Vests & special fees
+                        </span>
+                      </div>
+
+                      {/* Pending Dues */}
+                      <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
+                        <span className="text-[10px] font-extrabold text-amber-300 uppercase block">Pending Balance</span>
+                        <p className="text-sm sm:text-base font-black text-amber-200">₱{totalPending.toLocaleString()}.00</p>
+                        <span className="text-[10px] text-stone-200 block">
+                          {totalPending > 0 ? 'Unsettled dues' : '✓ All Clear'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                   {/* MEMBER TRANSACTIONS HISTORY HEADER & SEARCH */}
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#f7f9f7] p-3.5 sm:p-4 rounded-2xl border border-[#e2ece2]">
                     <div className="flex items-center gap-2.5">
@@ -1904,7 +2243,7 @@ export const Finances: React.FC = () => {
                         <p className="font-bold text-stone-600 text-xs">No transaction records found</p>
                       </div>
                     ) : (
-                      filteredMemberRecs.map(rec => {
+                      paginatedMemberRecs.map(rec => {
                         const isPaid = rec.status === 'Paid';
                         const isPending = rec.status === 'Pending';
                         const isOverdue = rec.status === 'Overdue';
@@ -1934,11 +2273,7 @@ export const Finances: React.FC = () => {
                                     : 'bg-stone-200 text-stone-700'
                                 }`}
                               >
-                                {rec.itemType === 'Membership Fee'
-                                  ? `Membership Fee: ${rec.status}`
-                                  : rec.itemType === 'Monthly Due'
-                                  ? `Monthly Due: ${rec.status}`
-                                  : rec.status}
+                                {rec.status}
                               </span>
                             </div>
 
@@ -1952,7 +2287,7 @@ export const Finances: React.FC = () => {
                               <div>
                                 <span className="text-[#52605d] font-bold block">Method:</span>
                                 <span className="font-semibold text-[#1b4332]">
-                                  {rec.paymentMethod || 'GCash'}
+                                  {isPending ? '-' : (rec.paymentMethod || 'Cash')}
                                 </span>
                               </div>
                               <div>
@@ -1964,7 +2299,7 @@ export const Finances: React.FC = () => {
                               <div>
                                 <span className="text-[#52605d] font-bold block">Date Updated:</span>
                                 <span className="font-semibold text-[#1b4332]">
-                                  {formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
+                                  {isPending ? '-' : formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
                                 </span>
                               </div>
                             </div>
@@ -1997,7 +2332,7 @@ export const Finances: React.FC = () => {
                             </td>
                           </tr>
                         ) : (
-                          filteredMemberRecs.map(rec => {
+                          paginatedMemberRecs.map(rec => {
                             const isPaid = rec.status === 'Paid';
                             const isPending = rec.status === 'Pending';
                             const isOverdue = rec.status === 'Overdue';
@@ -2025,17 +2360,17 @@ export const Finances: React.FC = () => {
                                         : 'bg-stone-200 text-stone-700'
                                     }`}
                                   >
-                                    {rec.itemType === 'Membership Fee' ? `Membership Fee: ${rec.status}` : rec.itemType === 'Monthly Due' ? `Monthly Due: ${rec.status}` : rec.status}
+                                    {rec.status}
                                   </span>
                                 </td>
                                 <td className="py-3.5 px-3 text-[#52605d] font-medium">
-                                  {rec.paymentMethod || 'GCash'}
+                                  {isPending ? '-' : (rec.paymentMethod || 'Cash')}
                                 </td>
                                 <td className="py-3.5 px-3 font-mono text-[#1b4332]">
                                   {rec.referenceNo || '-'}
                                 </td>
                                 <td className="py-3.5 px-3 text-[#52605d] font-medium">
-                                  {formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
+                                  {isPending ? '-' : formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
                                 </td>
                               </tr>
                             );
@@ -2044,6 +2379,49 @@ export const Finances: React.FC = () => {
                       </tbody>
                     </table>
                   </div>
+
+                  {/* PAGINATION CONTROLS FOR MEMBER TRANSACTIONS */}
+                  {filteredMemberRecs.length > 0 && (
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+                      <div>
+                        Showing{' '}
+                        <span className="font-extrabold text-[#1b4332]">
+                          {(validAccountTxPage - 1) * itemsPerPage + 1}
+                        </span>{' '}
+                        to{' '}
+                        <span className="font-extrabold text-[#1b4332]">
+                          {Math.min(validAccountTxPage * itemsPerPage, filteredMemberRecs.length)}
+                        </span>{' '}
+                        of <span className="font-extrabold text-[#1b4332]">{filteredMemberRecs.length}</span> transaction records
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={validAccountTxPage === 1}
+                          onClick={() => setAccountTxCurrentPage(prev => Math.max(prev - 1, 1))}
+                          className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          <span>Previous</span>
+                        </button>
+
+                        <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                          {validAccountTxPage} / {totalAccountTxPages}
+                        </span>
+
+                        <button
+                          type="button"
+                          disabled={validAccountTxPage >= totalAccountTxPages}
+                          onClick={() => setAccountTxCurrentPage(prev => Math.min(prev + 1, totalAccountTxPages))}
+                          className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                        >
+                          <span>Next</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()
@@ -2082,12 +2460,14 @@ export const Finances: React.FC = () => {
                     value={recUserId}
                     onChange={setRecUserId}
                     options={
-                      users.length === 0
+                      users.filter(u => u.role !== 'admin' && u.role?.toLowerCase() !== 'admin').length === 0
                         ? [{ value: '', label: 'No members registered yet' }]
-                        : users.map(u => ({
-                            value: u.id,
-                            label: `${u.name} (${u.memberNumber || 'BRC Member'})`,
-                          }))
+                        : users
+                            .filter(u => u.role !== 'admin' && u.role?.toLowerCase() !== 'admin')
+                            .map(u => ({
+                              value: u.id,
+                              label: `${u.name} (${u.memberNumber || 'BRC Member'})`,
+                            }))
                     }
                     required
                   />
@@ -2377,15 +2757,14 @@ export const Finances: React.FC = () => {
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-[#1b4332] mb-1">
-                      Liquidated / Logged By
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Treasury Admin"
+                    <CustomSelect
+                      label="Liquidated / Logged By"
                       value={expLoggedBy}
-                      onChange={e => setExpLoggedBy(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      onChange={val => setExpLoggedBy(val)}
+                      options={officerOptions}
+                      placeholder="Select Officer..."
+                      searchable
+                      required
                     />
                   </div>
                 </div>

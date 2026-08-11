@@ -28,7 +28,9 @@ import {
   Check,
   RotateCcw,
   Award,
+  Crop,
 } from 'lucide-react';
+import { ImageCropperModal } from './ImageCropperModal';
 
 interface MemberRegistrationFormProps {
   onSuccess?: (newUser: User) => void;
@@ -143,6 +145,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
   const [network, setNetwork] = useState(initialData?.network || '');
   const [chapter, setChapter] = useState(initialData?.chapter || '');
   const [civilStatus, setCivilStatus] = useState(initialData?.civilStatus || 'Single');
+  const [leadersName, setLeadersName] = useState(initialData?.leadersName || '');
   const [leadersContactNo, setLeadersContactNo] = useState(initialData?.leadersContactNo || '');
   const [affiliations, setAffiliations] = useState<string[]>(() => {
     if (initialData?.affiliation) {
@@ -169,6 +172,8 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
   const [avatarDataUrl, setAvatarDataUrl] = useState<string>(initialData?.avatar || '');
   const [avatarFileName, setAvatarFileName] = useState<string>('');
   const [avatarError, setAvatarError] = useState<string>('');
+  const [cropperOpen, setCropperOpen] = useState<boolean>(false);
+  const [cropperSrc, setCropperSrc] = useState<string>('');
 
   // Emergency Contact
   const [emergencyFullName, setEmergencyFullName] = useState(initialData?.emergencyContact?.name || '');
@@ -272,6 +277,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
     network,
     chapter,
     civilStatus,
+    leadersName,
     leadersContactNo,
     affiliation,
     occupation,
@@ -331,13 +337,14 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       if (restoredData.network !== undefined) setNetwork(restoredData.network);
       if (restoredData.chapter !== undefined) setChapter(restoredData.chapter);
       if (restoredData.civilStatus !== undefined) setCivilStatus(restoredData.civilStatus);
+      if (restoredData.leadersName !== undefined) setLeadersName(restoredData.leadersName);
       if (restoredData.leadersContactNo !== undefined) setLeadersContactNo(restoredData.leadersContactNo);
-      if (restoredData.affiliations && Array.isArray(restoredData.affiliations)) {
-        setAffiliations(restoredData.affiliations);
-      } else if (restoredData.affiliation) {
-        setAffiliations(String(restoredData.affiliation).split(',').map((s: string) => s.trim()).filter(Boolean));
+      if ((restoredData as any).affiliations && Array.isArray((restoredData as any).affiliations)) {
+        setAffiliations((restoredData as any).affiliations);
+      } else if ((restoredData as any).affiliation) {
+        setAffiliations(String((restoredData as any).affiliation).split(',').map((s: string) => s.trim()).filter(Boolean));
       }
-      if (restoredData.customAffiliation !== undefined) setCustomAffiliation(restoredData.customAffiliation);
+      if ((restoredData as any).customAffiliation !== undefined) setCustomAffiliation((restoredData as any).customAffiliation);
       if (restoredData.occupation !== undefined) setOccupation(restoredData.occupation);
       if (restoredData.occupationStatus !== undefined) setOccupationStatus(restoredData.occupationStatus);
       if (restoredData.lifeInsurance !== undefined) setLifeInsurance(restoredData.lifeInsurance);
@@ -383,6 +390,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       setNetwork(initialData.network || '');
       setChapter(initialData.chapter || '');
       setCivilStatus(initialData.civilStatus || 'Single');
+      setLeadersName(initialData.leadersName || '');
       setLeadersContactNo(initialData.leadersContactNo || '');
       if (initialData.affiliation) {
         setAffiliations(initialData.affiliation.split(',').map((s) => s.trim()).filter(Boolean));
@@ -476,25 +484,33 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
   const computedAge = calculateAge(birthdate);
 
-  // Avatar file upload handler converting to Base64 string for MongoDB (Max 2MB)
-  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Avatar file upload handler converting to Base64 string for MongoDB (Max 10MB)
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setAvatarError('');
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      setAvatarError('Image file size exceeds the 2MB limit. Please select a smaller image file.');
+    if (file.size > 10 * 1024 * 1024) {
+      setAvatarError('Image file size exceeds the 10MB limit. Please select a smaller image file.');
       e.target.value = '';
       return;
     }
 
     setAvatarFileName(file.name);
-    const base64Url = await uploadStorageFile(file);
-    if (base64Url) {
-      setAvatarDataUrl(base64Url);
-    } else {
-      setAvatarError('Failed to read image file. Please try another image.');
-    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result) {
+        setCropperSrc(reader.result as string);
+        setCropperOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleCropComplete = async (croppedDataUrl: string) => {
+    const compressed = await uploadStorageFile(croppedDataUrl);
+    setAvatarDataUrl(compressed || croppedDataUrl);
   };
 
   // Canvas Drawing Handlers
@@ -599,6 +615,21 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       return;
     }
 
+    if (!mobileNo.trim() || mobileNo.trim().length !== 11) {
+      setFormError('Mobile No. is required and must be exactly 11 digits (e.g., 09171234567).');
+      return;
+    }
+
+    if (leadersContactNo.trim() && leadersContactNo.trim().length !== 11) {
+      setFormError("Leader's Contact No. must be exactly 11 digits (e.g., 09189876543).");
+      return;
+    }
+
+    if (!emergencyPhone.trim() || emergencyPhone.trim().length !== 11) {
+      setFormError('Contact Phone (Emergency Contact) is required and must be exactly 11 digits (e.g., 09179998888).');
+      return;
+    }
+
     const fullName = `${firstName.trim()} ${lastName.trim()}`;
     const defaultAvatar = '/avatar.svg';
     const approvalStatus: ApprovalStatus = isAdminCreation ? 'Approved' : 'Pending';
@@ -621,6 +652,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       network: network.trim(),
       chapter: chapter.trim(),
       civilStatus,
+      leadersName: leadersName.trim(),
       leadersContactNo: leadersContactNo.trim(),
       affiliation,
       mobileNo: (mobileNo.trim() || phone.trim()),
@@ -789,17 +821,31 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
                     </label>
 
                     {avatarDataUrl && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAvatarDataUrl('');
-                          setAvatarFileName('');
-                          setAvatarError('');
-                        }}
-                        className="py-2 px-3.5 rounded-xl bg-white border border-rose-300 text-rose-700 font-bold text-xs hover:bg-rose-50 transition-colors cursor-pointer"
-                      >
-                        Reset Avatar
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCropperSrc(avatarDataUrl);
+                            setCropperOpen(true);
+                          }}
+                          className="py-2 px-3.5 rounded-xl bg-white border border-[#2d6a4f]/30 text-[#2d6a4f] font-bold text-xs hover:bg-[#2d6a4f]/10 transition-colors cursor-pointer inline-flex items-center gap-1.5"
+                        >
+                          <Crop className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                          <span>Crop Photo</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAvatarDataUrl('');
+                            setAvatarFileName('');
+                            setAvatarError('');
+                          }}
+                          className="py-2 px-3.5 rounded-xl bg-white border border-rose-300 text-rose-700 font-bold text-xs hover:bg-rose-50 transition-colors cursor-pointer"
+                        >
+                          Reset Avatar
+                        </button>
+                      </>
                     )}
                   </div>
 
@@ -820,7 +866,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
                   </div>
 
                   <p className="text-[10px] font-medium text-[#52605d]">
-                    Required: Member photo must be up to 2MB in file size. It is converted to Base64 and stored directly inside MongoDB.
+                    Member avatar photo.
                   </p>
                 </>
               ) : (
@@ -965,18 +1011,38 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
           />
         </div>
 
-        {/* Leader's Contact No & Affiliation */}
+        {/* Leader's Name & Leader's Contact No */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Leader's Contact No.</label>
+            <label className="font-bold text-[#1b4332] block mb-1">Leader's Name</label>
             <input
-              type="tel"
+              type="text"
               disabled={isReadOnly}
-              value={leadersContactNo}
-              onChange={(e) => setLeadersContactNo(e.target.value)}
-              placeholder="+63 917 000 0000"
+              value={leadersName}
+              onChange={(e) => setLeadersName(e.target.value)}
+              placeholder="e.g. Pastor / Leader John Doe"
               className={inputStyle}
             />
+          </div>
+          <div>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Leader's Contact No. <span className="text-[#52605d] font-normal text-[10px]">(11 digits required)</span>
+            </label>
+            <input
+              type="tel"
+              inputMode="numeric"
+              maxLength={11}
+              disabled={isReadOnly}
+              value={leadersContactNo}
+              onChange={(e) => setLeadersContactNo(e.target.value.replace(/\D/g, '').slice(0, 11))}
+              placeholder="09189876543"
+              className={inputStyle}
+            />
+            {leadersContactNo && leadersContactNo.length !== 11 && (
+              <p className="text-[10px] text-amber-700 font-semibold mt-1">
+                Must be exactly 11 digits ({leadersContactNo.length}/11)
+              </p>
+            )}
           </div>
           <div className="sm:col-span-2 space-y-2 pt-1">
             <div className="flex items-center justify-between">
@@ -1047,18 +1113,28 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
         {/* Mobile No & Occupation */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Mobile No.</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Mobile No. <span className="text-rose-500">*</span> <span className="text-[#52605d] font-normal text-[10px]">(11 digits required)</span>
+            </label>
             <input
               type="tel"
+              inputMode="numeric"
+              maxLength={11}
               disabled={isReadOnly}
               value={mobileNo}
               onChange={(e) => {
-                setMobileNo(e.target.value);
-                setPhone(e.target.value);
+                const val = e.target.value.replace(/\D/g, '').slice(0, 11);
+                setMobileNo(val);
+                setPhone(val);
               }}
-              placeholder="+63 917 000 0000"
+              placeholder="09171234567"
               className={inputStyle}
             />
+            {mobileNo && mobileNo.length !== 11 && (
+              <p className="text-[10px] text-amber-700 font-semibold mt-1">
+                Must be exactly 11 digits ({mobileNo.length}/11)
+              </p>
+            )}
           </div>
           <div>
             <label className="font-bold text-[#1b4332] block mb-1">Occupation / Business</label>
@@ -1162,15 +1238,24 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             ]}
           />
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Contact Phone</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Contact Phone <span className="text-rose-500">*</span> <span className="text-[#52605d] font-normal text-[10px]">(11 digits required)</span>
+            </label>
             <input
               type="tel"
+              inputMode="numeric"
+              maxLength={11}
               disabled={isReadOnly}
               value={emergencyPhone}
-              onChange={(e) => setEmergencyPhone(e.target.value)}
-              placeholder="+63 917 999 9999"
+              onChange={(e) => setEmergencyPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+              placeholder="09179998888"
               className={inputStyle}
             />
+            {emergencyPhone && emergencyPhone.length !== 11 && (
+              <p className="text-[10px] text-amber-700 font-semibold mt-1">
+                Must be exactly 11 digits ({emergencyPhone.length}/11)
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -1397,13 +1482,17 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Vehicle's Years in Service</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Vehicle's Years in Service <span className="text-[#52605d] font-normal text-[10px]">(Numbers only)</span>
+            </label>
             <input
               type="text"
+              inputMode="numeric"
+              maxLength={3}
               disabled={isReadOnly}
               value={yearsInService}
-              onChange={(e) => setYearsInService(e.target.value)}
-              placeholder="e.g. 2 years / Brand New"
+              onChange={(e) => setYearsInService(e.target.value.replace(/\D/g, '').slice(0, 3))}
+              placeholder="e.g. 2"
               className={inputStyle}
             />
           </div>
@@ -1473,9 +1562,6 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
               <span>Motorcycle Photo</span>
               {!isReadOnly && <span className="text-rose-600 font-extrabold">* Required</span>}
             </label>
-            <span className="text-[9px] text-[#2d6a4f] font-semibold bg-[#d8f3dc] px-2 py-0.5 rounded-full">
-              MongoDB Optimized
-            </span>
           </div>
 
           {bikePhotoUrl ? (
@@ -1718,6 +1804,14 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
           </button>
         </div>
       )}
+      {/* Image Cropper Modal */}
+      <ImageCropperModal
+        isOpen={cropperOpen}
+        imageSrc={cropperSrc}
+        onClose={() => setCropperOpen(false)}
+        onCropComplete={handleCropComplete}
+        title="Crop Member Profile Avatar"
+      />
     </form>
   );
 };

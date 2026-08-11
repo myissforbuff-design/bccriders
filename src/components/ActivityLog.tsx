@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useModalDismiss } from '../hooks/useModalDismiss';
 import { safeFetchJson, store } from '../lib/db';
 import {
   Calendar,
@@ -18,7 +19,6 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { store } from '../lib/db';
 
 interface Attendance {
   name: string;
@@ -76,6 +76,10 @@ export const ActivityLog: React.FC = () => {
   const [newActivityDate, setNewActivityDate] = useState('');
   const [memberStatusFilter, setMemberStatusFilter] = useState<'All' | 'Attended' | 'Absent' | 'Upcoming'>('All');
   const [memberPage, setMemberPage] = useState<number>(1);
+
+  useModalDismiss(Boolean(selectedActivityForModal), () => setSelectedActivityForModal(null));
+  useModalDismiss(isCreateModalOpen, () => setIsCreateModalOpen(false));
+  useModalDismiss(Boolean(activityToDelete), () => setActivityToDelete(null));
 
   const fetchActivities = () => {
     setIsLoadingActivities(true);

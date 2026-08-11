@@ -4,6 +4,34 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BCC Riders Club</title>
+    <script>
+      // Make window.fetch assignable (writable via getter/setter) to prevent getter-only TypeError when polyfills reassign fetch
+      (function() {
+        if (typeof window !== 'undefined' && window.fetch) {
+          try {
+            var currentFetch = window.fetch;
+            Object.defineProperty(window, 'fetch', {
+              get: function() { return currentFetch; },
+              set: function(fn) { currentFetch = fn; },
+              configurable: true,
+              enumerable: true
+            });
+          } catch (e) {
+            try {
+              if (window.Window && window.Window.prototype) {
+                var currentFetchProto = window.fetch;
+                Object.defineProperty(window.Window.prototype, 'fetch', {
+                  get: function() { return currentFetchProto; },
+                  set: function(fn) { currentFetchProto = fn; },
+                  configurable: true,
+                  enumerable: true
+                });
+              }
+            } catch (err) {}
+          }
+        }
+      })();
+    </script>
     <link rel="icon" type="image/png" href="/logo.png" />
     <link rel="shortcut icon" type="image/png" href="/logo.png" />
     <link rel="apple-touch-icon" href="/logo.png" />

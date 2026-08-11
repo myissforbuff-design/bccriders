@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import jsQR from 'jsqr';
 import { useAuth } from '../context/AuthContext';
+import { useModalDismiss } from '../hooks/useModalDismiss';
 import { safeFetchJson } from '../lib/db';
 import {
   QrCode,
@@ -87,6 +88,21 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   const [alreadyScannedMemberModal, setAlreadyScannedMemberModal] = useState<Attendance | null>(null);
   const [showEventModal, setShowEventModal] = useState<boolean>(false);
   const [manualInputId, setManualInputId] = useState<string>('');
+
+  const handleCloseScan = useCallback(() => {
+    if (!setActiveTab) return;
+    const isAdmin = currentUser?.role === 'admin';
+    if (isAdmin) {
+      setActiveTab('dashboard');
+    } else {
+      setActiveTab('profile');
+    }
+  }, [currentUser, setActiveTab]);
+
+  useModalDismiss(true, handleCloseScan);
+  useModalDismiss(Boolean(scannedMemberModal), () => setScannedMemberModal(null));
+  useModalDismiss(Boolean(alreadyScannedMemberModal), () => setAlreadyScannedMemberModal(null));
+  useModalDismiss(showEventModal, () => setShowEventModal(false));
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -344,7 +360,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     }
 
     // Save entry to MongoDB "attendanceLogs" collection table
-    const eventName = activeAct?.name || 'General Event';
+    const eventName = activeAct?.name || 'No event created';
     const eventDate = activeAct?.date || new Date().toISOString().split('T')[0];
 
     const matchedUser = store.getUsers().find(u =>
@@ -750,7 +766,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
           {setActiveTab && (
             <button
               type="button"
-              onClick={() => setActiveTab('dashboard')}
+              onClick={handleCloseScan}
               title="Close QR Scanner"
               className="w-11 h-11 rounded-2xl bg-black/40 backdrop-blur-md hover:bg-black/60 border border-white/20 text-white flex items-center justify-center transition-all active:scale-90 cursor-pointer shadow-lg"
             >
@@ -841,25 +857,13 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
           <span>{isSelectedEventDone ? 'Scanning disabled for completed event' : "Point camera at learner's QR code"}</span>
         </div>
 
-        <div className="flex items-center justify-between w-full max-w-sm gap-3 pt-1">
+        <div className="flex items-center justify-center w-full max-w-sm pt-1">
           <button
             type="button"
             onClick={() => setShowEventModal(true)}
-            className="flex-1 py-2.5 px-4 bg-white/15 hover:bg-white/25 backdrop-blur-md text-white text-xs font-bold rounded-2xl border border-white/20 truncate transition-all cursor-pointer text-center shadow-lg"
+            className="w-full py-2.5 px-4 bg-white/15 hover:bg-white/25 backdrop-blur-md text-white text-xs font-bold rounded-2xl border border-white/20 truncate transition-all cursor-pointer text-center shadow-lg"
           >
-            Event: {selectedActivity?.name || 'General Event'}
-          </button>
-
-          <button
-            type="button"
-            disabled={isSelectedEventDone}
-            onClick={() => {
-              if (scanning) stopCamera();
-              else startCamera();
-            }}
-            className="py-2.5 px-4 bg-[#2d6a4f] hover:bg-[#1b4332] disabled:opacity-40 disabled:hover:bg-[#2d6a4f] text-white text-xs font-extrabold rounded-2xl border border-[#74c69d]/40 transition-all cursor-pointer shrink-0 shadow-lg active:scale-95"
-          >
-            {scanning ? 'Pause' : 'Resume'}
+            Event: {selectedActivity?.name || 'No event created'}
           </button>
         </div>
       </div>
@@ -1026,7 +1030,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
             {/* Event Attendance Context */}
             <div className="p-2.5 bg-emerald-50/60 rounded-2xl border border-emerald-200 text-xs text-center space-y-0.5">
               <p className="font-bold text-[#1b4332]">Recorded for Event:</p>
-              <p className="text-[#2d6a4f] font-bold">{selectedActivity?.name || 'General Event'}</p>
+              <p className="text-[#2d6a4f] font-bold">{selectedActivity?.name || 'No event created'}</p>
               <p className="text-[11px] text-[#52605d] font-mono">{scannedMemberModal.date} {scannedMemberModal.time}</p>
             </div>
 
@@ -1102,7 +1106,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
             {/* Event Name Context */}
             <div className="p-2.5 bg-amber-50/70 rounded-2xl border border-amber-200 text-xs text-center">
               <p className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">Event Context</p>
-              <p className="font-bold text-[#1b4332] mt-0.5">{selectedActivity?.name || 'General Event'}</p>
+              <p className="font-bold text-[#1b4332] mt-0.5">{selectedActivity?.name || 'No event created'}</p>
             </div>
 
             <button

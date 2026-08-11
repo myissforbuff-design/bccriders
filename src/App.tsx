@@ -5,12 +5,9 @@ import { LandingPage } from './components/LandingPage';
 import { Navigation, TabType } from './components/Navigation';
 import { Dashboard } from './components/Dashboard';
 import { MembershipManagement } from './components/MembershipManagement';
-import { EventScheduler } from './components/EventScheduler';
 import { CommunityBoard } from './components/CommunityBoard';
-import { MileageLeaderboard } from './components/MileageLeaderboard';
 import { RiderProfile } from './components/RiderProfile';
 import { MembershipAgreementPaper } from './components/MembershipAgreementPaper';
-import { OfflineMaps } from './components/OfflineMaps';
 import { AdminERPPanel } from './components/AdminERPPanel';
 import { Settings } from './components/Settings';
 import { ActivityLog } from './components/ActivityLog';
@@ -46,6 +43,12 @@ function MainAppContent() {
     }
   }, [isAuthenticated, isAdmin, isMember, activeTab]);
 
+  useEffect(() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [activeTab]);
+
   if (!isAuthenticated) {
     return (
       <LandingPage
@@ -75,7 +78,7 @@ function MainAppContent() {
               {activeTab === 'settings'
                 ? 'System Settings'
                 : activeTab === 'announcements'
-                ? 'News Updates & Facebook Posts'
+                ? 'News Updates'
                 : activeTab === 'finances'
                 ? 'Finances & Treasury Management'
                 : activeTab === 'activity'
@@ -136,15 +139,14 @@ function MainAppContent() {
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
-              initial={{ opacity: 0, y: 10, scale: 0.99 }}
+              initial={{ opacity: 0, y: 12, scale: 0.985 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.99 }}
-              transition={{ duration: 0.2, ease: [0.25, 0.1, 0.25, 1] }}
+              exit={{ opacity: 0, y: -12, scale: 0.985 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             >
               {activeTab === 'dashboard' && (
                 <Dashboard
                   setActiveTab={setActiveTab}
-                  onOpenLogRideModal={() => setActiveTab('leaderboard')}
                 />
               )}
 
@@ -162,15 +164,7 @@ function MainAppContent() {
 
               {activeTab === 'qr' && <QRScan setActiveTab={setActiveTab} />}
 
-              {activeTab === 'events' && (
-                <EventScheduler onOpenMapRoute={() => setActiveTab('maps')} />
-              )}
-
               {activeTab === 'board' && <CommunityBoard />}
-
-              {activeTab === 'leaderboard' && <MileageLeaderboard />}
-
-              {activeTab === 'maps' && <OfflineMaps />}
 
               {activeTab === 'profile' && (
                 <RiderProfile />

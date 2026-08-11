@@ -23,8 +23,13 @@ import {
   Upload,
   Zap,
   Camera,
+  Crop,
+  Wallet,
+  Coins,
+  FileText,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { ImageCropperModal } from './ImageCropperModal';
 
 interface RiderProfileProps {
   onOpenDuesModal?: () => void;
@@ -87,7 +92,12 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
     setEditModalOpen(true);
   };
 
-  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Avatar Cropper State
+  const [cropperOpen, setCropperOpen] = useState(false);
+  const [cropperSrc, setCropperSrc] = useState('');
+  const [cropperTarget, setCropperTarget] = useState<'direct' | 'edit'>('edit');
+
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setAvatarError('');
     const file = e.target.files?.[0];
     if (!file) return;
@@ -98,15 +108,19 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
       return;
     }
 
-    const base64Url = await uploadStorageFile(file);
-    if (base64Url) {
-      setAvatar(base64Url);
-    } else {
-      setAvatarError('Failed to read image file. Please try another image.');
-    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result) {
+        setCropperSrc(reader.result as string);
+        setCropperTarget('edit');
+        setCropperOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
-  const handleDirectAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleDirectAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !activeRider) return;
 
@@ -116,14 +130,30 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
       return;
     }
 
-    const base64Url = await uploadStorageFile(file);
-    if (base64Url) {
-      // Overwrite and replace old avatar with new compressed image
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result) {
+        setCropperSrc(reader.result as string);
+        setCropperTarget('direct');
+        setCropperOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleCropComplete = async (croppedDataUrl: string) => {
+    const compressed = await uploadStorageFile(croppedDataUrl);
+    const finalUrl = compressed || croppedDataUrl;
+
+    if (cropperTarget === 'direct' && activeRider) {
       const updated: UserType = {
         ...activeRider,
-        avatar: base64Url,
+        avatar: finalUrl,
       };
       updateUser(updated);
+    } else {
+      setAvatar(finalUrl);
     }
   };
 
@@ -319,6 +349,110 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
             )}
           </div>
         </div>
+
+        {/* Club Financial Contribution Summary Card */}
+        {(() => {
+          const riderRecords = store.getFinanceRecords().filter((r) => r.userId === activeRider.id);
+          const totalPaidFromJoining = riderRecords
+            .filter((r) => r.status === 'Paid')
+            .reduce((sum, r) => sum + r.amount, 0);
+          const mfPaid = riderRecords
+            .filter((r) => r.status === 'Paid' && r.itemType === 'Membership Fee')
+            .reduce((sum, r) => sum + r.amount, 0);
+          const duesPaid = riderRecords
+            .filter((r) => r.status === 'Paid' && r.itemType === 'Monthly Due')
+            .reduce((sum, r) => sum + r.amount, 0);
+          const otherPaid = riderRecords
+            .filter((r) => r.status === 'Paid' && r.itemType !== 'Membership Fee' && r.itemType !== 'Monthly Due')
+            .reduce((sum, r) => sum + r.amount, 0);
+          const pendingDuesAmount = riderRecords
+            .filter((r) => r.status === 'Pending' || r.status === 'Overdue')
+            .reduce((sum, r) => sum + r.amount, 0);
+
+          return (
+            <div className="p-6 rounded-3xl bg-white border border-[#e2ece2] space-y-4 shadow-xs col-span-1 md:col-span-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#e2ece2] pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-[#1b4332] text-[#74c69d] flex items-center justify-center shrink-0 shadow-2xs">
+                    <Wallet className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-extrabold text-[#1b4332] text-base leading-snug">
+                      Contributions
+                    </h3>
+                    <p className="text-xs text-[#52605d] font-medium">
+                      Total payments made to the club from joining date to present
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] text-left sm:text-right shrink-0">
+                  <span className="text-[10px] font-extrabold uppercase text-[#52605d] block">
+                    Total Paid (Joining - Present)
+                  </span>
+                  <span className="font-heading text-2xl font-black text-[#1b4332]">
+                    ₱{totalPaidFromJoining.toLocaleString()}.00
+                  </span>
+                </div>
+              </div>
+
+              {/* Itemized Breakdown Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* Membership Fee */}
+                <div className="p-3.5 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1 hover:border-[#2d6a4f] transition-all">
+                  <span className="text-[10px] font-extrabold text-[#52605d] uppercase block">
+                    Membership Fee
+                  </span>
+                  <p className="text-sm font-black text-[#1b4332]">
+                    ₱{mfPaid.toLocaleString()}.00
+                  </p>
+                  <span className="text-[10px] font-bold text-[#2d6a4f] block">
+                    {mfPaid > 0 ? '✓ Verified Paid' : 'Pending'}
+                  </span>
+                </div>
+
+                {/* Monthly Dues */}
+                <div className="p-3.5 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1 hover:border-[#2d6a4f] transition-all">
+                  <span className="text-[10px] font-extrabold text-[#52605d] uppercase block">
+                    Monthly Dues
+                  </span>
+                  <p className="text-sm font-black text-[#1b4332]">
+                    ₱{duesPaid.toLocaleString()}.00
+                  </p>
+                  <span className="text-[10px] font-bold text-[#2d6a4f] block">
+                    {riderRecords.filter((r) => r.itemType === 'Monthly Due' && r.status === 'Paid').length} month(s) paid
+                  </span>
+                </div>
+
+                {/* Other Collections */}
+                <div className="p-3.5 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1 hover:border-[#2d6a4f] transition-all">
+                  <span className="text-[10px] font-extrabold text-[#52605d] uppercase block">
+                    Other Collections
+                  </span>
+                  <p className="text-sm font-black text-[#1b4332]">
+                    ₱{otherPaid.toLocaleString()}.00
+                  </p>
+                  <span className="text-[10px] font-medium text-[#52605d] block">
+                    Vests, promos & special fees
+                  </span>
+                </div>
+
+                {/* Outstanding / Pending Dues */}
+                <div className="p-3.5 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1 hover:border-[#2d6a4f] transition-all">
+                  <span className="text-[10px] font-extrabold text-[#52605d] uppercase block">
+                    Pending Balance
+                  </span>
+                  <p className={`text-sm font-black ${pendingDuesAmount > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                    ₱{pendingDuesAmount.toLocaleString()}.00
+                  </p>
+                  <span className="text-[10px] font-bold text-[#52605d] block">
+                    {pendingDuesAmount > 0 ? 'Unsettled dues' : '✓ All Clear'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Profile Edit Modal */}
@@ -346,7 +480,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
               <form onSubmit={handleProfileSave} className="space-y-4 text-xs">
                 {/* Avatar File Upload / Base64 Storage */}
                 <div>
-                  <label className="text-[#2d3a3a] font-semibold mb-1 block">Profile Avatar Image (Base64 MongoDB Storage)</label>
+                  <label className="text-[#2d3a3a] font-semibold mb-1 block">Profile Avatar Image</label>
                   <div className="flex items-center gap-3">
                     <img
                       src={avatar || activeRider.avatar || '/avatar.svg'}
@@ -365,6 +499,20 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
                             className="hidden"
                           />
                         </label>
+                        {(avatar || activeRider.avatar) && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCropperSrc(avatar || activeRider.avatar);
+                              setCropperTarget('edit');
+                              setCropperOpen(true);
+                            }}
+                            className="py-1.5 px-2.5 rounded-xl border border-[#2d6a4f]/30 bg-white text-[#2d6a4f] font-bold text-xs hover:bg-[#2d6a4f]/10 transition-colors cursor-pointer inline-flex items-center gap-1"
+                          >
+                            <Crop className="w-3.5 h-3.5" />
+                            <span>Crop</span>
+                          </button>
+                        )}
                         {avatar && (
                           <button
                             type="button"
@@ -453,6 +601,14 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
           </div>
         )}
       </AnimatePresence>
+      {/* Avatar Image Cropper Modal */}
+      <ImageCropperModal
+        isOpen={cropperOpen}
+        imageSrc={cropperSrc}
+        onClose={() => setCropperOpen(false)}
+        onCropComplete={handleCropComplete}
+        title="Crop Profile Avatar"
+      />
     </div>
   );
 };

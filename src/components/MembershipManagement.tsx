@@ -158,6 +158,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       'Life Insurance',
       'Network',
       'Chapter',
+      'Leaders Name',
       'Leaders Contact No',
       'Affiliation',
       'License No',
@@ -224,6 +225,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       escapeCSV(m.lifeInsurance || ''),
       escapeCSV(m.network || ''),
       escapeCSV(m.chapter || ''),
+      escapeCSV(m.leadersName || ''),
       escapeCSV(m.leadersContactNo || ''),
       escapeCSV(m.affiliation || ''),
       escapeCSV(m.licenseNo || ''),
@@ -692,6 +694,26 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                       </p>
                     )}
                   </div>
+
+                  {(selectedMember.network || selectedMember.chapter || selectedMember.leadersName || selectedMember.leadersContactNo) && (
+                    <div className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2 col-span-1 sm:col-span-2">
+                      <span className="text-[#52605d] font-bold block">Church & Leadership Info</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[#52605d]">
+                        {selectedMember.network && (
+                          <p>Network: <strong className="text-[#1b4332]">{selectedMember.network}</strong></p>
+                        )}
+                        {selectedMember.chapter && (
+                          <p>Chapter: <strong className="text-[#1b4332]">{selectedMember.chapter}</strong></p>
+                        )}
+                        {selectedMember.leadersName && (
+                          <p>Leader's Name: <strong className="text-[#1b4332]">{selectedMember.leadersName}</strong></p>
+                        )}
+                        {selectedMember.leadersContactNo && (
+                          <p>Leader's Contact No: <strong className="text-[#1b4332]">{selectedMember.leadersContactNo}</strong></p>
+                        )}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2">
                     <span className="text-[#52605d] font-bold block">Emergency Contact</span>

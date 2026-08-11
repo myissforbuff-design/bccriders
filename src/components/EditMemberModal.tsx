@@ -111,7 +111,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   onSave,
   onClose,
 }) => {
-  // useModalDismiss(true, onClose);
+  useModalDismiss(true, onClose);
 
   // Personal Info
   const [firstName, setFirstName] = useState(
@@ -129,6 +129,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [network, setNetwork] = useState(member.network || '');
   const [chapter, setChapter] = useState(member.chapter || '');
   const [civilStatus, setCivilStatus] = useState(member.civilStatus || 'Single');
+  const [leadersName, setLeadersName] = useState(member.leadersName || '');
   const [leadersContactNo, setLeadersContactNo] = useState(member.leadersContactNo || '');
   const [affiliations, setAffiliations] = useState<string[]>(() => {
     if (member.affiliation) {
@@ -226,6 +227,21 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       return;
     }
 
+    if (mobileNo.trim() && mobileNo.trim().length !== 11) {
+      setFormError('Mobile No. must be exactly 11 digits (e.g., 09171234567).');
+      return;
+    }
+
+    if (leadersContactNo.trim() && leadersContactNo.trim().length !== 11) {
+      setFormError("Leader's Contact No. must be exactly 11 digits (e.g., 09189876543).");
+      return;
+    }
+
+    if (emergencyPhone.trim() && emergencyPhone.trim().length !== 11) {
+      setFormError('Emergency Contact Phone must be exactly 11 digits (e.g., 09179998888).');
+      return;
+    }
+
     const fullName = `${firstName.trim()} ${lastName.trim()}`;
 
     const updatedUser: User = {
@@ -241,6 +257,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       network: network.trim(),
       chapter: chapter.trim(),
       civilStatus,
+      leadersName: leadersName.trim(),
       leadersContactNo: leadersContactNo.trim(),
       affiliation,
       mobileNo: (mobileNo.trim() || phone.trim()),
@@ -478,13 +495,33 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Leader's Contact No.</label>
+                <label className="font-bold text-[#1b4332] block mb-1">Leader's Name</label>
                 <input
-                  type="tel"
-                  value={leadersContactNo}
-                  onChange={(e) => setLeadersContactNo(e.target.value)}
+                  type="text"
+                  value={leadersName}
+                  onChange={(e) => setLeadersName(e.target.value)}
+                  placeholder="e.g. Pastor / Leader John Doe"
                   className={inputStyle}
                 />
+              </div>
+              <div>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Leader's Contact No. <span className="text-[#52605d] font-normal text-[10px]">(11 digits)</span>
+                </label>
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={11}
+                  value={leadersContactNo}
+                  onChange={(e) => setLeadersContactNo(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                  placeholder="09189876543"
+                  className={inputStyle}
+                />
+                {leadersContactNo && leadersContactNo.length !== 11 && (
+                  <p className="text-[10px] text-amber-700 font-semibold mt-1">
+                    Must be exactly 11 digits ({leadersContactNo.length}/11)
+                  </p>
+                )}
               </div>
               <div className="sm:col-span-2 space-y-2 pt-1">
                 <div className="flex items-center justify-between">
@@ -562,16 +599,27 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 />
               </div>
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Mobile No.</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Mobile No. <span className="text-[#52605d] font-normal text-[10px]">(11 digits)</span>
+                </label>
                 <input
                   type="tel"
+                  inputMode="numeric"
+                  maxLength={11}
                   value={mobileNo}
                   onChange={(e) => {
-                    setMobileNo(e.target.value);
-                    setPhone(e.target.value);
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 11);
+                    setMobileNo(val);
+                    setPhone(val);
                   }}
+                  placeholder="09171234567"
                   className={inputStyle}
                 />
+                {mobileNo && mobileNo.length !== 11 && (
+                  <p className="text-[10px] text-amber-700 font-semibold mt-1">
+                    Must be exactly 11 digits ({mobileNo.length}/11)
+                  </p>
+                )}
               </div>
               <div>
                 <label className="font-bold text-[#1b4332] block mb-1">License Number</label>
@@ -644,13 +692,23 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 />
               </div>
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Contact Phone</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Contact Phone <span className="text-[#52605d] font-normal text-[10px]">(11 digits)</span>
+                </label>
                 <input
                   type="tel"
+                  inputMode="numeric"
+                  maxLength={11}
                   value={emergencyPhone}
-                  onChange={(e) => setEmergencyPhone(e.target.value)}
+                  onChange={(e) => setEmergencyPhone(e.target.value.replace(/\D/g, '').slice(0, 11))}
+                  placeholder="09179998888"
                   className={inputStyle}
                 />
+                {emergencyPhone && emergencyPhone.length !== 11 && (
+                  <p className="text-[10px] text-amber-700 font-semibold mt-1">
+                    Must be exactly 11 digits ({emergencyPhone.length}/11)
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -729,11 +787,16 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Vehicle's Years in Service</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Vehicle's Years of Service <span className="text-[#52605d] font-normal text-[10px]">(Numbers only)</span>
+                </label>
                 <input
                   type="text"
+                  inputMode="numeric"
+                  maxLength={3}
                   value={yearsInService}
-                  onChange={(e) => setYearsInService(e.target.value)}
+                  onChange={(e) => setYearsInService(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                  placeholder="e.g. 2"
                   className={inputStyle}
                 />
               </div>

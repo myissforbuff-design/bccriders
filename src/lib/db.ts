@@ -111,11 +111,44 @@ export async function checkMongoDbStatus(): Promise<MongoStatusResponse> {
 
 // Upload / Storage Helper for MongoDB / Server with automatic image compression
 export async function uploadStorageFile(
-  file: File | Blob,
+  file: File | Blob | string,
   folder = 'avatars',
   maxDimension = 500,
   quality = 0.8
 ): Promise<string | null> {
+  if (typeof file === 'string') {
+    if (!file.startsWith('data:image')) return file;
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > maxDimension || height > maxDimension) {
+          if (width > height) {
+            height = Math.round((height * maxDimension) / width);
+            width = maxDimension;
+          } else {
+            width = Math.round((width * maxDimension) / height);
+            height = maxDimension;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(file);
+          return;
+        }
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', quality));
+      };
+      img.onerror = () => resolve(file);
+      img.src = file;
+    });
+  }
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -280,9 +313,6 @@ export class DataStoreService {
             this.financeSettings = {
               membershipFee: Number(finSettingsDoc.membershipFee) || 500,
               annualFee: Number(finSettingsDoc.annualFee) || 1200,
-              currency: finSettingsDoc.currency || 'PHP',
-              paymentInstructions: finSettingsDoc.paymentInstructions || '',
-              autoGeneratePendingDues: finSettingsDoc.autoGeneratePendingDues !== false,
             };
             saveToStorage(STORAGE_KEYS.FINANCE_SETTINGS, this.financeSettings);
           }
@@ -291,12 +321,13 @@ export class DataStoreService {
           if (duesDocs.length > 0) {
             this.monthlyDues = duesDocs.map((d: any) => ({
               id: d.id,
-              month: d.month,
-              year: d.year,
+              title: d.title || `${d.month || 'August'} ${d.year || 2026} Monthly Due`,
+              month: d.month || 'August',
+              year: Number(d.year) || 2026,
               amount: Number(d.amount) || 0,
-              description: d.description || '',
+              notes: d.description || '',
               createdAt: d.createdAt || new Date().toISOString().split('T')[0],
-              status: d.status || 'Active',
+              status: (d.status === 'Inactive' ? 'Inactive' : 'Active') as 'Active' | 'Inactive',
             }));
             saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
           }
@@ -305,13 +336,12 @@ export class DataStoreService {
           if (dynamicColDocs.length > 0) {
             this.dynamicCollections = dynamicColDocs.map((c: any) => ({
               id: c.id,
-              title: c.title,
+              name: c.name || c.title || 'Dynamic Collection',
+              amount: Number(c.amount) || Number(c.targetAmount) || 0,
               targetAmount: Number(c.targetAmount) || 0,
               description: c.description || '',
-              deadline: c.deadline || '',
               createdAt: c.createdAt || new Date().toISOString().split('T')[0],
-              status: c.status || 'Active',
-              category: c.category || 'Event',
+              status: (c.status || 'Active') as 'Active' | 'Completed' | 'Archived',
             }));
             saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
           }
@@ -480,7 +510,7 @@ export class DataStoreService {
         dueDate: approvedUser.joinDate || todayStr,
         paidDate: todayStr,
         status: 'Paid',
-        paymentMethod: 'GCash',
+        paymentMethod: 'Cash',
         referenceNo: undefined,
         notes: 'Payment recorded upon member approval',
         updatedAt: todayStr,
@@ -855,6 +885,16 @@ export class DataStoreService {
   }
 
   // Finance Settings & Configs
+  getFinanceRecords(): any[] {
+    try {
+      const item = localStorage.getItem('bcc_finance_records_v3');
+      if (item) return JSON.parse(item);
+    } catch (e) {
+      console.error('Failed to parse finance records:', e);
+    }
+    return [];
+  }
+
   getFinanceSettings(): FinanceSettings {
     return this.financeSettings;
   }

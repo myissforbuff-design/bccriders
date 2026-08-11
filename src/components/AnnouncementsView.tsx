@@ -226,15 +226,7 @@ export const AnnouncementsView: React.FC = () => {
     <div className="space-y-6">
       {/* Header Row */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="font-heading text-xl sm:text-2xl font-black text-[#1b4332] tracking-tight">
-            Updates & News
-          </h1>
-          <p className="text-xs text-[#52605d]">
-            Stay up-to-date with official directives, news updates, and embedded Facebook activity posts from BCC Riders Club & Buhangin Community Church.
-          </p>
-        </div>
-
+      
         {/* Admin Action Button */}
         {isAdmin && (
           <button
@@ -472,164 +464,168 @@ export const AnnouncementsView: React.FC = () => {
       {/* Modal: Create / Edit Announcement */}
       <AnimatePresence>
         {showModal && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl border border-[#e2ece2] space-y-6 relative my-8"
+              className="bg-white rounded-3xl p-4 sm:p-6 max-w-lg w-full max-h-[88vh] sm:max-h-[88vh] shadow-2xl border border-[#e2ece2] relative flex flex-col my-auto"
             >
               <button
                 type="button"
                 onClick={() => setShowModal(false)}
-                className="absolute top-5 right-5 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                className="absolute top-4 right-4 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer z-10"
               >
                 <X className="w-5 h-5" />
               </button>
 
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
-                  <Megaphone className="w-5 h-5" />
+              {/* Modal Header */}
+              <div className="flex items-center gap-3 shrink-0 pb-3 border-b border-[#e2ece2] pr-8">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-2xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+                  <Megaphone className="w-4 h-4 sm:w-5 sm:h-5" />
                 </div>
                 <div>
-                  <h3 className="font-heading font-extrabold text-[#1b4332] text-lg">
+                  <h3 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg leading-tight">
                     {editingAnn ? 'Edit News Update' : 'Post New Activity Update'}
                   </h3>
-                  <p className="text-xs text-[#52605d]">
-                    Broadcast official directives and embed Facebook post activity updates
+                  <p className="text-[11px] sm:text-xs text-[#52605d]">
+                    Broadcast official directives and embed Facebook updates
                   </p>
                 </div>
               </div>
 
-              <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-                {/* Title */}
-                <div>
-                  <label className="font-bold text-[#1b4332] mb-1.5 block">
-                    Update Title <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={formTitle}
-                    onChange={(e) => setFormTitle(e.target.value)}
-                    placeholder="e.g., Recent Community Ride & Fellowship Activity"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                  />
-                </div>
-
-                {/* Priority Selector */}
-                <div>
-                  <label className="font-bold text-[#1b4332] mb-1.5 block">
-                    Priority Category
-                  </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {(['General', 'Important', 'Event', 'Emergency'] as AnnouncementPriority[]).map(
-                      (p) => (
-                        <button
-                          key={p}
-                          type="button"
-                          onClick={() => setFormPriority(p)}
-                          className={`py-2 px-3 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                            formPriority === p
-                              ? 'bg-[#1b4332] text-white border-[#1b4332] shadow-xs'
-                              : 'bg-[#f7f9f7] text-[#52605d] border-[#e2ece2] hover:bg-[#e2ece2]'
-                          }`}
-                        >
-                          <span>{p}</span>
-                        </button>
-                      )
-                    )}
-                  </div>
-                </div>
-
-                {/* Content */}
-                <div>
-                  <label className="font-bold text-[#1b4332] mb-1.5 block">
-                    Update Description / Body Content <span className="text-rose-600">*</span>
-                  </label>
-                  <textarea
-                    required
-                    rows={4}
-                    value={formContent}
-                    onChange={(e) => setFormContent(e.target.value)}
-                    placeholder="Write details about the recent activity, event schedule, or church announcement..."
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] resize-none"
-                  />
-                </div>
-
-                {/* Facebook Post Link / Embed URL */}
-                <div>
-                  <label className="font-bold text-[#1b4332] mb-1.5 flex items-center justify-between">
-                    <span className="flex items-center gap-1.5">
-                      <img src="/fb.ico" alt="FB" className="w-3.5 h-3.5 object-contain" />
-                      <span>Embed Facebook Post Link (Optional)</span>
-                    </span>
-                    <span className="text-[10px] text-[#52605d] font-normal">URL or Iframe</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formFacebookUrl}
-                    onChange={(e) => setFormFacebookUrl(e.target.value)}
-                    placeholder="e.g., https://www.facebook.com/buhangincommunitychurch/posts/..."
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                  />
-                  <p className="text-[10px] text-[#52605d] mt-1">
-                    Paste any Facebook post link or video URL to automatically embed the interactive Facebook player in this update.
-                  </p>
-                </div>
-
-                {/* Author Name & Role Fields */}
-                <div className="grid grid-cols-2 gap-3">
+              {/* Scrollable Form Body */}
+              <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0 mt-3">
+                <div className="flex-1 overflow-y-auto space-y-3.5 pr-1.5 py-1 text-xs">
+                  {/* Title */}
                   <div>
                     <label className="font-bold text-[#1b4332] mb-1 block">
-                      Author Name
+                      Update Title <span className="text-rose-600">*</span>
                     </label>
                     <input
                       type="text"
-                      value={formAuthorName}
-                      onChange={(e) => setFormAuthorName(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332]"
+                      required
+                      value={formTitle}
+                      onChange={(e) => setFormTitle(e.target.value)}
+                      placeholder="e.g., Recent Community Ride & Fellowship Activity"
+                      className="w-full px-3.5 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                     />
                   </div>
+
+                  {/* Priority Selector */}
                   <div>
                     <label className="font-bold text-[#1b4332] mb-1 block">
-                      Author Role
+                      Priority Category
+                    </label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {(['General', 'Important', 'Event', 'Emergency'] as AnnouncementPriority[]).map(
+                        (p) => (
+                          <button
+                            key={p}
+                            type="button"
+                            onClick={() => setFormPriority(p)}
+                            className={`py-1.5 px-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                              formPriority === p
+                                ? 'bg-[#1b4332] text-white border-[#1b4332] shadow-xs'
+                                : 'bg-[#f7f9f7] text-[#52605d] border-[#e2ece2] hover:bg-[#e2ece2]'
+                            }`}
+                          >
+                            <span>{p}</span>
+                          </button>
+                        )
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Content */}
+                  <div>
+                    <label className="font-bold text-[#1b4332] mb-1 block">
+                      Update Description / Body Content <span className="text-rose-600">*</span>
+                    </label>
+                    <textarea
+                      required
+                      rows={3}
+                      value={formContent}
+                      onChange={(e) => setFormContent(e.target.value)}
+                      placeholder="Write details about the recent activity, event schedule, or church announcement..."
+                      className="w-full px-3.5 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] resize-none"
+                    />
+                  </div>
+
+                  {/* Facebook Post Link / Embed URL */}
+                  <div>
+                    <label className="font-bold text-[#1b4332] mb-1 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <img src="/fb.ico" alt="FB" className="w-3.5 h-3.5 object-contain" />
+                        <span>Embed Facebook Post Link (Optional)</span>
+                      </span>
+                      <span className="text-[10px] text-[#52605d] font-normal">URL or Iframe</span>
                     </label>
                     <input
                       type="text"
-                      value={formAuthorRole}
-                      onChange={(e) => setFormAuthorRole(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332]"
+                      value={formFacebookUrl}
+                      onChange={(e) => setFormFacebookUrl(e.target.value)}
+                      placeholder="e.g., https://www.facebook.com/buhangincommunitychurch/posts/..."
+                      className="w-full px-3.5 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                     />
+                    <p className="text-[10px] text-[#52605d] mt-1">
+                      Paste any Facebook post link or video URL to automatically embed the interactive Facebook player in this update.
+                    </p>
                   </div>
+
+                  {/* Author Name & Role Fields */}
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="font-bold text-[#1b4332] mb-1 block">
+                        Author Name
+                      </label>
+                      <input
+                        type="text"
+                        value={formAuthorName}
+                        onChange={(e) => setFormAuthorName(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332]"
+                      />
+                    </div>
+                    <div>
+                      <label className="font-bold text-[#1b4332] mb-1 block">
+                        Author Role
+                      </label>
+                      <input
+                        type="text"
+                        value={formAuthorRole}
+                        onChange={(e) => setFormAuthorRole(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332]"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Pin Checkbox */}
+                  <label className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] cursor-pointer hover:bg-[#e2ece2]/50 transition-colors">
+                    <input
+                      type="checkbox"
+                      checked={formPinned}
+                      onChange={(e) => setFormPinned(e.target.checked)}
+                      className="w-4 h-4 rounded text-[#2d6a4f] focus:ring-[#2d6a4f] accent-[#1b4332]"
+                    />
+                    <div className="flex items-center gap-1.5 text-xs font-bold text-[#1b4332]">
+                      <Pin className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Pin to top as featured bulletin</span>
+                    </div>
+                  </label>
                 </div>
 
-                {/* Pin Checkbox */}
-                <label className="flex items-center gap-2.5 p-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] cursor-pointer hover:bg-[#e2ece2]/50 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={formPinned}
-                    onChange={(e) => setFormPinned(e.target.checked)}
-                    className="w-4 h-4 rounded text-[#2d6a4f] focus:ring-[#2d6a4f] accent-[#1b4332]"
-                  />
-                  <div className="flex items-center gap-1.5 text-xs font-bold text-[#1b4332]">
-                    <Pin className="w-3.5 h-3.5 text-amber-600" />
-                    <span>Pin to top as featured bulletin</span>
-                  </div>
-                </label>
-
-                {/* Form Buttons */}
-                <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#e2ece2]">
+                {/* Form Buttons Footer */}
+                <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-[#e2ece2] shrink-0 mt-2">
                   <button
                     type="button"
                     onClick={() => setShowModal(false)}
-                    className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
+                    className="px-4 py-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5"
+                    className="px-4 sm:px-5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5"
                   >
                     <CheckCircle2 className="w-4 h-4" />
                     <span>{editingAnn ? 'Save Changes' : 'Publish Announcement'}</span>
