@@ -78,9 +78,8 @@ export const PhilippineAddressSelector: React.FC<PhilippineAddressSelectorProps>
       bName = selectedBarangay?.name || '';
     }
 
-    // Construct full readable string
+    // Construct location string (Barangay, City, Province, Region) without duplicating streetAddress
     const parts = [
-      streetAddress.trim(),
       bName ? `Brgy. ${bName}` : '',
       cName,
       pName && pName !== cName ? pName : '',

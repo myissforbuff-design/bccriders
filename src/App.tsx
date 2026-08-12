@@ -21,7 +21,19 @@ function MainAppContent() {
   const { currentUser, isAuthenticated, isAdmin } = useAuth();
   const { toastMessage, clearToast } = useNotifications();
 
-  const [activeTab, setActiveTab] = useState<TabType>(() => (isAdmin ? 'dashboard' : 'profile'));
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    const saved = localStorage.getItem('bcc_active_tab');
+    if (saved) {
+      return saved as TabType;
+    }
+    return isAdmin ? 'dashboard' : 'profile';
+  });
+
+  useEffect(() => {
+    if (activeTab) {
+      localStorage.setItem('bcc_active_tab', activeTab);
+    }
+  }, [activeTab]);
   const [logRideModalTrigger, setLogRideModalTrigger] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [exportPdfTrigger, setExportPdfTrigger] = useState(0);

@@ -16,13 +16,13 @@
       "purpose": "any"
     },
     {
-      "src": "/bcc-logo.png",
+      "src": "/logo.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "any"
     },
     {
-      "src": "/bcc-logo.png",
+      "src": "/logo.png",
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any"

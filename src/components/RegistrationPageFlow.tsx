@@ -143,6 +143,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
   // 4. Motorcycle & Driver's License Information State
   const [bikeMake, setBikeMake] = useState<string>('');
   const [bikeModel, setBikeModel] = useState<string>('');
+  const [bikeEngineCc, setBikeEngineCc] = useState<string>('');
   const [bikeColor, setBikeColor] = useState<string>('');
   const [bikeEngineNo, setBikeEngineNo] = useState<string>('');
   const [bikeChassisNo, setBikeChassisNo] = useState<string>('');
@@ -243,6 +244,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
     emergencyPhone,
     bikeMake,
     bikeModel,
+    bikeEngineCc,
     bikeColor,
     bikeEngineNo,
     bikeChassisNo,
@@ -309,6 +311,8 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
       if (restoredData.emergencyPhone !== undefined) setEmergencyPhone(restoredData.emergencyPhone);
       if (restoredData.bikeMake !== undefined) setBikeMake(restoredData.bikeMake);
       if (restoredData.bikeModel !== undefined) setBikeModel(restoredData.bikeModel);
+      if (restoredData.bikeEngineCc !== undefined) setBikeEngineCc(restoredData.bikeEngineCc);
+      else if ((restoredData as Record<string, any>).engineCc !== undefined) setBikeEngineCc((restoredData as Record<string, any>).engineCc);
       if (restoredData.bikeColor !== undefined) setBikeColor(restoredData.bikeColor);
       if (restoredData.bikeEngineNo !== undefined) setBikeEngineNo(restoredData.bikeEngineNo);
       if (restoredData.bikeChassisNo !== undefined) setBikeChassisNo(restoredData.bikeChassisNo);
@@ -552,6 +556,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
         bikeInfo: {
           make: bikeMake.trim() || 'N/A',
           model: bikeModel.trim() || 'N/A',
+          engineCc: bikeEngineCc.trim() || '',
           color: bikeColor.trim() || '',
           engineNo: bikeEngineNo.trim() || '',
           chassisNo: bikeChassisNo.trim() || '',
@@ -1253,7 +1258,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                       </span>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="space-y-1">
                         <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Make</label>
                         <input
@@ -1272,6 +1277,20 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                           value={bikeModel}
                           onChange={(e) => setBikeModel(e.target.value)}
                           placeholder="e.g. NMAX 155, MT-09"
+                          className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Engine Displacement (CC) <span className="text-gray-500 font-normal text-[9px]">(Numbers only)</span>
+                        </label>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          value={bikeEngineCc}
+                          onChange={(e) => setBikeEngineCc(e.target.value.replace(/\D/g, ''))}
+                          placeholder="e.g. 155, 300, 890"
                           className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
                         />
                       </div>
@@ -1847,7 +1866,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                   <div className="flex justify-between items-center text-[11px]">
                     <span className="text-[#52605d]">Address:</span>
                     <span className="font-mono text-[#1b4332] truncate max-w-[200px]">
-                      {phAddress?.fullAddressString || 'Davao City'}
+                      {phAddress?.streetAddress
+                        ? `${phAddress.streetAddress}, ${phAddress.fullAddressString}`
+                        : (phAddress?.fullAddressString || 'Davao City')}
                     </span>
                   </div>
                 </div>

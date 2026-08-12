@@ -72,7 +72,14 @@ export const Settings: React.FC = () => {
   const { currentUser, isAdmin, logout } = useAuth();
 
   // Settings Sub-Navigation Dropdown & Tabs
-  const [activeSubTab, setActiveSubTab] = useState<'finance' | 'reports' | 'security'>('finance');
+  const [activeSubTab, setActiveSubTab] = useState<'finance' | 'reports' | 'security'>(() => {
+    const saved = localStorage.getItem('bcc_settings_subtab');
+    return (saved === 'finance' || saved === 'reports' || saved === 'security') ? saved : 'finance';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('bcc_settings_subtab', activeSubTab);
+  }, [activeSubTab]);
   const [isSubTabDropdownOpen, setIsSubTabDropdownOpen] = useState(false);
   const subTabDropdownRef = React.useRef<HTMLDivElement>(null);
 
@@ -1314,6 +1321,7 @@ export const Settings: React.FC = () => {
     }
     refreshFinanceData();
     setDeleteTarget(null);
+    window.location.reload();
   };
 
   const approvedMemberCount = approvedMembers.length;

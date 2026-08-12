@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useFormAutoSave } from '../hooks/useFormAutoSave';
 import { LTO_RESTRICTION_CODES_2026, LTO_CONDITIONS_2026 } from './RegistrationPageFlow';
 import { BirthdateDropdownPicker } from './BirthdateDropdownPicker';
+import { cleanBarangayCityAddress } from './EditMemberModal';
 import {
   User as UserIcon,
   Phone,
@@ -140,8 +141,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
   const [gender, setGender] = useState(initialData?.gender || 'Male');
   const [phone, setPhone] = useState(initialData?.phone || '');
   const [mobileNo, setMobileNo] = useState(initialData?.mobileNo || initialData?.phone || '');
-  const [address, setAddress] = useState(initialData?.address || '');
-  const [streetAddress, setStreetAddress] = useState(initialData?.streetAddress || '');
+  const initStreet = initialData?.streetAddress || '';
+  const [streetAddress, setStreetAddress] = useState(initStreet);
+  const [address, setAddress] = useState(cleanBarangayCityAddress(initialData?.address, initStreet));
   const [network, setNetwork] = useState(initialData?.network || '');
   const [chapter, setChapter] = useState(initialData?.chapter || '');
   const [civilStatus, setCivilStatus] = useState(initialData?.civilStatus || 'Single');
@@ -386,7 +388,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       setGender(initialData.gender || 'Male');
       setPhone(initialData.phone || '');
       setMobileNo(initialData.mobileNo || initialData.phone || '');
-      setAddress(initialData.address || '');
+      const currStreet = initialData.streetAddress || '';
+      setStreetAddress(currStreet);
+      setAddress(cleanBarangayCityAddress(initialData.address, currStreet));
       setNetwork(initialData.network || '');
       setChapter(initialData.chapter || '');
       setCivilStatus(initialData.civilStatus || 'Single');
@@ -647,7 +651,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       email: email.trim(),
       password: password.trim(),
       phone: (mobileNo.trim() || phone.trim()),
-      address: address.trim(),
+      address: cleanBarangayCityAddress(address.trim(), streetAddress.trim()),
       streetAddress: streetAddress.trim(),
       network: network.trim(),
       chapter: chapter.trim(),
@@ -1430,13 +1434,16 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             />
           </div>
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Engine Displacement (CC)</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Engine Displacement (CC) <span className="text-[#52605d] font-normal text-[10px]">(Numbers only)</span>
+            </label>
             <input
               type="text"
+              inputMode="numeric"
               disabled={isReadOnly}
               value={engineCc}
-              onChange={(e) => setEngineCc(e.target.value)}
-              placeholder="e.g. 890cc"
+              onChange={(e) => setEngineCc(e.target.value.replace(/\D/g, ''))}
+              placeholder="e.g. 890"
               className={inputStyle}
             />
           </div>

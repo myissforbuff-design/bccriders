@@ -850,21 +850,23 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
         )}
       </div>
 
-      {/* BOTTOM CONTROL OVERLAY */}
-      <div className="absolute bottom-20 sm:bottom-6 left-0 right-0 z-30 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent flex flex-col items-center gap-3">
-        <div className="flex items-center gap-2 px-4 py-1.5 bg-black/60 backdrop-blur-md rounded-full border border-white/20 text-white/90 text-xs font-semibold">
-          <div className={`w-2.5 h-2.5 rounded-full ${isSelectedEventDone ? 'bg-rose-500' : 'bg-emerald-400 animate-ping'}`} />
-          <span>{isSelectedEventDone ? 'Scanning disabled for completed event' : "Point camera at learner's QR code"}</span>
-        </div>
+      {/* TOP EVENT CONTEXT BADGE (Above Scanner) */}
+      <div className="absolute top-20 sm:top-24 left-0 right-0 z-30 flex items-center justify-center px-4 pointer-events-auto">
+        <button
+          type="button"
+          onClick={() => setShowEventModal(true)}
+          className="max-w-xs sm:max-w-sm w-full py-2 px-4 bg-black/65 hover:bg-black/85 backdrop-blur-md text-white text-xs font-bold rounded-full border border-white/20 truncate transition-all cursor-pointer text-center shadow-xl active:scale-95 flex items-center justify-center gap-2"
+        >
+          <Calendar className="w-3.5 h-3.5 text-[#74c69d] shrink-0" />
+          <span className="truncate">Event: {selectedActivity?.name || 'No event created'}</span>
+        </button>
+      </div>
 
-        <div className="flex items-center justify-center w-full max-w-sm pt-1">
-          <button
-            type="button"
-            onClick={() => setShowEventModal(true)}
-            className="w-full py-2.5 px-4 bg-white/15 hover:bg-white/25 backdrop-blur-md text-white text-xs font-bold rounded-2xl border border-white/20 truncate transition-all cursor-pointer text-center shadow-lg"
-          >
-            Event: {selectedActivity?.name || 'No event created'}
-          </button>
+      {/* BOTTOM CONTROL OVERLAY */}
+      <div className="absolute bottom-32 sm:bottom-24 left-0 right-0 z-30 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent flex flex-col items-center gap-3 pointer-events-none">
+        <div className="flex items-center gap-2 px-4 py-1.5 bg-black/75 backdrop-blur-md rounded-full border border-white/20 text-white/90 text-xs font-semibold shadow-2xl pointer-events-auto">
+          <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${isSelectedEventDone ? 'bg-rose-500' : 'bg-emerald-400 animate-ping'}`} />
+          <span>{isSelectedEventDone ? 'Scanning disabled for completed event' : "Point camera at member's QR code"}</span>
         </div>
       </div>
 

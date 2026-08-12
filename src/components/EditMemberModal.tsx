@@ -18,6 +18,23 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { BirthdateDropdownPicker } from './BirthdateDropdownPicker';
 
+export function cleanBarangayCityAddress(address?: string, streetAddress?: string): string {
+  if (!address) return '';
+  if (!streetAddress || !streetAddress.trim()) return address.trim();
+
+  const trimmedStreet = streetAddress.trim();
+  const trimmedAddr = address.trim();
+
+  if (trimmedAddr.toLowerCase().startsWith(trimmedStreet.toLowerCase())) {
+    let clean = trimmedAddr.slice(trimmedStreet.length).trim();
+    if (clean.startsWith(',')) {
+      clean = clean.slice(1).trim();
+    }
+    return clean;
+  }
+  return trimmedAddr;
+}
+
 interface EditMemberModalProps {
   member: User;
   onSave: (updatedUser: User) => void;
@@ -124,8 +141,10 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [email, setEmail] = useState(member.email || '');
   const [phone, setPhone] = useState(member.phone || '');
   const [mobileNo, setMobileNo] = useState(member.mobileNo || member.phone || '');
-  const [address, setAddress] = useState(member.address || '');
-  const [streetAddress, setStreetAddress] = useState(member.streetAddress || '');
+  const initialStreet = member.streetAddress || '';
+  const initialAddress = cleanBarangayCityAddress(member.address, initialStreet);
+  const [address, setAddress] = useState(initialAddress);
+  const [streetAddress, setStreetAddress] = useState(initialStreet);
   const [network, setNetwork] = useState(member.network || '');
   const [chapter, setChapter] = useState(member.chapter || '');
   const [civilStatus, setCivilStatus] = useState(member.civilStatus || 'Single');
@@ -252,7 +271,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       role: role,
       email: email.trim(),
       phone: (mobileNo.trim() || phone.trim()),
-      address: address.trim(),
+      address: cleanBarangayCityAddress(address.trim(), streetAddress.trim()),
       streetAddress: streetAddress.trim(),
       network: network.trim(),
       chapter: chapter.trim(),
@@ -742,11 +761,15 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 />
               </div>
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Engine Displacement (CC)</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Engine Displacement (CC) <span className="text-[#52605d] font-normal text-[10px]">(Numbers only)</span>
+                </label>
                 <input
                   type="text"
+                  inputMode="numeric"
                   value={engineCc}
-                  onChange={(e) => setEngineCc(e.target.value)}
+                  onChange={(e) => setEngineCc(e.target.value.replace(/\D/g, ''))}
+                  placeholder="e.g. 890"
                   className={inputStyle}
                 />
               </div>

@@ -121,7 +121,14 @@ export const Finances: React.FC = () => {
   const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
 
   // Main Mode Toggle: "funds", "expenses", or "accounts"
-  const [activeTab, setActiveTab] = useState<'funds' | 'expenses' | 'accounts'>('funds');
+  const [activeTab, setActiveTab] = useState<'funds' | 'expenses' | 'accounts'>(() => {
+    const saved = localStorage.getItem('bcc_finances_tab');
+    return (saved === 'funds' || saved === 'expenses' || saved === 'accounts') ? saved : 'funds';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('bcc_finances_tab', activeTab);
+  }, [activeTab]);
 
   // Filters & Search for Accounts
   const [accountSearchQuery, setAccountSearchQuery] = useState('');
@@ -908,6 +915,7 @@ export const Finances: React.FC = () => {
     }
 
     setDeleteTarget(null);
+    window.location.reload();
   };
 
   // Helper for Payment Title

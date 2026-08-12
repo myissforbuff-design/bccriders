@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store } from '../lib/db';
 import { User, MembershipType } from '../types';
 import { MemberRegistrationForm } from './MemberRegistrationForm';
-import { EditMemberModal } from './EditMemberModal';
+import { EditMemberModal, cleanBarangayCityAddress } from './EditMemberModal';
 import { RoleAvatarBadge } from './RoleAvatarBadge';
 import {
   Users,
@@ -16,6 +17,7 @@ import {
   Bike,
   Calendar,
   Download,
+  FileSpreadsheet,
   AlertCircle,
   CheckCircle2,
   Clock,
@@ -35,6 +37,132 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
+export const exportMembersToExcel = (membersList: User[] = []) => {
+  const safeVal = (val: any): string | number => {
+    if (val === null || val === undefined) return '';
+    if (Array.isArray(val)) return val.join('; ');
+    if (typeof val === 'object') return JSON.stringify(val);
+    return val;
+  };
+
+  const getFirstName = (m: User) => {
+    if (m.firstName) return m.firstName;
+    if (!m.name) return '';
+    const parts = m.name.trim().split(' ');
+    return parts[0] || '';
+  };
+
+  const getLastName = (m: User) => {
+    if (m.lastName) return m.lastName;
+    if (!m.name) return '';
+    const parts = m.name.trim().split(' ');
+    return parts.length > 1 ? parts.slice(1).join(' ') : '';
+  };
+
+  // Tab 1: Profile & Account
+  const profileRows = membersList.map((m) => ({
+    'Member ID': safeVal(m.memberNumber),
+    'Last Name': safeVal(getLastName(m)),
+    'First Name': safeVal(getFirstName(m)),
+    'Username': safeVal(m.username),
+    'Role': safeVal(m.role),
+    'Approval Status': safeVal(m.approvalStatus || 'Approved'),
+    'Join Date': safeVal(m.joinDate),
+    'Birthdate': safeVal(m.birthdate),
+    'Age': safeVal(m.age),
+    'Gender': safeVal(m.gender),
+    'Civil Status': safeVal(m.civilStatus),
+    'Occupation': safeVal(m.occupation),
+    'Occupation Status': safeVal(m.occupationStatus),
+    'Life Insurance': safeVal(m.lifeInsurance),
+  }));
+
+  // Tab 2: Contact & Emergency
+  const contactRows = membersList.map((m) => {
+    let fullAddr = m.address || '';
+    if (m.streetAddress && m.streetAddress.trim()) {
+      const cleanLoc = cleanBarangayCityAddress(m.address, m.streetAddress);
+      fullAddr = cleanLoc ? `${m.streetAddress.trim()}, ${cleanLoc}` : m.streetAddress.trim();
+    }
+    return {
+      'Member ID': safeVal(m.memberNumber),
+      'Last Name': safeVal(getLastName(m)),
+      'First Name': safeVal(getFirstName(m)),
+      'Email': safeVal(m.email),
+      'Phone': safeVal(m.phone),
+      'Mobile No': safeVal(m.mobileNo),
+      'Address': safeVal(fullAddr),
+      'Emergency Contact Name': safeVal(m.emergencyContact?.name),
+      'Emergency Contact Relationship': safeVal(m.emergencyContact?.relationship),
+      'Emergency Contact Phone': safeVal(m.emergencyContact?.phone),
+    };
+  });
+
+  // Tab 3: Organization & Network
+  const orgRows = membersList.map((m) => ({
+    'Member ID': safeVal(m.memberNumber),
+    'Last Name': safeVal(getLastName(m)),
+    'First Name': safeVal(getFirstName(m)),
+    'Network': safeVal(m.network),
+    'Chapter': safeVal(m.chapter),
+    'Leaders Name': safeVal(m.leadersName),
+    'Leaders Contact No': safeVal(m.leadersContactNo),
+    'Affiliation': safeVal(m.affiliation),
+    'Reason For Joining': safeVal(m.reasonForJoining),
+    'Recommended By': safeVal(m.recommendedBy),
+    'Declaration Date': safeVal(m.declarationDate),
+  }));
+
+  // Tab 4: License & Riding
+  const licenseRows = membersList.map((m) => ({
+    'Member ID': safeVal(m.memberNumber),
+    'Last Name': safeVal(getLastName(m)),
+    'First Name': safeVal(getFirstName(m)),
+    'License No': safeVal(m.licenseNo),
+    'License Expiry Date': safeVal(m.licenseExpiryDate),
+    'Riding Experience': safeVal(m.ridingExperience),
+    'Rider Type': safeVal(m.riderType),
+    'Restriction Codes': safeVal(m.bikeInfo?.restrictionCodes || m.bikeInfo?.licenseRestrictionCode),
+    'LTO Conditions': safeVal(m.bikeInfo?.ltoConditions || m.bikeInfo?.conditionCode),
+  }));
+
+  // Tab 5: Motorcycle Details
+  const bikeRows = membersList.map((m) => ({
+    'Member ID': safeVal(m.memberNumber),
+    'Last Name': safeVal(getLastName(m)),
+    'First Name': safeVal(getFirstName(m)),
+    'Motorcycle Make': safeVal(m.bikeInfo?.make),
+    'Motorcycle Model': safeVal(m.bikeInfo?.model),
+    'Motorcycle Year': safeVal(m.bikeInfo?.year),
+    'Engine CC': safeVal(m.bikeInfo?.engineCc),
+    'Engine No': safeVal(m.bikeInfo?.engineNo),
+    'Chassis No': safeVal(m.bikeInfo?.chassisNo),
+    'CR No': safeVal(m.bikeInfo?.crNo),
+    'OR No': safeVal(m.bikeInfo?.orNo),
+    'OR Expiry Date': safeVal(m.bikeInfo?.orExpiryDate),
+    'Plate No': safeVal(m.bikeInfo?.plateNo || m.bikeInfo?.licensePlate),
+    'Color': safeVal(m.bikeInfo?.color),
+    'Condition': safeVal(m.bikeInfo?.condition),
+    'Years In Service': safeVal(m.bikeInfo?.yearsInService),
+  }));
+
+  const wb = XLSX.utils.book_new();
+
+  const sheet1 = XLSX.utils.json_to_sheet(profileRows);
+  const sheet2 = XLSX.utils.json_to_sheet(contactRows);
+  const sheet3 = XLSX.utils.json_to_sheet(orgRows);
+  const sheet4 = XLSX.utils.json_to_sheet(licenseRows);
+  const sheet5 = XLSX.utils.json_to_sheet(bikeRows);
+
+  XLSX.utils.book_append_sheet(wb, sheet1, 'Profile & Account');
+  XLSX.utils.book_append_sheet(wb, sheet2, 'Contact & Emergency');
+  XLSX.utils.book_append_sheet(wb, sheet3, 'BCC Information');
+  XLSX.utils.book_append_sheet(wb, sheet4, 'License & Riding');
+  XLSX.utils.book_append_sheet(wb, sheet5, 'Motorcycle Details');
+
+  XLSX.writeFile(wb, 'Members_Datasheet.xlsx');
+};
+
 interface MembershipManagementProps {
   onOpenDuesModal?: () => void;
 }
@@ -52,7 +180,14 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
   const [editingMember, setEditingMember] = useState<User | null>(null);
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [actionDropdownOpen, setActionDropdownOpen] = useState(false);
-  const [rosterTab, setRosterTab] = useState<'active' | 'pending'>('active');
+  const [rosterTab, setRosterTab] = useState<'active' | 'pending'>(() => {
+    const saved = localStorage.getItem('bcc_roster_tab');
+    return (saved === 'pending' || saved === 'active') ? saved : 'active';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('bcc_roster_tab', rosterTab);
+  }, [rosterTab]);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const [reviewingPendingUser, setReviewingPendingUser] = useState<User | null>(null);
@@ -99,9 +234,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       type: 'success',
       text: `Application for "${memberName}" has been rejected and removed from pending requests.`,
     });
-    setTimeout(() => {
-      setSyncStatusMsg(null);
-    }, 2000);
+    window.location.reload();
   };
 
   const activeMembersList = members.filter((m) => m.approvalStatus !== 'Pending' && m.role !== 'admin');
@@ -133,140 +266,6 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
   }, [search, rosterTab]);
 
   const paginatedMembers = filteredMembers.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-
-  const exportCSV = () => {
-    const headers = [
-      'Member Number',
-      'Full Name',
-      'First Name',
-      'Last Name',
-      'Username',
-      'Email',
-      'Phone',
-      'Mobile No',
-      'Role',
-      'Membership Type',
-      'Approval Status',
-      'Join Date',
-      'Birthdate',
-      'Age',
-      'Gender',
-      'Civil Status',
-      'Address',
-      'Occupation',
-      'Occupation Status',
-      'Life Insurance',
-      'Network',
-      'Chapter',
-      'Leaders Name',
-      'Leaders Contact No',
-      'Affiliation',
-      'License No',
-      'License Expiry Date',
-      'Riding Experience',
-      'Rider Type',
-      'Reason For Joining',
-      'Recommended By',
-      'Declaration Date',
-      'Bio',
-      'Emergency Contact Name',
-      'Emergency Contact Relationship',
-      'Emergency Contact Phone',
-      'Motorcycle Make',
-      'Motorcycle Model',
-      'Motorcycle Year',
-      'Engine CC',
-      'Engine No',
-      'Chassis No',
-      'CR No',
-      'OR No',
-      'OR Expiry Date',
-      'Plate No',
-      'Color',
-      'Condition',
-      'Years In Service',
-      'Restriction Codes',
-      'LTO Conditions',
-    ];
-
-    const escapeCSV = (val: any): string => {
-      if (val === undefined || val === null) return '""';
-      let str = '';
-      if (Array.isArray(val)) {
-        str = val.join('; ');
-      } else if (typeof val === 'object') {
-        str = JSON.stringify(val);
-      } else {
-        str = String(val);
-      }
-      return `"${str.replace(/"/g, '""')}"`;
-    };
-
-    const rows = members.map((m) => [
-      escapeCSV(m.memberNumber),
-      escapeCSV(m.name),
-      escapeCSV(m.firstName || ''),
-      escapeCSV(m.lastName || ''),
-      escapeCSV(m.username),
-      escapeCSV(m.email),
-      escapeCSV(m.phone),
-      escapeCSV(m.mobileNo || ''),
-      escapeCSV(m.role),
-      escapeCSV(m.membershipType || 'Standard'),
-      escapeCSV(m.approvalStatus || 'Approved'),
-      escapeCSV(m.joinDate),
-      escapeCSV(m.birthdate || ''),
-      escapeCSV(m.age ?? ''),
-      escapeCSV(m.gender || ''),
-      escapeCSV(m.civilStatus || ''),
-      escapeCSV(m.address || ''),
-      escapeCSV(m.occupation || ''),
-      escapeCSV(m.occupationStatus || ''),
-      escapeCSV(m.lifeInsurance || ''),
-      escapeCSV(m.network || ''),
-      escapeCSV(m.chapter || ''),
-      escapeCSV(m.leadersName || ''),
-      escapeCSV(m.leadersContactNo || ''),
-      escapeCSV(m.affiliation || ''),
-      escapeCSV(m.licenseNo || ''),
-      escapeCSV(m.licenseExpiryDate || ''),
-      escapeCSV(m.ridingExperience || ''),
-      escapeCSV(m.riderType || ''),
-      escapeCSV(m.reasonForJoining || ''),
-      escapeCSV(m.recommendedBy || ''),
-      escapeCSV(m.declarationDate || ''),
-      escapeCSV(m.bio || ''),
-      escapeCSV(m.emergencyContact?.name || ''),
-      escapeCSV(m.emergencyContact?.relationship || ''),
-      escapeCSV(m.emergencyContact?.phone || ''),
-      escapeCSV(m.bikeInfo?.make || ''),
-      escapeCSV(m.bikeInfo?.model || ''),
-      escapeCSV(m.bikeInfo?.year || ''),
-      escapeCSV(m.bikeInfo?.engineCc || ''),
-      escapeCSV(m.bikeInfo?.engineNo || ''),
-      escapeCSV(m.bikeInfo?.chassisNo || ''),
-      escapeCSV(m.bikeInfo?.crNo || ''),
-      escapeCSV(m.bikeInfo?.orNo || ''),
-      escapeCSV(m.bikeInfo?.orExpiryDate || ''),
-      escapeCSV(m.bikeInfo?.plateNo || m.bikeInfo?.licensePlate || ''),
-      escapeCSV(m.bikeInfo?.color || ''),
-      escapeCSV(m.bikeInfo?.condition || ''),
-      escapeCSV(m.bikeInfo?.yearsInService || ''),
-      escapeCSV(m.bikeInfo?.restrictionCodes || m.bikeInfo?.licenseRestrictionCode || ''),
-      escapeCSV(m.bikeInfo?.ltoConditions || m.bikeInfo?.conditionCode || ''),
-    ]);
-
-    const csvString = [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `club_members_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
 
   return (
     <div className="space-y-4 sm:space-y-6 pb-8">
@@ -388,13 +387,13 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     <button
                       type="button"
                       onClick={() => {
-                        exportCSV();
+                        exportMembersToExcel(members);
                         setActionDropdownOpen(false);
                       }}
                       className="w-full px-3.5 py-2.5 text-left text-[#1b4332] hover:bg-[#f7f9f7] flex items-center gap-2.5 cursor-pointer font-bold transition-colors"
                     >
-                      <Download className="w-4 h-4 text-[#2d6a4f] shrink-0" />
-                      <span>Export CSV</span>
+                      <FileSpreadsheet className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                      <span>Export Excel (.xlsx)</span>
                     </button>
                   </motion.div>
                 </>
@@ -693,11 +692,22 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         {selectedMember.licenseExpiryDate && ` (Exp: ${selectedMember.licenseExpiryDate})`}
                       </p>
                     )}
+                    {(selectedMember.streetAddress || selectedMember.address) && (
+                      <p className="text-[#52605d]">
+                        Address:{' '}
+                        <strong className="text-[#1b4332]">
+                          {[
+                            selectedMember.streetAddress,
+                            cleanBarangayCityAddress(selectedMember.address, selectedMember.streetAddress)
+                          ].filter(Boolean).join(', ')}
+                        </strong>
+                      </p>
+                    )}
                   </div>
 
                   {(selectedMember.network || selectedMember.chapter || selectedMember.leadersName || selectedMember.leadersContactNo) && (
                     <div className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2 col-span-1 sm:col-span-2">
-                      <span className="text-[#52605d] font-bold block">Church & Leadership Info</span>
+                      <span className="text-[#52605d] font-bold block">BCC Information</span>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[#52605d]">
                         {selectedMember.network && (
                           <p>Network: <strong className="text-[#1b4332]">{selectedMember.network}</strong></p>
@@ -1222,6 +1232,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                       if (reviewingPendingUser?.id === targetId) {
                         setReviewingPendingUser(null);
                       }
+                      window.location.reload();
                     }}
                     className="py-2.5 px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors"
                   >

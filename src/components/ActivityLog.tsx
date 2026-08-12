@@ -210,6 +210,7 @@ export const ActivityLog: React.FC = () => {
     } catch (err) {
       console.error('Failed to delete activity:', err);
     }
+    window.location.reload();
   };
 
   const handleOpenActivityLogsModal = (activity: Activity) => {

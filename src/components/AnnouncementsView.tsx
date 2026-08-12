@@ -172,6 +172,7 @@ export const AnnouncementsView: React.FC = () => {
     store.deleteAnnouncement(id);
     refreshAnnouncements();
     setDeletingId(null);
+    window.location.reload();
   };
 
   const handleTogglePin = (id: string) => {
