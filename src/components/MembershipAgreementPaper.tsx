@@ -27,24 +27,23 @@ export const MembershipAgreementPaper: React.FC<MembershipAgreementPaperProps> =
 
   // Retrieve user tagged as President from store
   const president = useMemo(() => {
+    if (user.role === 'President' || user.role?.toLowerCase() === 'president') {
+      return user;
+    }
     const allUsers = store.getUsers();
     return (
       allUsers.find(
         (u) =>
           u.role === 'President' ||
-          u.role?.toLowerCase() === 'president' ||
-          u.role?.toLowerCase().includes('president')
-      ) ||
-      allUsers.find((u) => u.bio?.toLowerCase().includes('president'))
+          u.role?.toLowerCase() === 'president'
+      ) || null
     );
   }, [user]);
 
   const presidentDisplayName = useMemo(() => {
-    if (user.role === 'President' || user.role?.toLowerCase().includes('president')) {
-      return (user.name || 'GAUDENCIO PILAPIL').toUpperCase();
-    }
-    return (president?.name || 'GAUDENCIO PILAPIL').toUpperCase();
-  }, [user, president]);
+    if (!president) return '';
+    return (president.name || '').toUpperCase();
+  }, [president]);
 
   useEffect(() => {
     if (exportPdfTrigger && exportPdfTrigger > 0) {
@@ -180,12 +179,11 @@ export const MembershipAgreementPaper: React.FC<MembershipAgreementPaperProps> =
     setSignaturePng(applicantSig);
 
     // 2. President Signature
-    const isUserPresident = user.role === 'President' || user.role?.toLowerCase().includes('president');
-    if (isUserPresident) {
-      setPresidentSignaturePng(applicantSig);
-    } else if (president?.applicantSignature && president.applicantSignature.startsWith('data:image')) {
+    if (!president) {
+      setPresidentSignaturePng('');
+    } else if (president.applicantSignature && president.applicantSignature.trim()) {
       setPresidentSignaturePng(president.applicantSignature);
-    } else {
+    } else if (president.name) {
       const presCanvas = document.createElement('canvas');
       presCanvas.width = 400;
       presCanvas.height = 120;
@@ -208,6 +206,8 @@ export const MembershipAgreementPaper: React.FC<MembershipAgreementPaperProps> =
 
         setPresidentSignaturePng(presCanvas.toDataURL('image/png'));
       }
+    } else {
+      setPresidentSignaturePng('');
     }
   }, [user, president, presidentDisplayName]);
 
@@ -364,35 +364,49 @@ export const MembershipAgreementPaper: React.FC<MembershipAgreementPaperProps> =
             </span>
 
             <div className="relative flex flex-col items-end justify-end pt-2 pb-1 min-h-[100px]">
-              {/* Signed President Signature Image and Approval Seal behind printed name */}
-              {presidentSignaturePng ? (
+              {president ? (
                 <>
-                  <img
-                    src="/approved.png"
-                    alt="Official Approval Seal"
-                    className="absolute top-1/2 right-0 -translate-y-1/2 w-48 sm:w-52 max-w-none opacity-25 pointer-events-none select-none z-0"
-                  />
-                  <img
-                    src={presidentSignaturePng}
-                    alt="President Signature"
-                    className="absolute top-1/2 right-0 -translate-y-1/2 max-h-24 object-contain filter brightness-0 contrast-200 pointer-events-none select-none z-0"
-                    style={{ filter: 'brightness(0) contrast(200%)' }}
-                  />
-                </>
-              ) : null}
+                  {/* Signed President Signature Image and Approval Seal behind printed name */}
+                  {presidentSignaturePng ? (
+                    <>
+                      <img
+                        src="/approved.png"
+                        alt="Official Approval Seal"
+                        className="absolute top-1/2 right-0 -translate-y-1/2 w-48 sm:w-52 max-w-none opacity-25 pointer-events-none select-none z-0"
+                      />
+                      <img
+                        src={presidentSignaturePng}
+                        alt="President Signature"
+                        className="absolute top-1/2 right-0 -translate-y-1/2 max-h-24 object-contain filter brightness-0 contrast-200 pointer-events-none select-none z-0"
+                        style={{ filter: 'brightness(0) contrast(200%)' }}
+                      />
+                    </>
+                  ) : null}
 
-              {/* Name Content Layered on top of seal */}
-              <div className="relative z-10 space-y-1 w-full text-right pt-6">
-                {/* President Name Line */}
-                <div className="space-y-0.5">
-                  <strong className="block text-base font-black text-[#1b4332] tracking-wide">
-                    {presidentDisplayName}
-                  </strong>
-                  <p className="text-xs font-extrabold text-[#2d6a4f] uppercase tracking-wider">
-                    BCC Riders Club President
-                  </p>
+                  {/* Name Content Layered on top of seal */}
+                  <div className="relative z-10 space-y-1 w-full text-right pt-6">
+                    {/* President Name Line */}
+                    <div className="space-y-0.5">
+                      <strong className="block text-base font-black text-[#1b4332] tracking-wide">
+                        {presidentDisplayName}
+                      </strong>
+                      <p className="text-xs font-extrabold text-[#2d6a4f] uppercase tracking-wider">
+                        BCC Riders Club President
+                      </p>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                /* Blank Signatory when no president is tagged or appointed or president was deleted */
+                <div className="relative z-10 space-y-1 w-full text-right pt-6">
+                  <div className="space-y-0.5">
+                    <div className="border-b border-[#1b4332]/40 w-52 ml-auto mb-1 h-8"></div>
+                    <p className="text-xs font-extrabold text-[#2d6a4f] uppercase tracking-wider">
+                      BCC Riders Club President
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

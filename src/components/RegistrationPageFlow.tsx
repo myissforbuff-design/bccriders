@@ -120,6 +120,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
   const [occupation, setOccupation] = useState<string>('');
   const [occupationStatus, setOccupationStatus] = useState<string>('Employed');
   const [lifeInsurance, setLifeInsurance] = useState<string>('');
+  const [username, setUsername] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
 
@@ -230,6 +231,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
     occupation,
     occupationStatus,
     lifeInsurance,
+    username,
     email,
     password, // Password will be automatically excluded by hook
     network,
@@ -295,6 +297,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
       if (restoredData.occupation !== undefined) setOccupation(restoredData.occupation);
       if (restoredData.occupationStatus !== undefined) setOccupationStatus(restoredData.occupationStatus);
       if (restoredData.lifeInsurance !== undefined) setLifeInsurance(restoredData.lifeInsurance);
+      if (restoredData.username !== undefined) setUsername(restoredData.username);
       if (restoredData.email !== undefined) setEmail(restoredData.email);
       if (restoredData.network !== undefined) setNetwork(restoredData.network);
       if (restoredData.chapter !== undefined) setChapter(restoredData.chapter);
@@ -470,6 +473,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
   const isPage1Valid = Boolean(
     firstName.trim() &&
     lastName.trim() &&
+    username.trim() &&
     email.trim() &&
     password.trim() &&
     phAddress &&
@@ -519,7 +523,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
       const newUser: User = {
         id: memberId,
         memberNumber,
-        username: email.trim(),
+        username: username.trim() || email.trim().split('@')[0],
         name: `${firstName.trim()} ${lastName.trim()}`,
         firstName: firstName.trim(),
         lastName: lastName.trim(),
@@ -979,6 +983,19 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                     </div>
                   </div>
 
+                  <div className="space-y-1">
+                    <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                      Active Email Address <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="rider@example.com"
+                      className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
+                    />
+                  </div>
+
                   {/* Portal Account Credentials */}
                   <div className="p-3 sm:p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3 sm:space-y-4">
                     <h3 className="text-[10px] sm:text-xs font-extrabold text-[#1b4332] uppercase tracking-wider">
@@ -987,13 +1004,13 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                       <div className="space-y-1">
                         <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                          Email Address (Portal Account) <span className="text-rose-500">*</span>
+                          Username (Portal Account) <span className="text-rose-500">*</span>
                         </label>
                         <input
-                          type="email"
-                          value={email}
-                          onChange={(e) => setEmail(e.target.value)}
-                          placeholder="rider@example.com"
+                          type="text"
+                          value={username}
+                          onChange={(e) => setUsername(e.target.value)}
+                          placeholder="e.g. rider_username"
                           className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
                         />
                       </div>
@@ -1856,7 +1873,11 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
 
                 <div className="p-3.5 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1.5 font-sans">
                   <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-[#52605d]">Email Account:</span>
+                    <span className="text-[#52605d]">Username:</span>
+                    <span className="font-bold text-[#1b4332]">{username}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="text-[#52605d]">Active Email:</span>
                     <span className="font-bold text-[#1b4332]">{email}</span>
                   </div>
                   <div className="flex justify-between items-center text-[11px]">

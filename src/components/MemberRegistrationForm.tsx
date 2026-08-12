@@ -166,6 +166,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
   const [licenseNo, setLicenseNo] = useState(initialData?.licenseNo || '');
   const [licenseExpiryDate, setLicenseExpiryDate] = useState(initialData?.licenseExpiryDate || '');
+  const [username, setUsername] = useState(initialData?.username || '');
   const [email, setEmail] = useState(initialData?.email || '');
   const [password, setPassword] = useState(initialData?.password || '');
   const [membershipType, setMembershipType] = useState<MembershipType>(initialData?.membershipType || 'Standard');
@@ -287,6 +288,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
     lifeInsurance,
     licenseNo,
     licenseExpiryDate,
+    username,
     email,
     membershipType,
     emergencyFullName,
@@ -352,6 +354,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       if (restoredData.lifeInsurance !== undefined) setLifeInsurance(restoredData.lifeInsurance);
       if (restoredData.licenseNo !== undefined) setLicenseNo(restoredData.licenseNo);
       if (restoredData.licenseExpiryDate !== undefined) setLicenseExpiryDate(restoredData.licenseExpiryDate);
+      if (restoredData.username !== undefined) setUsername(restoredData.username);
       if (restoredData.email !== undefined) setEmail(restoredData.email);
       if (restoredData.membershipType !== undefined) setMembershipType(restoredData.membershipType as any);
       if (restoredData.emergencyFullName !== undefined) setEmergencyFullName(restoredData.emergencyFullName);
@@ -406,6 +409,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       setLifeInsurance(initialData.lifeInsurance || '');
       setLicenseNo(initialData.licenseNo || '');
       setLicenseExpiryDate(initialData.licenseExpiryDate || '');
+      setUsername(initialData.username || '');
       setEmail(initialData.email || '');
       setPassword(initialData.password || '');
       setMembershipType(initialData.membershipType || 'Standard');
@@ -614,8 +618,8 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       return;
     }
 
-    if (!email.trim() || !password.trim()) {
-      setFormError('Please provide a valid Email and Password for Portal Account access.');
+    if (!username.trim() || !email.trim() || !password.trim()) {
+      setFormError('Please provide a valid Username, Active Email Address, and Password for Portal Account access.');
       return;
     }
 
@@ -641,7 +645,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
     const newUserObject: User = {
       id: initialData?.id || '',
-      username: email.trim().split('@')[0],
+      username: username.trim() || email.trim().split('@')[0],
       name: fullName,
       firstName: firstName.trim(),
       lastName: lastName.trim(),
@@ -1163,8 +1167,20 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
           />
         </div>
 
-        {/* Life Insurance & Driver's License */}
+        {/* Active Email & Life Insurance */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="font-bold text-[#1b4332] block mb-1">Active Email Address *</label>
+            <input
+              type="email"
+              required
+              disabled={isReadOnly}
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="rider@example.com"
+              className={inputStyle}
+            />
+          </div>
           <div>
             <label className="font-bold text-[#1b4332] block mb-1">Life Insurance (If any)</label>
             <input
@@ -1178,31 +1194,36 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
           </div>
         </div>
 
-        {/* Account Credentials (Email & Password) */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-          <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Email Address (Portal Account) *</label>
-            <input
-              type="email"
-              required
-              disabled={isReadOnly}
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="rider@example.com"
-              className={inputStyle}
-            />
-          </div>
-          <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Portal Account Password *</label>
-            <input
-              type={isReadOnly ? 'text' : 'password'}
-              required
-              disabled={isReadOnly}
-              value={isReadOnly ? '••••••••' : password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••••••"
-              className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#e2ece2] focus:outline-none focus:border-[#2d6a4f]"
-            />
+        {/* Account Credentials (Username & Password) */}
+        <div className="p-3.5 sm:p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3 pt-2">
+          <h3 className="text-xs font-extrabold text-[#1b4332] uppercase tracking-wider">
+            Portal Account Login Credentials
+          </h3>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="font-bold text-[#1b4332] block mb-1">Username (Portal Account) *</label>
+              <input
+                type="text"
+                required
+                disabled={isReadOnly}
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="e.g. rider_username"
+                className={inputStyle}
+              />
+            </div>
+            <div>
+              <label className="font-bold text-[#1b4332] block mb-1">Portal Account Password *</label>
+              <input
+                type={isReadOnly ? 'text' : 'password'}
+                required
+                disabled={isReadOnly}
+                value={isReadOnly ? '••••••••' : password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••••••"
+                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#e2ece2] focus:outline-none focus:border-[#2d6a4f]"
+              />
+            </div>
           </div>
         </div>
       </div>
