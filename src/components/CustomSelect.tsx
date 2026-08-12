@@ -6,6 +6,7 @@ export interface DropdownOption {
   value: string;
   label: string;
   group?: string;
+  disabled?: boolean;
 }
 
 export interface CustomSelectProps {
@@ -157,39 +158,51 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                       <div className="px-2.5 py-1 text-[9px] sm:text-[10px] font-extrabold text-[#2d6a4f] uppercase tracking-wider bg-[#f4f8f4] rounded-md mb-1">
                         {gName}
                       </div>
-                      {groups[gName].map((opt) => (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => handleSelect(opt.value)}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
-                            value === opt.value
-                              ? 'bg-[#1b4332] text-white'
-                              : 'hover:bg-[#e8f5e9] text-[#1b4332]'
-                          }`}
-                        >
-                          <span className="truncate">{opt.label}</span>
-                          {value === opt.value && <Check className="w-3.5 h-3.5 shrink-0 ml-1.5" />}
-                        </button>
-                      ))}
+                      {groups[gName].map((opt) => {
+                        const isOptDisabled = Boolean(opt.disabled);
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            disabled={isOptDisabled}
+                            onClick={() => !isOptDisabled && handleSelect(opt.value)}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-between transition-colors ${
+                              isOptDisabled
+                                ? 'opacity-40 text-gray-400 bg-stone-100/60 cursor-not-allowed select-none'
+                                : value === opt.value
+                                ? 'bg-[#1b4332] text-white cursor-pointer'
+                                : 'hover:bg-[#e8f5e9] text-[#1b4332] cursor-pointer'
+                            }`}
+                          >
+                            <span className="truncate">{opt.label}</span>
+                            {value === opt.value && <Check className="w-3.5 h-3.5 shrink-0 ml-1.5" />}
+                          </button>
+                        );
+                      })}
                     </div>
                   ))
                 ) : (
-                  filteredOptions.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => handleSelect(opt.value)}
-                      className={`w-full text-left px-2.5 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
-                        value === opt.value
-                          ? 'bg-[#1b4332] text-white'
-                          : 'hover:bg-[#e8f5e9] text-[#1b4332]'
-                      }`}
-                    >
-                      <span className="truncate">{opt.label}</span>
-                      {value === opt.value && <Check className="w-3.5 h-3.5 shrink-0 ml-1.5" />}
-                    </button>
-                  ))
+                  filteredOptions.map((opt) => {
+                    const isOptDisabled = Boolean(opt.disabled);
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        disabled={isOptDisabled}
+                        onClick={() => !isOptDisabled && handleSelect(opt.value)}
+                        className={`w-full text-left px-2.5 py-1.5 sm:py-2 rounded-lg text-[10px] sm:text-xs font-semibold flex items-center justify-between transition-colors ${
+                          isOptDisabled
+                            ? 'opacity-40 text-gray-400 bg-stone-100/60 cursor-not-allowed select-none'
+                            : value === opt.value
+                            ? 'bg-[#1b4332] text-white cursor-pointer'
+                            : 'hover:bg-[#e8f5e9] text-[#1b4332] cursor-pointer'
+                        }`}
+                      >
+                        <span className="truncate">{opt.label}</span>
+                        {value === opt.value && <Check className="w-3.5 h-3.5 shrink-0 ml-1.5" />}
+                      </button>
+                    );
+                  })
                 )}
               </div>
             </motion.div>

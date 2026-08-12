@@ -135,17 +135,21 @@ export const Navigation: React.FC<NavigationProps> = ({
       )}
 
       {/* Mobile & Tablet Top Header */}
-      <div className="lg:hidden sticky top-0 z-30 bg-[#1b4332] border-b border-[#2d6a4f] px-4 py-3 flex items-center justify-between text-white shadow-xs h-[52px]">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center">
-            <img src="/logo.png" alt="BCC Logo" className="w-6 h-6 object-contain" />
+      <div className="lg:hidden sticky top-0 z-30 bg-[#1b4332] border-b border-[#2d6a4f] px-3.5 sm:px-4 py-2 flex items-center justify-between text-white shadow-xs min-h-[52px]">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="p-1 sm:p-1.5 rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center shrink-0 w-8 h-8 sm:w-9 sm:h-9">
+            <img src="/logo.png" alt="BCC Logo" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
           </div>
-          <div>
-            <h1 className="font-heading text-base sm:text-lg font-bold text-white tracking-wide leading-none">
+          <div className="min-w-0 flex-1">
+            <h1 className="font-heading text-xs sm:text-sm font-extrabold text-white tracking-wide leading-tight uppercase truncate">
               BCC RIDERS CLUB
             </h1>
+            <p className="text-[11px] sm:text-xs font-medium text-[#74c69d] truncate leading-tight">
+              Hello, <span className="text-white font-bold">{currentUser?.name || 'Member'}</span>!
+            </p>
           </div>
         </div>
+
       </div>
 
       {/* Mobile & Tablet Bottom Navigation Bar (Hierarchy of Green) */}
@@ -226,9 +230,14 @@ export const Navigation: React.FC<NavigationProps> = ({
               >
                 <img src="/logo.png" alt="BCC Logo" className="w-7 h-7 object-contain group-hover:scale-110 transition-transform" />
               </button>
-              <h2 className={`font-heading text-lg font-extrabold text-white tracking-tight leading-none truncate ${isCollapsed ? 'hidden' : 'block'}`}>
-                BCC RIDERS CLUB
-              </h2>
+              <div className={`min-w-0 ${isCollapsed ? 'hidden' : 'block'}`}>
+                <h2 className="font-heading text-base font-extrabold text-white tracking-tight leading-tight truncate">
+                  BCC RIDERS CLUB
+                </h2>
+                <p className="text-xs font-medium text-[#74c69d] truncate mt-0.5">
+                  Hello, <span className="text-white font-bold">{currentUser?.name || 'Member'}</span>!
+                </p>
+              </div>
             </div>
           </div>
 

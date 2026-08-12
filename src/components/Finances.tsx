@@ -495,16 +495,32 @@ export const Finances: React.FC = () => {
   const monthlyDuesList = store.getMonthlyDues();
   const dynamicColsList = store.getDynamicCollections();
 
-  const paymentOptionsList = [
+  const registeredMembersList = useMemo(() => {
+    return users.filter(u => u.role !== 'admin' && u.role?.toLowerCase() !== 'admin');
+  }, [users]);
+  const hasMembers = registeredMembersList.length > 0;
+
+  const isJan = recMonth === 'January';
+
+  const rawPaymentOptionsList: { value: string; label: string; disabled?: boolean }[] = [
     { value: 'opt_membership_fee', label: `Membership Fee (₱${(Number(finSettings?.membershipFee) || 200).toLocaleString()})` },
     { value: 'opt_monthly_due', label: 'Monthly Due' },
-    { value: 'opt_annual_promo', label: 'Annual Upfront Promo - ₱1,000 (Full Year Dues - January Special)' },
+    {
+      value: 'opt_annual_promo',
+      label: `Annual Upfront Promo - ₱1,000 (Full Year Dues${!isJan ? ' - January Special [Muted]' : ' - January Special'})`,
+      disabled: !isJan,
+    },
     ...dynamicColsList.map(col => ({
       value: `dc_${col.id}`,
       label: `Custom Collection: ${col.name} (₱${(Number(col?.amount) || 0).toLocaleString()})`
     })),
     { value: 'opt_other', label: 'Other / Custom Payment Item' }
   ];
+
+  const paymentOptionsList = rawPaymentOptionsList.map(opt => ({
+    ...opt,
+    disabled: !hasMembers || Boolean(opt.disabled),
+  }));
 
   const handleRecMonthChange = (m: string) => {
     setRecMonth(m);
@@ -527,6 +543,9 @@ export const Finances: React.FC = () => {
   };
 
   const handleSelectPaymentOption = (val: string) => {
+    if (val === 'opt_annual_promo' && recMonth !== 'January') {
+      return;
+    }
     setRecOptionKey(val);
     if (val === 'opt_membership_fee') {
       setRecItemType('Membership Fee');
@@ -638,6 +657,14 @@ export const Finances: React.FC = () => {
   const handleSaveRecord = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageFinances) return;
+    if (!hasMembers) {
+      alert('No registered members found. Please register members in the Members Directory first.');
+      return;
+    }
+    if (recItemType === 'Annual Upfront Promo' && recMonth !== 'January') {
+      alert('Annual Upfront Promo is only available for January covered dues. Please select January as the covered month.');
+      return;
+    }
     const amountNum = parseFloat(recAmount) || 0;
     const selectedUser = users.find(u => u.id === recUserId);
     const todayStr = new Date().toISOString().split('T')[0];
@@ -2461,21 +2488,33 @@ export const Finances: React.FC = () => {
 
             <form onSubmit={handleSaveRecord} className="flex flex-col min-h-0 flex-1 mt-4">
               <div className="flex-1 overflow-y-auto pr-1.5 space-y-4">
+                {/* No Members Warning Banner */}
+                {!hasMembers && (
+                  <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl flex items-start gap-3 text-amber-900 shadow-xs">
+                    <AlertCircle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+                    <div className="space-y-0.5">
+                      <p className="text-xs font-bold">No Registered Members Found</p>
+                      <p className="text-[11px] text-amber-800 leading-snug">
+                        There are currently no registered club members available to receive payments. Form inputs have been muted. Please add members in the <strong>Members Directory</strong> first.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
                 {/* Select Member */}
                 <div>
                   <CustomSelect
                     label="Select Club Member"
                     value={recUserId}
                     onChange={setRecUserId}
+                    disabled={!hasMembers}
                     options={
-                      users.filter(u => u.role !== 'admin' && u.role?.toLowerCase() !== 'admin').length === 0
-                        ? [{ value: '', label: 'No members registered yet' }]
-                        : users
-                            .filter(u => u.role !== 'admin' && u.role?.toLowerCase() !== 'admin')
-                            .map(u => ({
-                              value: u.id,
-                              label: `${u.name} (${u.memberNumber || 'BRC Member'})`,
-                            }))
+                      !hasMembers
+                        ? [{ value: '', label: 'No members registered yet', disabled: true }]
+                        : registeredMembersList.map(u => ({
+                            value: u.id,
+                            label: `${u.name} (${u.memberNumber || 'BRC Member'})`,
+                          }))
                     }
                     required
                   />
@@ -2488,12 +2527,13 @@ export const Finances: React.FC = () => {
                     value={recOptionKey}
                     onChange={handleSelectPaymentOption}
                     options={paymentOptionsList}
+                    disabled={!hasMembers}
                     required
                   />
                 </div>
 
-                {/* Covered Month if Monthly Due */}
-                {recItemType === 'Monthly Due' && (
+                {/* Covered Month if Monthly Due or Annual Upfront Promo */}
+                {(recItemType === 'Monthly Due' || recItemType === 'Annual Upfront Promo') && (
                   <div className="p-3 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] space-y-2">
                     <label className="block text-xs font-bold text-[#1b4332]">
                       Covered Month & Year
@@ -2503,40 +2543,46 @@ export const Finances: React.FC = () => {
                         value={recMonth}
                         onChange={handleRecMonthChange}
                         options={MONTHS_LIST}
+                        disabled={!hasMembers}
                       />
 
                       <CustomSelect
                         value={recYear}
                         onChange={handleRecYearChange}
                         options={YEARS_LIST}
+                        disabled={!hasMembers}
                       />
                     </div>
                   </div>
                 )}
 
-                {/* Annual Upfront Promo Banner & Year Selection */}
+                {/* Annual Upfront Promo Banner */}
                 {recItemType === 'Annual Upfront Promo' && (
-                  <div className="p-3.5 bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-50 rounded-xl border border-emerald-200 space-y-2.5">
-                    <div className="flex items-center gap-2">
-                      <span className="bg-amber-400 text-slate-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-full shadow-xs">
-                        January Annual Promo
-                      </span>
-                      <span className="text-xs font-bold text-[#1b4332]">₱1,000.00 Upfront Rate</span>
+                  isJan ? (
+                    <div className="p-3.5 bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-50 rounded-xl border border-emerald-200 space-y-2.5">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-amber-400 text-slate-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-full shadow-xs">
+                          January Annual Promo
+                        </span>
+                        <span className="text-xs font-bold text-[#1b4332]">₱1,000.00 Upfront Rate</span>
+                      </div>
+                      <p className="text-[11px] text-emerald-900 leading-snug">
+                        🎉 Covers all 12 monthly dues for the selected year in advance! Regular value is ₱1,200/year (₱100/mo). Member saves <strong>₱200</strong>!
+                      </p>
                     </div>
-                    <p className="text-[11px] text-emerald-900 leading-snug">
-                      🎉 Covers all 12 monthly dues for the selected year in advance! Regular value is ₱1,200/year (₱100/mo). Member saves <strong>₱200</strong>!
-                    </p>
-                    <div>
-                      <label className="block text-[11px] font-bold text-[#1b4332] mb-1">
-                        Select Covered Year
-                      </label>
-                      <CustomSelect
-                        value={recYear}
-                        onChange={setRecYear}
-                        options={YEARS_LIST}
-                      />
+                  ) : (
+                    <div className="p-3.5 bg-stone-100 rounded-xl border border-stone-300 space-y-2 opacity-80">
+                      <div className="flex items-center gap-2">
+                        <span className="bg-stone-300 text-stone-700 text-[10px] font-black uppercase px-2 py-0.5 rounded-full">
+                          Promo Muted
+                        </span>
+                        <span className="text-xs font-bold text-stone-600">Available in January Only</span>
+                      </div>
+                      <p className="text-[11px] text-stone-600 leading-snug">
+                        🚫 Annual Upfront Promo is muted because the covered month is <strong>{recMonth}</strong>. To activate this promo, please change the covered month to <strong>January</strong>.
+                      </p>
                     </div>
-                  </div>
+                  )
                 )}
 
                 {/* Custom Item Name if Other */}
@@ -2550,7 +2596,8 @@ export const Finances: React.FC = () => {
                       placeholder="e.g. Anniversary Gala Dinner Ticket"
                       value={recCustomItemName}
                       onChange={e => setRecCustomItemName(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      disabled={!hasMembers}
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 disabled:cursor-not-allowed border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                       required
                     />
                   </div>
@@ -2569,7 +2616,8 @@ export const Finances: React.FC = () => {
                         step="any"
                         value={recAmount}
                         onChange={e => setRecAmount(e.target.value)}
-                        className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs font-black text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        disabled={!hasMembers}
+                        className="w-full px-4 py-2.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 disabled:cursor-not-allowed border border-[#e2ece2] rounded-xl text-xs font-black text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                         required
                       />
                     </div>
@@ -2580,6 +2628,7 @@ export const Finances: React.FC = () => {
                         value={recStatus}
                         onChange={val => setRecStatus(val as any)}
                         options={['Paid', 'Pending', 'Overdue', 'Waived']}
+                        disabled={!hasMembers}
                       />
                     </div>
                   </div>
@@ -2591,6 +2640,7 @@ export const Finances: React.FC = () => {
                     label="Payment Method"
                     value={recMethod}
                     onChange={val => setRecMethod(val as any)}
+                    disabled={!hasMembers}
                     options={[
                       { value: 'GCash', label: 'GCash' },
                       { value: 'Cash', label: 'Cash' },
@@ -2610,7 +2660,8 @@ export const Finances: React.FC = () => {
                     type="date"
                     value={recDueDate}
                     onChange={e => setRecDueDate(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+                    disabled={!hasMembers}
+                    className="w-full px-4 py-2.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 disabled:cursor-not-allowed border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
                   />
                 </div>
 
@@ -2625,7 +2676,8 @@ export const Finances: React.FC = () => {
                       placeholder="e.g. Size L vest order, receipt verified by Treasurer"
                       value={recNotes}
                       onChange={e => setRecNotes(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+                      disabled={!hasMembers}
+                      className="w-full px-4 py-2.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 disabled:cursor-not-allowed border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
                     />
                   </div>
                 )}
@@ -2641,7 +2693,8 @@ export const Finances: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-2"
+                  disabled={!hasMembers || (recItemType === 'Annual Upfront Promo' && !isJan)}
+                  className="px-6 py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-2"
                 >
                   <Check className="w-4 h-4 text-[#74c69d]" />
                   <span>{editingRecord ? 'Save Changes' : 'Record Transaction'}</span>
