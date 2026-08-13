@@ -317,20 +317,25 @@ export const Finances: React.FC = () => {
               return false;
             }
           } else if (r.itemType === 'Other') {
-            const isAutoCol = r.id.startsWith('rec_col_') || r.notes?.includes('Automated pending collection');
-            if (isAutoCol) {
-              const isMatch = activeDynamicCols.some(col => {
-                return (
-                  (col.id && r.id.startsWith(`rec_col_${col.id}_`)) ||
-                  r.customItemName === col.name ||
-                  r.coveredMonth === col.name
-                );
-              });
-              if (!isMatch) {
-                fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
-                return false;
-              }
+            const isMatch = activeDynamicCols.some(col => {
+              return (
+                (col.id && r.id.startsWith(`rec_col_${col.id}_`)) ||
+                r.customItemName === col.name ||
+                r.coveredMonth === col.name
+              );
+            });
+            if (!isMatch) {
+              fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+              return false;
             }
+          } else if (r.itemType === 'Membership Fee') {
+            // Membership fee for approved members is marked Paid upon approval; purge stray pending fee records
+            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            return false;
+          } else {
+            // Purge any other orphan pending/overdue records
+            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            return false;
           }
         }
         return true;
@@ -509,7 +514,7 @@ export const Finances: React.FC = () => {
 
     safeFetchJson('/api/mongodb/financeLogs')
       .then(data => {
-        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+        if (data.success && Array.isArray(data.data)) {
           ensureApprovedMembersHaveFeesAndMonthlyDues(data.data);
           localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(data.data));
         } else {
@@ -1186,77 +1191,9 @@ export const Finances: React.FC = () => {
 
     try {
       if (deleteTarget.type === 'fund') {
-        const targetRecord = records.find(r => r.id === deleteTarget.id);
-        const todayStr = new Date().toISOString().split('T')[0];
-
-        if (targetRecord && targetRecord.itemType === 'Monthly Due' && targetRecord.status === 'Paid') {
-          // Revert paid monthly due back to pending so pending collections update
-          const revertedRecord: FinanceRecord = {
-            ...targetRecord,
-            status: 'Pending',
-            paidDate: undefined,
-            paymentMethod: 'GCash',
-            notes: `Automated pending monthly due for ${targetRecord.coveredMonth || 'covered month'}`,
-            updatedAt: todayStr,
-          };
-          const updated = records.map(r => (r.id === targetRecord.id ? revertedRecord : r));
-          saveRecordsToStorage(updated);
-          await syncRecordToMongo(revertedRecord);
-        } else if (targetRecord && targetRecord.itemType === 'Annual Upfront Promo') {
-          // Revert all satisfied monthly dues for this promo back to pending and remove promo record
-          const promises: Promise<any>[] = [];
-          const updated = records
-            .filter(r => r.id !== deleteTarget.id)
-            .map(r => {
-              if (
-                r.userId === targetRecord.userId &&
-                r.itemType === 'Monthly Due' &&
-                (r.notes?.includes('Satisfied by Annual Upfront Promo Package') || r.notes?.includes('Annual Upfront Promo'))
-              ) {
-                const revertedDue: FinanceRecord = {
-                  ...r,
-                  status: 'Pending',
-                  paidDate: undefined,
-                  notes: `Automated pending monthly due for ${r.coveredMonth || 'covered month'}`,
-                  updatedAt: todayStr,
-                };
-                promises.push(syncRecordToMongo(revertedDue));
-                return revertedDue;
-              }
-              return r;
-            });
-          saveRecordsToStorage(updated);
-          promises.push(deleteRecordFromMongo(deleteTarget.id));
-          await Promise.all(promises);
-        } else if (targetRecord && targetRecord.itemType === 'Membership Fee' && targetRecord.status === 'Paid') {
-          // Revert paid membership fee back to pending so pending collections update
-          const revertedFee: FinanceRecord = {
-            ...targetRecord,
-            status: 'Pending',
-            paidDate: undefined,
-            notes: 'Pending membership fee payment',
-            updatedAt: todayStr,
-          };
-          const updated = records.map(r => (r.id === targetRecord.id ? revertedFee : r));
-          saveRecordsToStorage(updated);
-          await syncRecordToMongo(revertedFee);
-        } else if (targetRecord && targetRecord.itemType === 'Other' && targetRecord.status === 'Paid') {
-          // Revert paid custom collection back to pending so pending collections update
-          const revertedCol: FinanceRecord = {
-            ...targetRecord,
-            status: 'Pending',
-            paidDate: undefined,
-            notes: `Automated pending collection for ${targetRecord.customItemName || targetRecord.coveredMonth || 'custom collection'}`,
-            updatedAt: todayStr,
-          };
-          const updated = records.map(r => (r.id === targetRecord.id ? revertedCol : r));
-          saveRecordsToStorage(updated);
-          await syncRecordToMongo(revertedCol);
-        } else {
-          const updated = records.filter(r => r.id !== deleteTarget.id);
-          saveRecordsToStorage(updated);
-          await deleteRecordFromMongo(deleteTarget.id);
-        }
+        const updated = records.filter(r => r.id !== deleteTarget.id);
+        saveRecordsToStorage(updated);
+        await deleteRecordFromMongo(deleteTarget.id);
       } else {
         const updated = expenses.filter(x => x.id !== deleteTarget.id);
         saveExpensesToStorage(updated);
