@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageCropperModal } from './ImageCropperModal';
+import { OfficialLoader } from './OfficialLoader';
 
 interface RiderProfileProps {
   onOpenDuesModal?: () => void;
@@ -38,6 +39,7 @@ interface RiderProfileProps {
 export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) => {
   const { currentUser, updateUser } = useAuth();
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   useModalDismiss(editModalOpen, () => setEditModalOpen(false));
 
@@ -161,6 +163,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
     e.preventDefault();
     if (!activeRider) return;
 
+    setIsSaving(true);
     const updated: UserType = {
       ...activeRider,
       name,
@@ -176,8 +179,11 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
       },
     };
 
-    updateUser(updated);
-    setEditModalOpen(false);
+    setTimeout(() => {
+      updateUser(updated);
+      setIsSaving(false);
+      setEditModalOpen(false);
+    }, 600);
   };
 
   return (
@@ -609,6 +615,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = ({ onOpenDuesModal }) =
         onCropComplete={handleCropComplete}
         title="Crop Profile Avatar"
       />
+      <OfficialLoader isLoading={isSaving} message="Updating Profile..." />
     </div>
   );
 };

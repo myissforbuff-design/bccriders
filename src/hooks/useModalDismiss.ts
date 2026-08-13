@@ -33,6 +33,10 @@ function handleGlobalPopState(_e: PopStateEvent) {
   }
 }
 
+export function isModalOpen(): boolean {
+  return modalStack.length > 0;
+}
+
 export function useModalDismiss(isOpen: boolean, onClose: () => void) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;

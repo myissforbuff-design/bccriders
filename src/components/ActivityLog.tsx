@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { safeFetchJson, store } from '../lib/db';
+import { OfficialDotSpinner } from './OfficialLoader';
 import {
   Calendar,
   CheckCircle,
@@ -453,8 +454,8 @@ export const ActivityLog: React.FC = () => {
         <div className="bg-white rounded-3xl border border-[#e2ece2] shadow-xs overflow-hidden">
           {isLoadingActivities ? (
             <div className="p-12 text-center text-xs text-[#2d6a4f] flex flex-col items-center justify-center gap-3">
-              <Loader2 className="w-6 h-6 animate-spin text-[#2d6a4f]" />
-              <span className="font-extrabold text-[#1b4332]">Loading activity history...</span>
+              <OfficialDotSpinner />
+              <span className="font-extrabold text-[#1b4332] mt-2">Loading activity history...</span>
             </div>
           ) : filteredMemberActivities.length === 0 ? (
             <div className="p-12 text-center text-xs text-stone-500 font-medium">
@@ -626,8 +627,8 @@ export const ActivityLog: React.FC = () => {
       <div className="space-y-4">
         {isLoadingActivities ? (
           <div className="p-12 text-center text-xs text-[#2d6a4f] bg-white rounded-3xl border border-[#e2ece2] flex flex-col items-center justify-center gap-3 shadow-2xs">
-            <Loader2 className="w-6 h-6 animate-spin text-[#2d6a4f]" />
-            <span className="font-extrabold text-[#1b4332]">Loading event activities...</span>
+            <OfficialDotSpinner />
+            <span className="font-extrabold text-[#1b4332] mt-2">Loading event activities...</span>
           </div>
         ) : filteredActivities.length === 0 ? (
           <div className="p-8 text-center text-xs text-gray-500 bg-white rounded-3xl border border-[#e2ece2]">
@@ -718,8 +719,8 @@ export const ActivityLog: React.FC = () => {
                   {isLoadingLogs ? (
                     <div className="p-8 text-center text-gray-500 font-medium bg-white rounded-2xl border border-[#e2ece2] shadow-2xs">
                       <div className="flex flex-col items-center justify-center gap-2">
-                        <Loader2 className="w-5 h-5 animate-spin text-[#2d6a4f]" />
-                        <span className="font-extrabold text-[#1b4332] text-xs">Loading attendance logs...</span>
+                        <OfficialDotSpinner />
+                        <span className="font-extrabold text-[#1b4332] text-xs mt-2">Loading attendance logs...</span>
                       </div>
                     </div>
                   ) : totalLogs === 0 ? (

@@ -538,6 +538,7 @@ export class DataStoreService {
 
     // Update in local memory list
     this.users = this.users.map((u) => (u.id === approvedUser.id ? approvedUser : u));
+    saveToStorage(STORAGE_KEYS.USERS, this.users);
 
     // Call MongoDB transfer endpoint
     fetch(`/api/mongodb/registration/accept/${approvedUser.id}`, {
@@ -553,6 +554,7 @@ export class DataStoreService {
 
   deleteUser(userId: string): void {
     this.users = this.users.filter((u) => u.id !== userId);
+    saveToStorage(STORAGE_KEYS.USERS, this.users);
 
     // Remove from both 'members' and 'registration' tables in MongoDB
     fetch(`/api/mongodb/members/${userId}`, { method: 'DELETE' }).catch(() => {});

@@ -7,6 +7,7 @@ import { useFormAutoSave } from '../hooks/useFormAutoSave';
 import { LTO_RESTRICTION_CODES_2026, LTO_CONDITIONS_2026 } from './RegistrationPageFlow';
 import { BirthdateDropdownPicker } from './BirthdateDropdownPicker';
 import { cleanBarangayCityAddress } from './EditMemberModal';
+import { OfficialLoader } from './OfficialLoader';
 import {
   User as UserIcon,
   Phone,
@@ -212,6 +213,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
   );
   const [bikePhotoUrl, setBikePhotoUrl] = useState<string>(initialData?.bikeInfo?.photoUrl || '');
   const [bikePhotoFileName, setBikePhotoFileName] = useState<string>('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleBikePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -716,9 +718,13 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
     // Automatically delete draft from localStorage on successful submission
     clearDraft();
 
-    if (onSuccess) {
-      onSuccess(newUserObject);
-    }
+    setIsSubmitting(true);
+    setTimeout(() => {
+      setIsSubmitting(false);
+      if (onSuccess) {
+        onSuccess(newUserObject);
+      }
+    }, 600);
   };
 
   return (
@@ -1840,6 +1846,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
         onCropComplete={handleCropComplete}
         title="Crop Member Profile Avatar"
       />
+      <OfficialLoader isLoading={isSubmitting} message={isAdminCreation ? "Adding Member to Database..." : "Submitting Application..."} />
     </form>
   );
 };

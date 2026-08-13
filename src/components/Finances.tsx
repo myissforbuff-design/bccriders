@@ -4,6 +4,7 @@ import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store, safeFetchJson } from '../lib/db';
 import { User } from '../types';
 import { CustomSelect } from './CustomSelect';
+import { OfficialLoader } from './OfficialLoader';
 import {
   Wallet,
   Plus,
@@ -145,7 +146,7 @@ export const Finances: React.FC = () => {
   // Filters & Search for Funds
   const [searchQuery, setSearchQuery] = useState('');
   const [itemTypeFilter, setItemTypeFilter] = useState<string>('All');
-  const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Pending' | 'Overdue' | 'Waived'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Paid' | 'Waived'>('All');
   const [currentPage, setCurrentPage] = useState(1);
 
   // Filters & Search for Expenses
@@ -224,6 +225,10 @@ export const Finances: React.FC = () => {
     amount: number;
   } | null>(null);
 
+  // Official Loader Processing State
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingMsg, setProcessingMsg] = useState('');
+
   useModalDismiss(showAddRecordModal, () => {
     setShowAddRecordModal(false);
     setEditingRecord(null);
@@ -252,6 +257,88 @@ export const Finances: React.FC = () => {
       let updatedList = [...currentRecs];
       let hasNew = false;
       const todayStr = new Date().toISOString().split('T')[0];
+
+      // 0. Clean up any Pending records if a Paid record already exists for the same user and item
+      const paidKeys = new Set<string>();
+      updatedList.forEach(r => {
+        if (r.status === 'Paid') {
+          if (r.itemType === 'Membership Fee') {
+            paidKeys.add(`${r.userId}_mf`);
+          } else if (r.itemType === 'Monthly Due' && (r.coveredMonth || r.customItemName)) {
+            if (r.coveredMonth) paidKeys.add(`${r.userId}_md_${r.coveredMonth}`);
+            if (r.customItemName) paidKeys.add(`${r.userId}_md_${r.customItemName}`);
+          } else if (r.itemType === 'Other' && (r.customItemName || r.coveredMonth)) {
+            if (r.customItemName) paidKeys.add(`${r.userId}_col_${r.customItemName}`);
+            if (r.coveredMonth) paidKeys.add(`${r.userId}_col_${r.coveredMonth}`);
+          }
+        }
+      });
+
+      const lenBefore = updatedList.length;
+      updatedList = updatedList.filter(r => {
+        if (r.status === 'Pending' || r.status === 'Overdue') {
+          if (r.itemType === 'Membership Fee' && paidKeys.has(`${r.userId}_mf`)) {
+            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            return false;
+          }
+          if (r.itemType === 'Monthly Due' && ((r.coveredMonth && paidKeys.has(`${r.userId}_md_${r.coveredMonth}`)) || (r.customItemName && paidKeys.has(`${r.userId}_md_${r.customItemName}`)))) {
+            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            return false;
+          }
+          if (r.itemType === 'Other' && ((r.customItemName && paidKeys.has(`${r.userId}_col_${r.customItemName}`)) || (r.coveredMonth && paidKeys.has(`${r.userId}_col_${r.coveredMonth}`)))) {
+            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            return false;
+          }
+        }
+        return true;
+      });
+      if (updatedList.length !== lenBefore) {
+        hasNew = true;
+      }
+
+      // 0.5. Clean up / purge any Pending or Overdue monthly dues or collections whose configured MonthlyDue or DynamicCollection was deleted in Settings
+      const activeMDues = store.getMonthlyDues();
+      const activeDynamicCols = store.getDynamicCollections();
+
+      const lenBeforeOrphans = updatedList.length;
+      updatedList = updatedList.filter(r => {
+        if (r.status === 'Pending' || r.status === 'Overdue') {
+          if (r.itemType === 'Monthly Due') {
+            const isMatch = activeMDues.some(due => {
+              const coveredStr = `${due.month} ${due.year}`;
+              return (
+                (due.id && r.id.startsWith(`rec_md_${due.id}_`)) ||
+                r.coveredMonth === coveredStr ||
+                r.customItemName === due.title
+              );
+            });
+            if (!isMatch) {
+              fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+              return false;
+            }
+          } else if (r.itemType === 'Other') {
+            const isAutoCol = r.id.startsWith('rec_col_') || r.notes?.includes('Automated pending collection');
+            if (isAutoCol) {
+              const isMatch = activeDynamicCols.some(col => {
+                return (
+                  (col.id && r.id.startsWith(`rec_col_${col.id}_`)) ||
+                  r.customItemName === col.name ||
+                  r.coveredMonth === col.name
+                );
+              });
+              if (!isMatch) {
+                fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+                return false;
+              }
+            }
+          }
+        }
+        return true;
+      });
+
+      if (updatedList.length !== lenBeforeOrphans) {
+        hasNew = true;
+      }
 
       // 1. Membership Fees
       updatedList = updatedList.map(r => {
@@ -341,6 +428,64 @@ export const Finances: React.FC = () => {
             if (existingRec.status === 'Pending' && existingRec.amount !== due.amount) {
               hasNew = true;
               const updatedRec = { ...existingRec, amount: due.amount };
+              updatedList[existsIdx] = updatedRec;
+              fetch('/api/mongodb/financeLogs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedRec),
+              }).catch(err => console.warn('MongoDB sync notice:', err));
+            }
+          }
+        });
+      });
+
+      // 3. Dynamic Custom Collections
+      const dynamicCols = store.getDynamicCollections();
+      const approvedCount = approvedUsers.length || 1;
+      dynamicCols.forEach(col => {
+        if (col.status === 'Completed' || col.status === 'Archived') return;
+
+        const targetTotal =
+          col.targetAmount !== undefined && col.targetAmount !== null && !isNaN(Number(col.targetAmount)) && Number(col.targetAmount) > 0
+            ? Number(col.targetAmount)
+            : approvedCount * col.amount;
+
+        const perMemberAmount = col.amount > 0 ? col.amount : Math.ceil(targetTotal / approvedCount);
+
+        approvedUsers.forEach(u => {
+          const existsIdx = updatedList.findIndex(r =>
+            r.userId === u.id &&
+            (r.id === `rec_col_${col.id}_${u.id}` || (r.itemType === 'Other' && r.customItemName === col.name))
+          );
+
+          if (existsIdx === -1) {
+            hasNew = true;
+            const newColRec: FinanceRecord = {
+              id: `rec_col_${col.id}_${u.id}`,
+              itemType: 'Other',
+              userId: u.id,
+              userName: u.name,
+              userMemberNo: u.memberNumber || 'BRC-MEMBER',
+              amount: perMemberAmount,
+              coveredMonth: col.name,
+              customItemName: col.name,
+              dueDate: todayStr,
+              status: 'Pending',
+              paymentMethod: 'GCash',
+              notes: `Automated pending collection for ${col.name}`,
+              updatedAt: todayStr,
+            };
+            updatedList.push(newColRec);
+            fetch('/api/mongodb/financeLogs', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(newColRec),
+            }).catch(err => console.warn('MongoDB auto collection sync error:', err));
+          } else {
+            const existingRec = updatedList[existsIdx];
+            if (existingRec.status === 'Pending' && existingRec.amount !== perMemberAmount) {
+              hasNew = true;
+              const updatedRec = { ...existingRec, amount: perMemberAmount };
               updatedList[existsIdx] = updatedRec;
               fetch('/api/mongodb/financeLogs', {
                 method: 'POST',
@@ -447,7 +592,7 @@ export const Finances: React.FC = () => {
   };
 
   const syncRecordToMongo = (rec: FinanceRecord) => {
-    fetch('/api/mongodb/financeLogs', {
+    return fetch('/api/mongodb/financeLogs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(rec),
@@ -455,7 +600,7 @@ export const Finances: React.FC = () => {
   };
 
   const deleteRecordFromMongo = (recordId: string) => {
-    fetch(`/api/mongodb/financeLogs/${recordId}`, {
+    return fetch(`/api/mongodb/financeLogs/${recordId}`, {
       method: 'DELETE',
     }).catch(err => console.warn('MongoDB financeLogs delete error:', err));
   };
@@ -467,27 +612,31 @@ export const Finances: React.FC = () => {
   };
 
   const syncExpenseToMongo = (exp: ExpenseRecord) => {
-    fetch('/api/mongodb/liquidationLogs', {
+    const p1 = fetch('/api/mongodb/liquidationLogs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(exp),
     }).catch(err => console.warn('MongoDB liquidationLogs sync error:', err));
 
-    fetch('/api/mongodb/expenseLogs', {
+    const p2 = fetch('/api/mongodb/expenseLogs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(exp),
     }).catch(err => console.warn('MongoDB expenseLogs sync error:', err));
+
+    return Promise.all([p1, p2]);
   };
 
   const deleteExpenseFromMongo = (expenseId: string) => {
-    fetch(`/api/mongodb/liquidationLogs/${expenseId}`, {
+    const p1 = fetch(`/api/mongodb/liquidationLogs/${expenseId}`, {
       method: 'DELETE',
     }).catch(err => console.warn('MongoDB liquidationLogs delete error:', err));
 
-    fetch(`/api/mongodb/expenseLogs/${expenseId}`, {
+    const p2 = fetch(`/api/mongodb/expenseLogs/${expenseId}`, {
       method: 'DELETE',
     }).catch(err => console.warn('MongoDB expenseLogs delete error:', err));
+
+    return Promise.all([p1, p2]);
   };
 
   // Dynamic Finance Collections & Settings for Payment Options Dropdown
@@ -513,14 +662,74 @@ export const Finances: React.FC = () => {
     ...dynamicColsList.map(col => ({
       value: `dc_${col.id}`,
       label: `Custom Collection: ${col.name} (₱${(Number(col?.amount) || 0).toLocaleString()})`
-    })),
-    { value: 'opt_other', label: 'Other / Custom Payment Item' }
+    }))
   ];
 
   const paymentOptionsList = rawPaymentOptionsList.map(opt => ({
     ...opt,
     disabled: !hasMembers || Boolean(opt.disabled),
   }));
+
+  const recMonthOptions = useMemo(() => {
+    if (recItemType === 'Monthly Due') {
+      const createdDuesForYear = monthlyDuesList.filter(d => String(d.year) === String(recYear));
+
+      if (createdDuesForYear.length === 0) {
+        return [{ value: '', label: `No monthly dues created for ${recYear}`, disabled: true }];
+      }
+
+      const createdMonths = MONTHS_LIST.filter(m => createdDuesForYear.some(d => d.month === m));
+
+      return createdMonths.map(m => {
+        const monthStr = `${m} ${recYear}`;
+        const alreadyPaid = records.some(r =>
+          r.userId === recUserId &&
+          r.status === 'Paid' &&
+          (
+            (r.itemType === 'Monthly Due' && (r.coveredMonth === monthStr || r.customItemName?.includes(monthStr))) ||
+            (r.itemType === 'Annual Upfront Promo' && (r.coveredMonth?.includes(recYear) || r.customItemName?.includes(recYear)))
+          )
+        );
+
+        return {
+          value: m,
+          label: alreadyPaid ? `${m} (Already Paid)` : m,
+          disabled: alreadyPaid,
+        };
+      });
+    }
+
+    return MONTHS_LIST.map(m => {
+      const monthStr = `${m} ${recYear}`;
+      const alreadyPaid = records.some(r =>
+        r.userId === recUserId &&
+        r.status === 'Paid' &&
+        (
+          (r.itemType === 'Monthly Due' && (r.coveredMonth === monthStr || r.customItemName?.includes(monthStr))) ||
+          (r.itemType === 'Annual Upfront Promo' && (r.coveredMonth?.includes(recYear) || r.customItemName?.includes(recYear)))
+        )
+      );
+
+      return {
+        value: m,
+        label: alreadyPaid ? `${m} (Already Paid)` : m,
+        disabled: alreadyPaid,
+      };
+    });
+  }, [recItemType, recYear, recUserId, records, monthlyDuesList]);
+
+  const isSelectedMonthAlreadyPaid = useMemo(() => {
+    if (recItemType !== 'Monthly Due') return false;
+    const monthStr = `${recMonth} ${recYear}`;
+    return records.some(r =>
+      r.userId === recUserId &&
+      r.status === 'Paid' &&
+      (
+        (r.itemType === 'Monthly Due' && (r.coveredMonth === monthStr || r.customItemName?.includes(monthStr))) ||
+        (r.itemType === 'Annual Upfront Promo' && (r.coveredMonth?.includes(recYear) || r.customItemName?.includes(recYear)))
+      )
+    );
+  }, [recItemType, recMonth, recYear, recUserId, records]);
 
   const handleRecMonthChange = (m: string) => {
     setRecMonth(m);
@@ -535,9 +744,17 @@ export const Finances: React.FC = () => {
   const handleRecYearChange = (y: string) => {
     setRecYear(y);
     if (recItemType === 'Monthly Due') {
-      const matchedDue = monthlyDuesList.find(d => `${d.month} ${d.year}` === `${recMonth} ${y}`);
-      if (matchedDue) {
-        setRecAmount(String(matchedDue.amount));
+      const createdForYear = monthlyDuesList.filter(d => String(d.year) === String(y));
+      if (createdForYear.length > 0) {
+        const matched = createdForYear.find(d => d.month === recMonth);
+        if (matched) {
+          setRecAmount(String(matched.amount));
+        } else {
+          setRecMonth(createdForYear[0].month);
+          setRecAmount(String(createdForYear[0].amount));
+        }
+      } else {
+        setRecMonth('');
       }
     }
   };
@@ -554,12 +771,21 @@ export const Finances: React.FC = () => {
     } else if (val === 'opt_monthly_due') {
       setRecItemType('Monthly Due');
       setRecCustomItemName('');
-      const matchedDue = monthlyDuesList.find(d => `${d.month} ${d.year}` === `${recMonth} ${recYear}`);
-      if (matchedDue) {
-        setRecAmount(String(matchedDue.amount));
+      const createdForYear = monthlyDuesList.filter(d => String(d.year) === String(recYear));
+      if (createdForYear.length > 0) {
+        const matched = createdForYear.find(d => d.month === recMonth);
+        if (matched) {
+          setRecAmount(String(matched.amount));
+        } else {
+          setRecMonth(createdForYear[0].month);
+          setRecAmount(String(createdForYear[0].amount));
+        }
       } else if (monthlyDuesList.length > 0) {
+        setRecYear(String(monthlyDuesList[0].year));
+        setRecMonth(monthlyDuesList[0].month);
         setRecAmount(String(monthlyDuesList[0].amount));
       } else {
+        setRecMonth('');
         setRecAmount('100');
       }
     } else if (val === 'opt_annual_promo') {
@@ -637,15 +863,25 @@ export const Finances: React.FC = () => {
       const now = new Date();
       const currentMonthName = MONTHS_LIST[now.getMonth()] || 'August';
       const currentYearStr = String(now.getFullYear()) || '2026';
-      setRecMonth(currentMonthName);
-      setRecYear(currentYearStr);
 
-      const matchedDue = mDues.find(d => `${d.month} ${d.year}` === `${currentMonthName} ${currentYearStr}`);
-      if (matchedDue) {
-        setRecAmount(String(matchedDue.amount));
+      const createdForCurrentYear = mDues.filter(d => String(d.year) === currentYearStr);
+      if (createdForCurrentYear.length > 0) {
+        setRecYear(currentYearStr);
+        const matched = createdForCurrentYear.find(d => d.month === currentMonthName);
+        if (matched) {
+          setRecMonth(currentMonthName);
+          setRecAmount(String(matched.amount));
+        } else {
+          setRecMonth(createdForCurrentYear[0].month);
+          setRecAmount(String(createdForCurrentYear[0].amount));
+        }
       } else if (mDues.length > 0) {
+        setRecYear(String(mDues[0].year));
+        setRecMonth(mDues[0].month);
         setRecAmount(String(mDues[0].amount));
       } else {
+        setRecYear(currentYearStr);
+        setRecMonth(currentMonthName);
         setRecAmount('100');
       }
       setRecCustomItemName('');
@@ -654,7 +890,7 @@ export const Finances: React.FC = () => {
   };
 
   // Save Payment Record
-  const handleSaveRecord = (e: React.FormEvent) => {
+  const handleSaveRecord = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageFinances) return;
     if (!hasMembers) {
@@ -665,6 +901,10 @@ export const Finances: React.FC = () => {
       alert('Annual Upfront Promo is only available for January covered dues. Please select January as the covered month.');
       return;
     }
+
+    setIsProcessing(true);
+    setProcessingMsg(editingRecord ? 'Updating Record...' : 'Recording Transaction...');
+
     const amountNum = parseFloat(recAmount) || 0;
     const selectedUser = users.find(u => u.id === recUserId);
     const todayStr = new Date().toISOString().split('T')[0];
@@ -678,6 +918,8 @@ export const Finances: React.FC = () => {
     // Base working records list
     let workingRecords = records;
 
+    const syncPromises: Promise<any>[] = [];
+
     // If Annual Upfront Promo is selected, mark all existing pending monthly dues for this user in recYear as Paid
     if (recItemType === 'Annual Upfront Promo' && recUserId) {
       workingRecords = workingRecords.map(r => {
@@ -689,7 +931,7 @@ export const Finances: React.FC = () => {
             notes: 'Satisfied by Annual Upfront Promo Package',
             updatedAt: todayStr,
           };
-          syncRecordToMongo(satisfiedRec);
+          syncPromises.push(syncRecordToMongo(satisfiedRec));
           return satisfiedRec;
         }
         return r;
@@ -715,17 +957,46 @@ export const Finances: React.FC = () => {
         updatedAt: todayStr,
       };
 
-      const updated = workingRecords.map(r => (r.id === editingRecord.id ? updatedRecord : r));
+      let updated = workingRecords.map(r => (r.id === editingRecord.id ? updatedRecord : r));
+      if (effectiveStatus === 'Paid') {
+        const itemKey = recItemType === 'Other' ? recCustomItemName : (recItemType === 'Monthly Due' ? coveredMonthStr : undefined);
+        updated = updated.filter(r => {
+          if (r.id !== editingRecord.id && r.userId === recUserId && (r.status === 'Pending' || r.status === 'Overdue')) {
+            if (recItemType === 'Membership Fee' && r.itemType === 'Membership Fee') {
+              fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+              return false;
+            }
+            if (itemKey && (r.customItemName === itemKey || r.coveredMonth === itemKey)) {
+              fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+              return false;
+            }
+          }
+          return true;
+        });
+      }
       saveRecordsToStorage(updated);
-      syncRecordToMongo(updatedRecord);
+      syncPromises.push(syncRecordToMongo(updatedRecord));
     } else {
-      // Look for an existing pending record for this user and coveredMonth/Monthly Due
+      // Look for an existing pending record for this user and coveredMonth/Monthly Due or Custom Collection
       let existingPending = null;
       if (recItemType === 'Monthly Due' && coveredMonthStr) {
         existingPending = workingRecords.find(r =>
           r.userId === recUserId &&
           r.itemType === 'Monthly Due' &&
           (r.coveredMonth === coveredMonthStr || r.id.includes(coveredMonthStr)) &&
+          (r.status === 'Pending' || r.status === 'Overdue')
+        );
+      } else if (recItemType === 'Membership Fee') {
+        existingPending = workingRecords.find(r =>
+          r.userId === recUserId &&
+          r.itemType === 'Membership Fee' &&
+          (r.status === 'Pending' || r.status === 'Overdue')
+        );
+      } else if (recItemType === 'Other' && recCustomItemName.trim()) {
+        existingPending = workingRecords.find(r =>
+          r.userId === recUserId &&
+          r.itemType === 'Other' &&
+          (r.customItemName === recCustomItemName.trim() || r.coveredMonth === recCustomItemName.trim() || r.id.startsWith('rec_col_')) &&
           (r.status === 'Pending' || r.status === 'Overdue')
         );
       }
@@ -735,17 +1006,20 @@ export const Finances: React.FC = () => {
           ...existingPending,
           userName: selectedUser?.name || existingPending.userName,
           userMemberNo: selectedUser?.memberNumber || existingPending.userMemberNo,
+          itemType: recItemType,
+          customItemName: recItemType === 'Other' ? recCustomItemName.trim() : existingPending.customItemName,
+          coveredMonth: coveredMonthStr || existingPending.coveredMonth,
           amount: amountNum,
           dueDate: recDueDate,
           paidDate: effectiveStatus === 'Paid' ? todayStr : undefined,
           status: effectiveStatus,
           paymentMethod: recMethod,
-          notes: recItemType === 'Monthly Due' ? existingPending.notes : (recNotes.trim() || existingPending.notes),
+          notes: recNotes.trim() || existingPending.notes,
           updatedAt: todayStr,
         };
         const updated = workingRecords.map(r => (r.id === existingPending.id ? updatedRecord : r));
         saveRecordsToStorage(updated);
-        syncRecordToMongo(updatedRecord);
+        syncPromises.push(syncRecordToMongo(updatedRecord));
       } else {
         const newRec: FinanceRecord = {
           id: `rec_${Date.now()}`,
@@ -764,12 +1038,35 @@ export const Finances: React.FC = () => {
           notes: recItemType === 'Monthly Due' ? undefined : (recNotes.trim() || (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo Package (Full Year Dues)' : undefined)),
           updatedAt: todayStr,
         };
-        saveRecordsToStorage([...workingRecords, newRec]);
-        syncRecordToMongo(newRec);
+
+        let updatedList = [...workingRecords, newRec];
+        if (effectiveStatus === 'Paid') {
+          const itemKey = recItemType === 'Other' ? recCustomItemName : (recItemType === 'Monthly Due' ? coveredMonthStr : undefined);
+          updatedList = updatedList.filter(r => {
+            if (r.id !== newRec.id && r.userId === recUserId && (r.status === 'Pending' || r.status === 'Overdue')) {
+              if (recItemType === 'Membership Fee' && r.itemType === 'Membership Fee') {
+                fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+                return false;
+              }
+              if (itemKey && (r.customItemName === itemKey || r.coveredMonth === itemKey)) {
+                fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+                return false;
+              }
+            }
+            return true;
+          });
+        }
+
+        saveRecordsToStorage(updatedList);
+        syncPromises.push(syncRecordToMongo(newRec));
       }
     }
 
     setShowAddRecordModal(false);
+    await Promise.all(syncPromises);
+    setTimeout(() => {
+      window.location.reload();
+    }, 400);
   };
 
   // Request Delete Funds Record
@@ -819,9 +1116,13 @@ export const Finances: React.FC = () => {
   };
 
   // Save Expense Handler
-  const handleSaveExpense = (e: React.FormEvent) => {
+  const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageFinances) return;
+
+    setIsProcessing(true);
+    setProcessingMsg(editingExpense ? 'Updating Expense...' : 'Recording Expense Liquidation...');
+
     const amountNum = parseFloat(expAmount) || 0;
     const todayStr = new Date().toISOString().split('T')[0];
 
@@ -840,7 +1141,7 @@ export const Finances: React.FC = () => {
       };
       const updated = expenses.map(x => (x.id === editingExpense.id ? updatedExpense : x));
       saveExpensesToStorage(updated);
-      syncExpenseToMongo(updatedExpense);
+      await syncExpenseToMongo(updatedExpense);
     } else {
       const newExpense: ExpenseRecord = {
         id: `exp_${Date.now()}`,
@@ -855,10 +1156,13 @@ export const Finances: React.FC = () => {
         updatedAt: todayStr,
       };
       saveExpensesToStorage([newExpense, ...expenses]);
-      syncExpenseToMongo(newExpense);
+      await syncExpenseToMongo(newExpense);
     }
 
     setShowExpenseModal(false);
+    setTimeout(() => {
+      window.location.reload();
+    }, 400);
   };
 
   // Request Delete Expense Handler
@@ -874,75 +1178,98 @@ export const Finances: React.FC = () => {
   };
 
   // Confirm Delete Action Handler
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!canManageFinances || !deleteTarget) return;
 
-    if (deleteTarget.type === 'fund') {
-      const targetRecord = records.find(r => r.id === deleteTarget.id);
-      const todayStr = new Date().toISOString().split('T')[0];
+    setIsProcessing(true);
+    setProcessingMsg('Deleting Record...');
 
-      if (targetRecord && targetRecord.itemType === 'Monthly Due' && targetRecord.status === 'Paid') {
-        // Revert paid monthly due back to pending so pending collections update
-        const revertedRecord: FinanceRecord = {
-          ...targetRecord,
-          status: 'Pending',
-          paidDate: undefined,
-          paymentMethod: 'GCash',
-          notes: `Automated pending monthly due for ${targetRecord.coveredMonth || 'covered month'}`,
-          updatedAt: todayStr,
-        };
-        const updated = records.map(r => (r.id === targetRecord.id ? revertedRecord : r));
-        saveRecordsToStorage(updated);
-        syncRecordToMongo(revertedRecord);
-      } else if (targetRecord && targetRecord.itemType === 'Annual Upfront Promo') {
-        // Revert all satisfied monthly dues for this promo back to pending and remove promo record
-        const updated = records
-          .filter(r => r.id !== deleteTarget.id)
-          .map(r => {
-            if (
-              r.userId === targetRecord.userId &&
-              r.itemType === 'Monthly Due' &&
-              (r.notes?.includes('Satisfied by Annual Upfront Promo Package') || r.notes?.includes('Annual Upfront Promo'))
-            ) {
-              const revertedDue: FinanceRecord = {
-                ...r,
-                status: 'Pending',
-                paidDate: undefined,
-                notes: `Automated pending monthly due for ${r.coveredMonth || 'covered month'}`,
-                updatedAt: todayStr,
-              };
-              syncRecordToMongo(revertedDue);
-              return revertedDue;
-            }
-            return r;
-          });
-        saveRecordsToStorage(updated);
-        deleteRecordFromMongo(deleteTarget.id);
-      } else if (targetRecord && targetRecord.itemType === 'Membership Fee' && targetRecord.status === 'Paid') {
-        // Revert paid membership fee back to pending so pending collections update
-        const revertedFee: FinanceRecord = {
-          ...targetRecord,
-          status: 'Pending',
-          paidDate: undefined,
-          notes: 'Pending membership fee payment',
-          updatedAt: todayStr,
-        };
-        const updated = records.map(r => (r.id === targetRecord.id ? revertedFee : r));
-        saveRecordsToStorage(updated);
-        syncRecordToMongo(revertedFee);
+    try {
+      if (deleteTarget.type === 'fund') {
+        const targetRecord = records.find(r => r.id === deleteTarget.id);
+        const todayStr = new Date().toISOString().split('T')[0];
+
+        if (targetRecord && targetRecord.itemType === 'Monthly Due' && targetRecord.status === 'Paid') {
+          // Revert paid monthly due back to pending so pending collections update
+          const revertedRecord: FinanceRecord = {
+            ...targetRecord,
+            status: 'Pending',
+            paidDate: undefined,
+            paymentMethod: 'GCash',
+            notes: `Automated pending monthly due for ${targetRecord.coveredMonth || 'covered month'}`,
+            updatedAt: todayStr,
+          };
+          const updated = records.map(r => (r.id === targetRecord.id ? revertedRecord : r));
+          saveRecordsToStorage(updated);
+          await syncRecordToMongo(revertedRecord);
+        } else if (targetRecord && targetRecord.itemType === 'Annual Upfront Promo') {
+          // Revert all satisfied monthly dues for this promo back to pending and remove promo record
+          const promises: Promise<any>[] = [];
+          const updated = records
+            .filter(r => r.id !== deleteTarget.id)
+            .map(r => {
+              if (
+                r.userId === targetRecord.userId &&
+                r.itemType === 'Monthly Due' &&
+                (r.notes?.includes('Satisfied by Annual Upfront Promo Package') || r.notes?.includes('Annual Upfront Promo'))
+              ) {
+                const revertedDue: FinanceRecord = {
+                  ...r,
+                  status: 'Pending',
+                  paidDate: undefined,
+                  notes: `Automated pending monthly due for ${r.coveredMonth || 'covered month'}`,
+                  updatedAt: todayStr,
+                };
+                promises.push(syncRecordToMongo(revertedDue));
+                return revertedDue;
+              }
+              return r;
+            });
+          saveRecordsToStorage(updated);
+          promises.push(deleteRecordFromMongo(deleteTarget.id));
+          await Promise.all(promises);
+        } else if (targetRecord && targetRecord.itemType === 'Membership Fee' && targetRecord.status === 'Paid') {
+          // Revert paid membership fee back to pending so pending collections update
+          const revertedFee: FinanceRecord = {
+            ...targetRecord,
+            status: 'Pending',
+            paidDate: undefined,
+            notes: 'Pending membership fee payment',
+            updatedAt: todayStr,
+          };
+          const updated = records.map(r => (r.id === targetRecord.id ? revertedFee : r));
+          saveRecordsToStorage(updated);
+          await syncRecordToMongo(revertedFee);
+        } else if (targetRecord && targetRecord.itemType === 'Other' && targetRecord.status === 'Paid') {
+          // Revert paid custom collection back to pending so pending collections update
+          const revertedCol: FinanceRecord = {
+            ...targetRecord,
+            status: 'Pending',
+            paidDate: undefined,
+            notes: `Automated pending collection for ${targetRecord.customItemName || targetRecord.coveredMonth || 'custom collection'}`,
+            updatedAt: todayStr,
+          };
+          const updated = records.map(r => (r.id === targetRecord.id ? revertedCol : r));
+          saveRecordsToStorage(updated);
+          await syncRecordToMongo(revertedCol);
+        } else {
+          const updated = records.filter(r => r.id !== deleteTarget.id);
+          saveRecordsToStorage(updated);
+          await deleteRecordFromMongo(deleteTarget.id);
+        }
       } else {
-        const updated = records.filter(r => r.id !== deleteTarget.id);
-        saveRecordsToStorage(updated);
-        deleteRecordFromMongo(deleteTarget.id);
+        const updated = expenses.filter(x => x.id !== deleteTarget.id);
+        saveExpensesToStorage(updated);
+        await deleteExpenseFromMongo(deleteTarget.id);
       }
-    } else {
-      const updated = expenses.filter(x => x.id !== deleteTarget.id);
-      saveExpensesToStorage(updated);
-      deleteExpenseFromMongo(deleteTarget.id);
+    } catch (err) {
+      console.error('Error handling delete confirm:', err);
+    } finally {
+      setDeleteTarget(null);
+      setTimeout(() => {
+        window.location.reload();
+      }, 400);
     }
-
-    setDeleteTarget(null);
-    window.location.reload();
   };
 
   // Helper for Payment Title
@@ -983,8 +1310,8 @@ export const Finances: React.FC = () => {
 
   // Filtered Funds Records
   const filteredRecords = records.filter(r => {
-    // Hide pending monthly dues in the Funds tab ledger
-    if (r.itemType === 'Monthly Due' && r.status === 'Pending') {
+    // Hide pending and overdue records in the Funds tab ledger (only collected/paid/waived funds belong in Funds)
+    if (r.status === 'Pending' || r.status === 'Overdue') {
       return false;
     }
 
@@ -1080,64 +1407,7 @@ export const Finances: React.FC = () => {
 
   return (
     <div className="space-y-6 pb-12 font-sans">
-      {/* Non-Admin Personal Contribution Overview Banner */}
-      {!canManageFinances && (() => {
-        const myMemberRecords = records.filter(r => r.userId === currentUser?.id);
-        const myTotalPaidFromJoining = myMemberRecords.filter(r => r.status === 'Paid').reduce((sum, r) => sum + r.amount, 0);
-        const myMfPaid = myMemberRecords.filter(r => r.status === 'Paid' && r.itemType === 'Membership Fee').reduce((sum, r) => sum + r.amount, 0);
-        const myDuesPaid = myMemberRecords.filter(r => r.status === 'Paid' && r.itemType === 'Monthly Due').reduce((sum, r) => sum + r.amount, 0);
-        const myOtherPaid = myMemberRecords.filter(r => r.status === 'Paid' && r.itemType !== 'Membership Fee' && r.itemType !== 'Monthly Due').reduce((sum, r) => sum + r.amount, 0);
-        const myPendingDues = myMemberRecords.filter(r => r.status === 'Pending' || r.status === 'Overdue').reduce((sum, r) => sum + r.amount, 0);
 
-        return (
-          <div className="hidden md:block p-4 sm:p-5 rounded-3xl bg-gradient-to-br from-[#1b4332] via-[#2d6a4f] to-[#1b4332] text-white shadow-md space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/15 pb-3">
-              <div>
-                <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[#74c69d] block">
-                  Your Total Paid (Joining to Present)
-                </span>
-                <h3 className="font-heading text-2xl sm:text-3xl font-black text-white mt-0.5">
-                  ₱{myTotalPaidFromJoining.toLocaleString()}.00
-                </h3>
-                <p className="text-xs text-stone-200 mt-0.5 font-medium">
-                  Total money paid to the club for <span className="font-bold text-white">{currentUser?.name}</span> <span className="font-mono text-stone-300">({currentUser?.memberNumber || 'BRC-MEMBER'})</span>
-                </p>
-              </div>
-              <div className="flex items-center gap-2 self-start sm:self-center">
-                <span className="px-3 py-1 rounded-full bg-[#74c69d]/20 text-[#74c69d] text-xs font-extrabold border border-[#74c69d]/30">
-                  {myMemberRecords.filter(r => r.status === 'Paid').length} Verified Payments
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
-              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
-                <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Membership Fee</span>
-                <p className="text-sm sm:text-base font-black text-white">₱{myMfPaid.toLocaleString()}.00</p>
-                <span className="text-[10px] text-stone-200 block">{myMfPaid > 0 ? '✓ Fully Paid' : 'Pending'}</span>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
-                <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Monthly Dues</span>
-                <p className="text-sm sm:text-base font-black text-white">₱{myDuesPaid.toLocaleString()}.00</p>
-                <span className="text-[10px] text-stone-200 block">{myMemberRecords.filter(r => r.itemType === 'Monthly Due' && r.status === 'Paid').length} month(s) paid</span>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
-                <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Other Collections</span>
-                <p className="text-sm sm:text-base font-black text-white">₱{myOtherPaid.toLocaleString()}.00</p>
-                <span className="text-[10px] text-stone-200 block">Vests & special fees</span>
-              </div>
-
-              <div className="p-3 rounded-2xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
-                <span className="text-[10px] font-extrabold text-amber-300 uppercase block">Pending Balance</span>
-                <p className="text-sm sm:text-base font-black text-amber-200">₱{myPendingDues.toLocaleString()}.00</p>
-                <span className="text-[10px] text-stone-200 block">{myPendingDues > 0 ? 'Unsettled dues' : '✓ All Clear'}</span>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Global Overview Stats Banner */}
       <div className="grid grid-cols-2 gap-2.5 sm:gap-4">
@@ -1336,7 +1606,7 @@ export const Finances: React.FC = () => {
               {/* Status Filter */}
               <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
                 <span className="text-xs font-bold text-[#52605d] mr-1 whitespace-nowrap">Status:</span>
-                {(['All', 'Paid', 'Pending', 'Overdue', 'Waived'] as const).map(st => (
+                {(['All', 'Paid', 'Waived'] as const).map(st => (
                   <button
                     key={st}
                     type="button"
@@ -2542,7 +2812,7 @@ export const Finances: React.FC = () => {
                       <CustomSelect
                         value={recMonth}
                         onChange={handleRecMonthChange}
-                        options={MONTHS_LIST}
+                        options={recItemType === 'Monthly Due' ? recMonthOptions : MONTHS_LIST}
                         disabled={!hasMembers}
                       />
 
@@ -2553,6 +2823,14 @@ export const Finances: React.FC = () => {
                         disabled={!hasMembers}
                       />
                     </div>
+                    {recItemType === 'Monthly Due' && isSelectedMonthAlreadyPaid && (
+                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                        <span>
+                          <strong>{recMonth} {recYear}</strong> is already recorded as paid for this member. Please select an unpaid month.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -2693,7 +2971,7 @@ export const Finances: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={!hasMembers || (recItemType === 'Annual Upfront Promo' && !isJan)}
+                  disabled={!hasMembers || (recItemType === 'Annual Upfront Promo' && !isJan) || (recItemType === 'Monthly Due' && isSelectedMonthAlreadyPaid)}
                   className="px-6 py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-2"
                 >
                   <Check className="w-4 h-4 text-[#74c69d]" />
@@ -2924,6 +3202,9 @@ export const Finances: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* Official Processing Loader */}
+      <OfficialLoader isLoading={isProcessing} message={processingMsg} />
     </div>
   );
 };

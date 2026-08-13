@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { store } from '../lib/db';
 import { CustomSelect } from './CustomSelect';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { OfficialLoader } from './OfficialLoader';
 import {
   FinanceSettings,
   MonthlyDue,
@@ -94,6 +95,7 @@ export const Settings: React.FC = () => {
   }, []);
 
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Database States
   const [financeSettings, setFinanceSettings] = useState<FinanceSettings>(() =>
@@ -1090,7 +1092,8 @@ export const Settings: React.FC = () => {
   const refreshFinanceData = () => {
     setFinanceSettings(store.getFinanceSettings());
     setMonthlyDues([...store.getMonthlyDues()]);
-    setDynamicCollections([...store.getDynamicCollections()]);
+    const cols = store.getDynamicCollections();
+    setDynamicCollections([...cols]);
     const allUsers = store.getUsers();
     const approved = allUsers.filter((u) => {
       const isUserAdmin =
@@ -1105,6 +1108,12 @@ export const Settings: React.FC = () => {
       return u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin');
     });
     setApprovedMembers(approved);
+
+    cols.forEach((c) => {
+      if (c.status !== 'Completed' && c.status !== 'Archived') {
+        generatePendingCollectionRecords(c);
+      }
+    });
   };
 
   // Handle Save Fee Configuration
@@ -1248,19 +1257,141 @@ export const Settings: React.FC = () => {
 
   const deletePendingMonthlyDueRecords = (dueId: string) => {
     try {
+      const allDues = store.getMonthlyDues();
+      const targetDue = allDues.find(d => d.id === dueId);
+      const coveredStr = targetDue ? `${targetDue.month} ${targetDue.year}` : '';
+
       const recItem = localStorage.getItem('bcc_finance_records_v3');
-      if (!recItem) return;
+      if (!recItem) return Promise.resolve();
       let recs: any[] = JSON.parse(recItem);
+      const promises: Promise<any>[] = [];
       const filtered = recs.filter(r => {
-        if (r.itemType === 'Monthly Due' && r.status === 'Pending' && r.id.startsWith(`rec_md_${dueId}_`)) {
-          fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+        if (
+          r.itemType === 'Monthly Due' &&
+          (r.status === 'Pending' || r.status === 'Overdue') &&
+          (
+            r.id.startsWith(`rec_md_${dueId}_`) ||
+            (coveredStr && r.coveredMonth === coveredStr) ||
+            (targetDue?.title && r.customItemName === targetDue.title)
+          )
+        ) {
+          promises.push(fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
           return false;
         }
         return true;
       });
       localStorage.setItem('bcc_finance_records_v3', JSON.stringify(filtered));
+      return Promise.all(promises);
     } catch (e) {
       console.error(e);
+      return Promise.resolve();
+    }
+  };
+
+  // Helper to generate pending custom collection records for all approved non-admin members
+  const generatePendingCollectionRecords = (col: DynamicCollection) => {
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      const recItem = localStorage.getItem('bcc_finance_records_v3');
+      let recs: any[] = recItem ? JSON.parse(recItem) : [];
+      const allUsers = store.getUsers();
+      const approved = allUsers.filter(u => {
+        const isUserAdmin =
+          u.role === 'admin' ||
+          u.role?.toLowerCase() === 'admin' ||
+          u.role?.toLowerCase() === 'administrator' ||
+          u.id === 'usr_admin' ||
+          u.id === 'admin' ||
+          u.username?.toLowerCase() === 'admin' ||
+          u.email?.toLowerCase().includes('admin@');
+        if (isUserAdmin) return false;
+        return u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin');
+      });
+
+      const memberCount = approved.length || 1;
+      const targetTotal =
+        col.targetAmount !== undefined && col.targetAmount !== null && !isNaN(Number(col.targetAmount)) && Number(col.targetAmount) > 0
+          ? Number(col.targetAmount)
+          : memberCount * col.amount;
+
+      const perMemberAmount = col.amount > 0 ? col.amount : Math.ceil(targetTotal / memberCount);
+      let updated = false;
+
+      approved.forEach(u => {
+        const existingIdx = recs.findIndex(r =>
+          r.userId === u.id &&
+          (r.id === `rec_col_${col.id}_${u.id}` || (r.itemType === 'Other' && r.customItemName === col.name))
+        );
+
+        if (existingIdx === -1) {
+          const newRec = {
+            id: `rec_col_${col.id}_${u.id}`,
+            itemType: 'Other',
+            userId: u.id,
+            userName: u.name,
+            userMemberNo: u.memberNumber || 'BRC-MEMBER',
+            amount: perMemberAmount,
+            coveredMonth: col.name,
+            customItemName: col.name,
+            dueDate: todayStr,
+            status: 'Pending',
+            paymentMethod: 'GCash',
+            notes: `Automated pending collection for ${col.name}`,
+            updatedAt: todayStr,
+          };
+          recs.push(newRec);
+          updated = true;
+          fetch('/api/mongodb/financeLogs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(newRec),
+          }).catch(err => console.warn('MongoDB auto collection sync error:', err));
+        } else if (recs[existingIdx].status === 'Pending' && recs[existingIdx].amount !== perMemberAmount) {
+          recs[existingIdx].amount = perMemberAmount;
+          updated = true;
+          fetch('/api/mongodb/financeLogs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(recs[existingIdx]),
+          }).catch(err => console.warn('MongoDB update collection sync error:', err));
+        }
+      });
+
+      if (updated) {
+        localStorage.setItem('bcc_finance_records_v3', JSON.stringify(recs));
+      }
+    } catch (err) {
+      console.error('Error generating pending collection records:', err);
+    }
+  };
+
+  const deletePendingCollectionRecords = (colId: string) => {
+    try {
+      const allCols = store.getDynamicCollections();
+      const targetCol = allCols.find(c => c.id === colId);
+
+      const recItem = localStorage.getItem('bcc_finance_records_v3');
+      if (!recItem) return Promise.resolve();
+      let recs: any[] = JSON.parse(recItem);
+      const promises: Promise<any>[] = [];
+      const filtered = recs.filter(r => {
+        if (
+          (r.status === 'Pending' || r.status === 'Overdue') &&
+          (
+            r.id.startsWith(`rec_col_${colId}_`) ||
+            (targetCol?.name && (r.customItemName === targetCol.name || r.coveredMonth === targetCol.name))
+          )
+        ) {
+          promises.push(fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
+          return false;
+        }
+        return true;
+      });
+      localStorage.setItem('bcc_finance_records_v3', JSON.stringify(filtered));
+      return Promise.all(promises);
+    } catch (e) {
+      console.error(e);
+      return Promise.resolve();
     }
   };
 
@@ -1268,8 +1399,10 @@ export const Settings: React.FC = () => {
   const handleOpenCreateCollection = () => {
     setEditingCollection(null);
     setColName('');
-    setColAmount(500);
-    setColTargetAmount('');
+    const count = approvedMembers.length || 1;
+    const initialAmount = 500;
+    setColAmount(initialAmount);
+    setColTargetAmount(String(initialAmount * count));
     setColDescription('');
     setShowCollectionModal(true);
   };
@@ -1278,7 +1411,9 @@ export const Settings: React.FC = () => {
     setEditingCollection(col);
     setColName(col.name);
     setColAmount(col.amount);
-    setColTargetAmount(col.targetAmount !== undefined && col.targetAmount !== null ? String(col.targetAmount) : '');
+    const count = approvedMembers.length || 1;
+    const target = col.targetAmount !== undefined && col.targetAmount !== null ? String(col.targetAmount) : String(col.amount * count);
+    setColTargetAmount(target);
     setColDescription(col.description || '');
     setShowCollectionModal(true);
   };
@@ -1289,8 +1424,9 @@ export const Settings: React.FC = () => {
 
     const parsedTarget = colTargetAmount.trim() !== '' && !isNaN(Number(colTargetAmount)) ? Number(colTargetAmount) : undefined;
 
+    let savedCol: DynamicCollection;
     if (editingCollection) {
-      store.updateDynamicCollection({
+      savedCol = store.updateDynamicCollection({
         ...editingCollection,
         name: colName.trim(),
         amount: Number(colAmount) || 0,
@@ -1298,7 +1434,7 @@ export const Settings: React.FC = () => {
         description: colDescription.trim(),
       });
     } else {
-      store.createDynamicCollection({
+      savedCol = store.createDynamicCollection({
         name: colName.trim(),
         amount: Number(colAmount) || 0,
         targetAmount: parsedTarget,
@@ -1306,22 +1442,34 @@ export const Settings: React.FC = () => {
         description: colDescription.trim(),
       });
     }
+    if (savedCol) {
+      generatePendingCollectionRecords(savedCol);
+    }
     refreshFinanceData();
     setShowCollectionModal(false);
   };
 
   // Execute Deletion
-  const confirmDeleteAction = () => {
+  const confirmDeleteAction = async () => {
     if (!deleteTarget) return;
-    if (deleteTarget.type === 'monthly_due') {
-      store.deleteMonthlyDue(deleteTarget.id);
-      deletePendingMonthlyDueRecords(deleteTarget.id);
-    } else if (deleteTarget.type === 'dynamic_collection') {
-      store.deleteDynamicCollection(deleteTarget.id);
+    setIsProcessing(true);
+    try {
+      if (deleteTarget.type === 'monthly_due') {
+        store.deleteMonthlyDue(deleteTarget.id);
+        await deletePendingMonthlyDueRecords(deleteTarget.id);
+      } else if (deleteTarget.type === 'dynamic_collection') {
+        store.deleteDynamicCollection(deleteTarget.id);
+        await deletePendingCollectionRecords(deleteTarget.id);
+      }
+      refreshFinanceData();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setDeleteTarget(null);
+      setTimeout(() => {
+        window.location.reload();
+      }, 400);
     }
-    refreshFinanceData();
-    setDeleteTarget(null);
-    window.location.reload();
   };
 
   const approvedMemberCount = approvedMembers.length;
@@ -2767,7 +2915,17 @@ export const Settings: React.FC = () => {
                       min="0"
                       step="any"
                       value={colAmount}
-                      onChange={(e) => setColAmount(Number(e.target.value))}
+                      onChange={(e) => {
+                        const valStr = e.target.value;
+                        const numVal = Number(valStr);
+                        setColAmount(numVal);
+                        const count = approvedMembers.length || 1;
+                        if (valStr !== '' && !isNaN(numVal) && numVal >= 0) {
+                          setColTargetAmount(String(Math.round(numVal * count * 100) / 100));
+                        } else {
+                          setColTargetAmount('');
+                        }
+                      }}
                       className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                     />
                     <span className="absolute left-3 top-3 text-xs font-bold text-[#52605d]">₱</span>
@@ -2785,14 +2943,23 @@ export const Settings: React.FC = () => {
                       min="0"
                       step="any"
                       value={colTargetAmount}
-                      onChange={(e) => setColTargetAmount(e.target.value)}
-                      placeholder={`Auto: ₱${(approvedMemberCount * (Number(colAmount) || 0)).toLocaleString()}`}
+                      onChange={(e) => {
+                        const targetValStr = e.target.value;
+                        setColTargetAmount(targetValStr);
+                        const count = approvedMembers.length || 1;
+                        const targetNum = Number(targetValStr);
+                        if (targetValStr !== '' && !isNaN(targetNum) && targetNum >= 0) {
+                          const calculatedAmount = Math.round((targetNum / count) * 100) / 100;
+                          setColAmount(calculatedAmount);
+                        }
+                      }}
+                      placeholder={`Auto: ₱${((approvedMembers.length || 1) * (Number(colAmount) || 0)).toLocaleString()}`}
                       className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                     />
                     <span className="absolute left-3 top-3 text-xs font-bold text-[#52605d]">₱</span>
                   </div>
                   <p className="text-[10px] text-[#52605d] mt-1">
-                    Custom target goal amount, or leave blank to auto-calculate (₱{colAmount || 0} × {approvedMemberCount} members).
+                    Auto-calculated based on {approvedMembers.length || 1} active member(s) (₱{colAmount || 0} × {approvedMembers.length || 1} = ₱{(Number(colTargetAmount) || 0).toLocaleString()}).
                   </p>
                 </div>
 
@@ -2922,6 +3089,8 @@ export const Settings: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      <OfficialLoader isLoading={isProcessing} message="Deleting..." />
     </div>
   );
 };

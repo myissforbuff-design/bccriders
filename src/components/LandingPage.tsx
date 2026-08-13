@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { store } from '../lib/db';
 import { ConstitutionView } from './ConstitutionView';
 import { RegistrationPageFlow } from './RegistrationPageFlow';
+import { OfficialLoader } from './OfficialLoader';
+import { isModalOpen } from '../hooks/useModalDismiss';
 import {
   Bike,
   ShieldCheck,
@@ -32,6 +34,141 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [regViewMode, setRegViewMode] = useState<'landing' | 'constitution' | 'register'>('landing');
+  const [regPage, setRegPage] = useState<number>(1);
+  const [isNavigatingReg, setIsNavigatingReg] = useState(false);
+  const [regNavMsg, setRegNavMsg] = useState('Loading Registration Portal...');
+
+  const handleOpenRegister = () => {
+    setIsNavigatingReg(true);
+    setRegNavMsg('Loading Constitution & By-Laws...');
+    setTimeout(() => {
+      setRegViewMode('constitution');
+      setRegPage(1);
+      try {
+        window.history.pushState({ regStep: 'constitution' }, '');
+      } catch {
+        // ignore history error
+      }
+      setIsNavigatingReg(false);
+    }, 600);
+  };
+
+  const handleProceedToForm = () => {
+    setIsNavigatingReg(true);
+    setRegNavMsg('Opening Member Registration Form...');
+    setTimeout(() => {
+      setRegViewMode('register');
+      setRegPage(1);
+      try {
+        window.history.pushState({ regStep: 'register', page: 1 }, '');
+      } catch {
+        // ignore history error
+      }
+      setIsNavigatingReg(false);
+    }, 600);
+  };
+
+  const handleRegPageChange = (newPage: number) => {
+    setRegPage(newPage);
+    try {
+      const currentState = window.history.state;
+      if (currentState?.regStep === 'register' && currentState?.page === newPage) {
+        return;
+      }
+      window.history.pushState({ regStep: 'register', page: newPage }, '');
+    } catch {
+      // ignore history error
+    }
+  };
+
+  const handleCancelToLanding = () => {
+    setRegViewMode('landing');
+    setRegPage(1);
+    try {
+      window.history.pushState({ regStep: 'landing' }, '');
+    } catch {
+      // ignore history error
+    }
+  };
+
+  const handleCancelToPrevious = () => {
+    if (window.history.state && window.history.state.regStep && window.history.state.regStep !== 'landing') {
+      window.history.back();
+    } else if (regViewMode === 'register') {
+      if (regPage > 1) {
+        setRegPage((p) => p - 1);
+      } else {
+        setRegViewMode('constitution');
+        setRegPage(1);
+      }
+    } else if (regViewMode === 'constitution') {
+      setRegViewMode('landing');
+      setRegPage(1);
+    }
+  };
+
+  useEffect(() => {
+    if (!window.history.state || !window.history.state.regStep) {
+      try {
+        window.history.replaceState({ regStep: 'landing' }, '');
+      } catch {
+        // ignore history error
+      }
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state;
+      if (state && state.regStep) {
+        if (state.regStep === 'register') {
+          setRegViewMode('register');
+          setRegPage(state.page || 1);
+        } else if (state.regStep === 'constitution') {
+          setRegViewMode('constitution');
+          setRegPage(1);
+        } else {
+          setRegViewMode('landing');
+          setRegPage(1);
+        }
+      } else {
+        setRegViewMode('landing');
+        setRegPage(1);
+      }
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        if (isModalOpen()) return;
+
+        if (window.history.state && window.history.state.regStep && window.history.state.regStep !== 'landing') {
+          e.preventDefault();
+          e.stopPropagation();
+          window.history.back();
+        } else if (regViewMode === 'register') {
+          e.preventDefault();
+          e.stopPropagation();
+          if (regPage > 1) {
+            setRegPage((p) => p - 1);
+          } else {
+            setRegViewMode('constitution');
+            setRegPage(1);
+          }
+        } else if (regViewMode === 'constitution') {
+          e.preventDefault();
+          e.stopPropagation();
+          setRegViewMode('landing');
+          setRegPage(1);
+        }
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [regViewMode, regPage]);
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,8 +203,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   };
 
   return (
-    <AnimatePresence mode="wait">
-      {regViewMode === 'constitution' && (
+    <div className="bg-white min-h-screen">
+      <AnimatePresence mode="wait">
+        {regViewMode === 'constitution' && (
         <motion.div
           key="constitution"
           initial={{ opacity: 0, y: 15 }}
@@ -77,8 +215,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
           className="bg-white min-h-screen"
         >
           <ConstitutionView
-            onProceed={() => setRegViewMode('register')}
-            onCancel={() => setRegViewMode('landing')}
+            onProceed={handleProceedToForm}
+            onCancel={handleCancelToLanding}
           />
         </motion.div>
       )}
@@ -93,10 +231,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
           className="bg-white min-h-screen"
         >
           <RegistrationPageFlow
+            currentPage={regPage}
+            onPageChange={handleRegPageChange}
             onSuccess={(newUser) => {
               store.addUser(newUser);
             }}
-            onCancel={() => setRegViewMode('landing')}
+            onCancel={handleCancelToLanding}
           />
         </motion.div>
       )}
@@ -274,15 +414,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                       disabled={loading}
                       className="flex-1 py-3.5 px-4 rounded-2xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center"
                     >
-                      {loading ? (
-                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <span>Sign In</span>
-                      )}
+                      <span>Sign In</span>
                     </button>
                     <button
                       type="button"
-                      onClick={() => setRegViewMode('constitution')}
+                      onClick={handleOpenRegister}
+                      disabled={loading || isNavigatingReg}
                       className="flex-1 py-3.5 px-4 rounded-2xl bg-[#d8f3dc] hover:bg-[#b7e4c7] text-[#1b4332] font-extrabold text-xs border border-[#b7e4c7] transition-all cursor-pointer flex items-center justify-center"
                     >
                       <span>Register</span>
@@ -292,6 +429,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
               </motion.div>
             </div>
           </main>
+
+          <OfficialLoader
+            isLoading={loading || isNavigatingReg}
+            message={isNavigatingReg ? regNavMsg : 'Authenticating Sign In...'}
+          />
 
           {/* Footer */}
           <footer className="relative z-10 max-w-7xl mx-auto w-full px-4 sm:px-6 py-5 sm:py-6 border-t border-[#e2ece2]/80 text-[11px] sm:text-xs text-[#52605d] flex flex-row items-center justify-between gap-2 sm:gap-4">
@@ -318,5 +460,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
         </motion.div>
       )}
     </AnimatePresence>
+    </div>
   );
 };

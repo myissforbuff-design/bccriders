@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User, CLUB_ROLES, MembershipType } from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { OfficialLoader } from './OfficialLoader';
 import {
   X,
   User as UserIcon,
@@ -215,6 +216,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [recommendedBy, setRecommendedBy] = useState(member.recommendedBy || '');
 
   const [formError, setFormError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   // Age calculation
   const calculateAge = (dob: string): number | undefined => {
@@ -320,7 +322,11 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       },
     };
 
-    onSave(updatedUser);
+    setIsSaving(true);
+    setTimeout(() => {
+      onSave(updatedUser);
+      setIsSaving(false);
+    }, 500);
   };
 
   const inputStyle =
@@ -995,6 +1001,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           </div>
         </form>
       </motion.div>
+      <OfficialLoader isLoading={isSaving} message="Updating Member Profile..." />
     </div>
   );
 };

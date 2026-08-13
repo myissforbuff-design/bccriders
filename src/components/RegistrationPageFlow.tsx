@@ -41,6 +41,8 @@ import { ImageCropperModal } from './ImageCropperModal';
 interface RegistrationPageFlowProps {
   onSuccess: (newUser: User) => void;
   onCancel: () => void;
+  currentPage?: number;
+  onPageChange?: (page: number) => void;
 }
 
 const NETWORK_OPTIONS = [
@@ -94,8 +96,26 @@ export const LTO_CONDITIONS_2026 = [
   { code: '5', label: '5 - Accompanied by a person with normal hearing' },
 ];
 
-export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSuccess, onCancel }) => {
-  const [currentPage, setCurrentPage] = useState<number>(1);
+export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
+  onSuccess,
+  onCancel,
+  currentPage: externalPage,
+  onPageChange,
+}) => {
+  const [currentPage, setCurrentPage] = useState<number>(externalPage || 1);
+
+  useEffect(() => {
+    if (externalPage && externalPage !== currentPage) {
+      setCurrentPage(externalPage);
+    }
+  }, [externalPage]);
+
+  const changePage = (newPage: number) => {
+    setCurrentPage(newPage);
+    if (onPageChange) {
+      onPageChange(newPage);
+    }
+  };
 
   // Loading & Submission state
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -631,12 +651,14 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
             </div>
           </div>
 
-          <button
-            onClick={onCancel}
-            className="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-white border border-[#e2ece2] hover:bg-gray-100 text-[#52605d] text-[10px] sm:text-xs font-bold transition-colors cursor-pointer shrink-0"
-          >
-            Cancel Application
-          </button>
+          {!isSuccess && (
+            <button
+              onClick={onCancel}
+              className="px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-xl bg-white border border-[#e2ece2] hover:bg-gray-100 text-[#52605d] text-[10px] sm:text-xs font-bold transition-colors cursor-pointer shrink-0"
+            >
+              Cancel Application
+            </button>
+          )}
         </div>
 
         {/* Restored Draft Modal */}
@@ -697,52 +719,54 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
         </AnimatePresence>
 
         {/* 5-Step Stepper Progress Bar */}
-        <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-md space-y-2.5 sm:space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] sm:text-xs font-extrabold text-[#1b4332] uppercase tracking-wider">
-              Step {currentPage} of 5: {
-                currentPage === 1 ? 'Personal Information' :
-                currentPage === 2 ? 'BCC Information' :
-                currentPage === 3 ? 'Emergency Contact' :
-                currentPage === 4 ? 'Motorcycle Information' :
-                'Applicant\'s Declaration'
-              }
-            </span>
-            <span className="text-[10px] sm:text-xs font-mono font-bold text-[#2d6a4f]">
-              {currentPage * 20}% Completed
-            </span>
-          </div>
+        {!isSuccess && (
+          <div className="p-3 sm:p-4 rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-md space-y-2.5 sm:space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] sm:text-xs font-extrabold text-[#1b4332] uppercase tracking-wider">
+                Step {currentPage} of 5: {
+                  currentPage === 1 ? 'Personal Information' :
+                  currentPage === 2 ? 'BCC Information' :
+                  currentPage === 3 ? 'Emergency Contact' :
+                  currentPage === 4 ? 'Motorcycle Information' :
+                  'Applicant\'s Declaration'
+                }
+              </span>
+              <span className="text-[10px] sm:text-xs font-mono font-bold text-[#2d6a4f]">
+                {currentPage * 20}% Completed
+              </span>
+            </div>
 
-          {/* Step Pills Bar */}
-          <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
-            {[1, 2, 3, 4, 5].map((step) => {
-              const isActive = currentPage === step;
-              const isPassed = currentPage > step;
+            {/* Step Pills Bar */}
+            <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+              {[1, 2, 3, 4, 5].map((step) => {
+                const isActive = currentPage === step;
+                const isPassed = currentPage > step;
 
-              return (
-                <div
-                  key={step}
-                  className={`h-2 sm:h-2.5 rounded-full transition-all duration-300 ${
-                    isPassed
-                      ? 'bg-[#1b4332]'
-                      : isActive
-                      ? 'bg-[#2d6a4f] ring-2 ring-[#74c69d]/50 animate-pulse'
-                      : 'bg-gray-200'
-                  }`}
-                />
-              );
-            })}
-          </div>
+                return (
+                  <div
+                    key={step}
+                    className={`h-2 sm:h-2.5 rounded-full transition-all duration-300 ${
+                      isPassed
+                        ? 'bg-[#1b4332]'
+                        : isActive
+                        ? 'bg-[#2d6a4f] ring-2 ring-[#74c69d]/50 animate-pulse'
+                        : 'bg-gray-200'
+                    }`}
+                  />
+                );
+              })}
+            </div>
 
-          {/* Stepper Labels (Desktop) */}
-          <div className="hidden sm:grid grid-cols-5 text-[11px] font-bold text-center pt-1 text-[#52605d]">
-            <span className={currentPage === 1 ? 'text-[#1b4332] font-black' : ''}>1. Personal</span>
-            <span className={currentPage === 2 ? 'text-[#1b4332] font-black' : ''}>2. BCC Info</span>
-            <span className={currentPage === 3 ? 'text-[#1b4332] font-black' : ''}>3. Emergency</span>
-            <span className={currentPage === 4 ? 'text-[#1b4332] font-black' : ''}>4. Bike Info</span>
-            <span className={currentPage === 5 ? 'text-[#1b4332] font-black' : ''}>5. Declaration</span>
+            {/* Stepper Labels (Desktop) */}
+            <div className="hidden sm:grid grid-cols-5 text-[11px] font-bold text-center pt-1 text-[#52605d]">
+              <span className={currentPage === 1 ? 'text-[#1b4332] font-black' : ''}>1. Personal</span>
+              <span className={currentPage === 2 ? 'text-[#1b4332] font-black' : ''}>2. BCC Info</span>
+              <span className={currentPage === 3 ? 'text-[#1b4332] font-black' : ''}>3. Emergency</span>
+              <span className={currentPage === 4 ? 'text-[#1b4332] font-black' : ''}>4. Bike Info</span>
+              <span className={currentPage === 5 ? 'text-[#1b4332] font-black' : ''}>5. Declaration</span>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Success View */}
         {isSuccess ? (
@@ -1792,7 +1816,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
               {currentPage > 1 ? (
                 <button
                   type="button"
-                  onClick={() => setCurrentPage((p) => p - 1)}
+                  onClick={() => changePage(currentPage - 1)}
                   className="px-3.5 py-2 sm:px-5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] hover:bg-gray-100 text-[#1b4332] text-[10px] sm:text-xs font-bold flex items-center gap-1.5 sm:gap-2 transition-colors cursor-pointer"
                 >
                   <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -1812,7 +1836,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({ onSu
                     (currentPage === 3 && !isPage3Valid) ||
                     (currentPage === 4 && !isPage4Valid)
                   }
-                  onClick={() => setCurrentPage((p) => p + 1)}
+                  onClick={() => changePage(currentPage + 1)}
                   className={`px-4 py-2 sm:px-6 sm:py-2.5 rounded-xl text-[10px] sm:text-xs font-extrabold shadow-md transition-all flex items-center gap-1.5 sm:gap-2 ${
                     (currentPage === 1 && !isPage1Valid) ||
                     (currentPage === 2 && !isPage2Valid) ||

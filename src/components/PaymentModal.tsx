@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store } from '../lib/db';
+import { OfficialLoader } from './OfficialLoader';
 import {
   CreditCard,
   Lock,
@@ -329,14 +330,8 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 disabled={loading}
                 className="w-full py-3.5 px-6 rounded-2xl bg-[#1b4332] hover:bg-[#2d6a4f] text-[#ffffff] font-extrabold text-sm shadow-md transition-all cursor-pointer flex items-center justify-center gap-2"
               >
-                {loading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <>
-                    <Lock className="w-4 h-4" />
-                    <span>Pay ₱{amount.toLocaleString()}.00 Now</span>
-                  </>
-                )}
+                <Lock className="w-4 h-4" />
+                <span>Pay ₱{amount.toLocaleString()}.00 Now</span>
               </button>
 
               <p className="text-[10px] text-center text-[#52605d] flex items-center justify-center gap-1">
@@ -346,6 +341,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             </form>
           )}
         </motion.div>
+        <OfficialLoader isLoading={loading} message="Processing Secure Payment..." />
       </div>
     </AnimatePresence>
   );
