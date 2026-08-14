@@ -384,13 +384,15 @@ export class DataStoreService {
 
   // Auth / Login Simulation
   login(usernameOrEmail: string, passwordAttempt: string): User | null {
-    const normalizedInput = usernameOrEmail.trim().toLowerCase();
+    const normalizedInput = (usernameOrEmail || '').trim().toLowerCase();
+    const cleanPassword = (passwordAttempt || '').trim();
 
     const matched = this.users.find(
       (u) =>
-        u.username.toLowerCase() === normalizedInput ||
-        u.email.toLowerCase() === normalizedInput ||
-        (normalizedInput === 'admin' && u.role === 'admin')
+        (u.username && u.username.trim().toLowerCase() === normalizedInput) ||
+        (u.email && u.email.trim().toLowerCase() === normalizedInput) ||
+        (u.memberNumber && u.memberNumber.trim().toLowerCase() === normalizedInput) ||
+        (normalizedInput === 'admin' && (u.role === 'admin' || u.role?.toLowerCase() === 'admin'))
     );
 
     if (matched) {
@@ -398,7 +400,7 @@ export class DataStoreService {
         return null;
       }
       const expectedPassword = matched.password || 'bccriders123';
-      if (passwordAttempt !== expectedPassword) {
+      if (cleanPassword !== (expectedPassword || '').trim()) {
         return null;
       }
       return this.setCurrentUser(matched.id);

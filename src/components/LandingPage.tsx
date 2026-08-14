@@ -181,9 +181,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
       const allUsers = store.getUsers();
       const matched = allUsers.find(
         (u) =>
-          u.username?.toLowerCase() === normalizedInput ||
-          u.email.toLowerCase() === normalizedInput ||
-          (normalizedInput === 'admin' && u.role === 'admin')
+          (u.username && u.username.trim().toLowerCase() === normalizedInput) ||
+          (u.email && u.email.trim().toLowerCase() === normalizedInput) ||
+          (u.memberNumber && u.memberNumber.trim().toLowerCase() === normalizedInput) ||
+          (normalizedInput === 'admin' && (u.role === 'admin' || u.role?.toLowerCase() === 'admin'))
       );
 
       if (matched && matched.approvalStatus === 'Pending') {
@@ -366,7 +367,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                 <form onSubmit={handleLoginSubmit} className="space-y-4 text-xs">
                   <div>
                     <label className="text-[#2d3a3a] font-semibold mb-1.5 block">
-                      Username or Email
+                      Username
                     </label>
                     <div className="relative">
                       <input
@@ -374,8 +375,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
                         required
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
                         className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] text-sm focus:outline-none focus:border-[#2d6a4f]"
-                        placeholder="Username"
+                        placeholder="Enter your username"
                       />
                       <User className="w-4 h-4 text-[#52605d] absolute left-3.5 top-3.5" />
                     </div>
