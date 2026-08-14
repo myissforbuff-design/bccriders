@@ -44,6 +44,8 @@ import {
   Table,
   Eye,
   DollarSign,
+  Clock,
+  AlertCircle,
 } from 'lucide-react';
 
 const MONTH_OPTIONS = [
@@ -97,6 +99,22 @@ export const Settings: React.FC = () => {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  const getApprovedNonAdminMembers = (): User[] => {
+    const allUsers = store.getUsers();
+    return allUsers.filter((u) => {
+      const isUserAdmin =
+        u.role === 'admin' ||
+        u.role?.toLowerCase() === 'admin' ||
+        u.role?.toLowerCase() === 'administrator' ||
+        u.id === 'usr_admin' ||
+        u.id === 'admin' ||
+        u.username?.toLowerCase() === 'admin' ||
+        u.email?.toLowerCase().includes('admin@');
+      if (isUserAdmin) return false;
+      return u.approvalStatus === 'Approved';
+    });
+  };
+
   // Database States
   const [financeSettings, setFinanceSettings] = useState<FinanceSettings>(() =>
     store.getFinanceSettings()
@@ -107,7 +125,7 @@ export const Settings: React.FC = () => {
   const [dynamicCollections, setDynamicCollections] = useState<DynamicCollection[]>(
     () => store.getDynamicCollections()
   );
-  const [approvedMembers, setApprovedMembers] = useState<User[]>([]);
+  const [approvedMembers, setApprovedMembers] = useState<User[]>(() => getApprovedNonAdminMembers());
 
   // Fee Form State
   const [membershipFeeInput, setMembershipFeeInput] = useState<number>(
@@ -1072,21 +1090,8 @@ export const Settings: React.FC = () => {
   };
 
   useEffect(() => {
-    // Load approved members for collection calculations (excluding admin accounts)
-    const allUsers = store.getUsers();
-    const approved = allUsers.filter((u) => {
-      const isUserAdmin =
-        u.role === 'admin' ||
-        u.role?.toLowerCase() === 'admin' ||
-        u.role?.toLowerCase() === 'administrator' ||
-        u.id === 'usr_admin' ||
-        u.id === 'admin' ||
-        u.username?.toLowerCase() === 'admin' ||
-        u.email?.toLowerCase().includes('admin@');
-      if (isUserAdmin) return false;
-      return u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin');
-    });
-    setApprovedMembers(approved);
+    // Load approved members for collection calculations (strictly excluding admin accounts)
+    setApprovedMembers(getApprovedNonAdminMembers());
   }, []);
 
   const refreshFinanceData = () => {
@@ -1094,19 +1099,7 @@ export const Settings: React.FC = () => {
     setMonthlyDues([...store.getMonthlyDues()]);
     const cols = store.getDynamicCollections();
     setDynamicCollections([...cols]);
-    const allUsers = store.getUsers();
-    const approved = allUsers.filter((u) => {
-      const isUserAdmin =
-        u.role === 'admin' ||
-        u.role?.toLowerCase() === 'admin' ||
-        u.role?.toLowerCase() === 'administrator' ||
-        u.id === 'usr_admin' ||
-        u.id === 'admin' ||
-        u.username?.toLowerCase() === 'admin' ||
-        u.email?.toLowerCase().includes('admin@');
-      if (isUserAdmin) return false;
-      return u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin');
-    });
+    const approved = getApprovedNonAdminMembers();
     setApprovedMembers(approved);
 
     cols.forEach((c) => {
@@ -1294,21 +1287,14 @@ export const Settings: React.FC = () => {
       const todayStr = new Date().toISOString().split('T')[0];
       const recItem = localStorage.getItem('bcc_finance_records_v3');
       let recs: any[] = recItem ? JSON.parse(recItem) : [];
-      const allUsers = store.getUsers();
-      const approved = allUsers.filter(u => {
-        const isUserAdmin =
-          u.role === 'admin' ||
-          u.role?.toLowerCase() === 'admin' ||
-          u.role?.toLowerCase() === 'administrator' ||
-          u.id === 'usr_admin' ||
-          u.id === 'admin' ||
-          u.username?.toLowerCase() === 'admin' ||
-          u.email?.toLowerCase().includes('admin@');
-        if (isUserAdmin) return false;
-        return u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin');
-      });
+      const approved = getApprovedNonAdminMembers();
 
-      const memberCount = approved.length || 1;
+      // If there are no approved members registered, mute generation of pending dues
+      if (approved.length === 0) {
+        return;
+      }
+
+      const memberCount = approved.length;
       const targetTotal =
         col.targetAmount !== undefined && col.targetAmount !== null && !isNaN(Number(col.targetAmount)) && Number(col.targetAmount) > 0
           ? Number(col.targetAmount)
@@ -1399,10 +1385,10 @@ export const Settings: React.FC = () => {
   const handleOpenCreateCollection = () => {
     setEditingCollection(null);
     setColName('');
-    const count = approvedMembers.length || 1;
+    const count = approvedMembers.length;
     const initialAmount = 500;
     setColAmount(initialAmount);
-    setColTargetAmount(String(initialAmount * count));
+    setColTargetAmount(count > 0 ? String(initialAmount * count) : '0');
     setColDescription('');
     setShowCollectionModal(true);
   };
@@ -1411,7 +1397,7 @@ export const Settings: React.FC = () => {
     setEditingCollection(col);
     setColName(col.name);
     setColAmount(col.amount);
-    const count = approvedMembers.length || 1;
+    const count = approvedMembers.length;
     const target = col.targetAmount !== undefined && col.targetAmount !== null ? String(col.targetAmount) : String(col.amount * count);
     setColTargetAmount(target);
     setColDescription(col.description || '');
@@ -1442,7 +1428,7 @@ export const Settings: React.FC = () => {
         description: colDescription.trim(),
       });
     }
-    if (savedCol) {
+    if (savedCol && approvedMembers.length > 0) {
       generatePendingCollectionRecords(savedCol);
     }
     refreshFinanceData();
@@ -1919,9 +1905,15 @@ export const Settings: React.FC = () => {
               <button
                 type="button"
                 onClick={handleOpenCreateCollection}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02] shrink-0"
+                disabled={approvedMemberCount === 0}
+                title={approvedMemberCount === 0 ? "Requires at least 1 registered active member" : "Create a new custom collection"}
+                className={`w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shrink-0 ${
+                  approvedMemberCount === 0
+                    ? 'bg-[#e8efe8] text-[#86998d] border border-[#d2ddd2] cursor-not-allowed select-none shadow-none'
+                    : 'bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-md cursor-pointer hover:scale-[1.02]'
+                }`}
               >
-                <Plus className="w-4 h-4 text-[#74c69d]" />
+                <Plus className={`w-4 h-4 ${approvedMemberCount === 0 ? 'text-[#86998d]' : 'text-[#74c69d]'}`} />
                 <span>Create Collection</span>
               </button>
             </div>
@@ -2008,6 +2000,9 @@ export const Settings: React.FC = () => {
                             </span>
                             <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
                               ₱{(Number(totalTargetCollection) || 0).toLocaleString()}
+                              {approvedMemberCount === 0 && col.targetAmount === undefined && (
+                                <span className="text-[10px] text-amber-700 font-medium ml-1">(Muted)</span>
+                              )}
                             </span>
                           </div>
                         </div>
@@ -2919,7 +2914,7 @@ export const Settings: React.FC = () => {
                         const valStr = e.target.value;
                         const numVal = Number(valStr);
                         setColAmount(numVal);
-                        const count = approvedMembers.length || 1;
+                        const count = approvedMembers.length;
                         if (valStr !== '' && !isNaN(numVal) && numVal >= 0) {
                           setColTargetAmount(String(Math.round(numVal * count * 100) / 100));
                         } else {
@@ -2946,20 +2941,20 @@ export const Settings: React.FC = () => {
                       onChange={(e) => {
                         const targetValStr = e.target.value;
                         setColTargetAmount(targetValStr);
-                        const count = approvedMembers.length || 1;
+                        const count = approvedMembers.length;
                         const targetNum = Number(targetValStr);
                         if (targetValStr !== '' && !isNaN(targetNum) && targetNum >= 0) {
-                          const calculatedAmount = Math.round((targetNum / count) * 100) / 100;
+                          const calculatedAmount = count > 0 ? Math.round((targetNum / count) * 100) / 100 : 0;
                           setColAmount(calculatedAmount);
                         }
                       }}
-                      placeholder={`Auto: ₱${((approvedMembers.length || 1) * (Number(colAmount) || 0)).toLocaleString()}`}
+                      placeholder={approvedMembers.length > 0 ? `Auto: ₱${(approvedMembers.length * (Number(colAmount) || 0)).toLocaleString()}` : 'Auto: ₱0.00 (Muted)'}
                       className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                     />
                     <span className="absolute left-3 top-3 text-xs font-bold text-[#52605d]">₱</span>
                   </div>
                   <p className="text-[10px] text-[#52605d] mt-1">
-                    Auto-calculated based on {approvedMembers.length || 1} active member(s) (₱{colAmount || 0} × {approvedMembers.length || 1} = ₱{(Number(colTargetAmount) || 0).toLocaleString()}).
+                    Auto-calculated based on {approvedMembers.length} active member(s) (₱{colAmount || 0} × {approvedMembers.length} = ₱{(Number(colTargetAmount) || 0).toLocaleString()}).
                   </p>
                 </div>
 

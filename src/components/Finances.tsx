@@ -241,7 +241,17 @@ export const Finances: React.FC = () => {
 
   // Load Users, Funds, and Expenses
   useEffect(() => {
-    const loadedUsers = store.getUsers().filter(u => u.role !== 'admin');
+    const loadedUsers = store.getUsers().filter(u => {
+      const isUserAdmin =
+        u.role === 'admin' ||
+        u.role?.toLowerCase() === 'admin' ||
+        u.role?.toLowerCase() === 'administrator' ||
+        u.id === 'usr_admin' ||
+        u.id === 'admin' ||
+        u.username?.toLowerCase() === 'admin' ||
+        u.email?.toLowerCase().includes('admin@');
+      return !isUserAdmin;
+    });
     setUsers(loadedUsers);
 
     // 1. Load Funds Records
@@ -364,7 +374,16 @@ export const Finances: React.FC = () => {
         return r;
       });
 
-      const approvedUsers = loadedUsers.filter(u => u.approvalStatus === 'Approved' || !u.approvalStatus);
+      const approvedUsers = loadedUsers.filter(u => u.approvalStatus === 'Approved');
+
+      // If no approved registered members exist, mute pending generation
+      if (approvedUsers.length === 0) {
+        if (hasNew) {
+          setRecords(updatedList);
+          localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(updatedList));
+        }
+        return;
+      }
 
       approvedUsers.forEach(u => {
         const exists = updatedList.some(r => r.userId === u.id && r.itemType === 'Membership Fee');
@@ -446,7 +465,7 @@ export const Finances: React.FC = () => {
 
       // 3. Dynamic Custom Collections
       const dynamicCols = store.getDynamicCollections();
-      const approvedCount = approvedUsers.length || 1;
+      const approvedCount = approvedUsers.length;
       dynamicCols.forEach(col => {
         if (col.status === 'Completed' || col.status === 'Archived') return;
 
@@ -455,7 +474,7 @@ export const Finances: React.FC = () => {
             ? Number(col.targetAmount)
             : approvedCount * col.amount;
 
-        const perMemberAmount = col.amount > 0 ? col.amount : Math.ceil(targetTotal / approvedCount);
+        const perMemberAmount = col.amount > 0 ? col.amount : Math.ceil(targetTotal / (approvedCount || 1));
 
         approvedUsers.forEach(u => {
           const existsIdx = updatedList.findIndex(r =>
