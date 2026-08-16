@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store } from '../lib/db';
 import { Event, EventType, PaceLevel } from '../types';
@@ -28,6 +29,7 @@ interface EventSchedulerProps {
 
 export const EventScheduler: React.FC<EventSchedulerProps> = ({ onOpenMapRoute }) => {
   const { currentUser, isAdmin, refreshUserData } = useAuth();
+  const { runWithLoader, refreshTick } = useLoader();
   const [events, setEvents] = useState<Event[]>(() => store.getEvents());
   const [typeFilter, setTypeFilter] = useState<string>('All');
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
@@ -59,11 +61,15 @@ export const EventScheduler: React.FC<EventSchedulerProps> = ({ onOpenMapRoute }
     refreshUserData();
   };
 
+  useEffect(() => {
+    refreshList();
+  }, [refreshTick]);
+
   const filteredEvents = events.filter(
     (e) => typeFilter === 'All' || e.type === typeFilter
   );
 
-  const handleRSVP = (evt: Event) => {
+  const handleRSVP = async (evt: Event) => {
     if (!currentUser) return;
 
     // Check if already registered
@@ -76,39 +82,53 @@ export const EventScheduler: React.FC<EventSchedulerProps> = ({ onOpenMapRoute }
       setEventToPay(evt);
       setPayModalOpen(true);
     } else {
-      store.registerForEvent(evt.id, currentUser.id, 0);
-      refreshList();
-      if (selectedEvent && selectedEvent.id === evt.id) {
-        setSelectedEvent({ ...evt, registeredUserIds: [...evt.registeredUserIds, currentUser.id] });
-      }
+      await runWithLoader(
+        async () => {
+          store.registerForEvent(evt.id, currentUser.id, 0);
+          refreshList();
+          if (selectedEvent && selectedEvent.id === evt.id) {
+            setSelectedEvent({ ...evt, registeredUserIds: [...evt.registeredUserIds, currentUser.id] });
+          }
+        },
+        {
+          message: 'Registering for Event & Refreshing...',
+        }
+      );
     }
   };
 
-  const handleCreateEventSubmit = (e: React.FormEvent) => {
+  const handleCreateEventSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentUser) return;
 
-    store.createEvent({
-      title: newTitle,
-      type: newType,
-      description: newDesc,
-      date: newDate,
-      time: newTime,
-      startLocation: newStartLoc,
-      endLocation: newEndLoc || undefined,
-      distanceMiles: Number(newDistance),
-      paceLevel: newPace,
-      fee: Number(newFee),
-      maxAttendees: Number(newMax),
-      mandatoryGear: newGear.split(',').map((g) => g.trim()),
-      status: 'Upcoming',
-      createdBy: currentUser.id,
-    });
+    await runWithLoader(
+      async () => {
+        store.createEvent({
+          title: newTitle,
+          type: newType,
+          description: newDesc,
+          date: newDate,
+          time: newTime,
+          startLocation: newStartLoc,
+          endLocation: newEndLoc || undefined,
+          distanceMiles: Number(newDistance),
+          paceLevel: newPace,
+          fee: Number(newFee),
+          maxAttendees: Number(newMax),
+          mandatoryGear: newGear.split(',').map((g) => g.trim()),
+          status: 'Upcoming',
+          createdBy: currentUser.id,
+        });
 
-    setCreateModalOpen(false);
-    setNewTitle('');
-    setNewDesc('');
-    refreshList();
+        setCreateModalOpen(false);
+        setNewTitle('');
+        setNewDesc('');
+        refreshList();
+      },
+      {
+        message: 'Scheduling Event & Refreshing...',
+      }
+    );
   };
 
   return (

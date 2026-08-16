@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { NotificationProvider, useNotifications } from './context/NotificationContext';
+import { LoaderProvider } from './context/LoaderContext';
 import { LandingPage } from './components/LandingPage';
 import { Navigation, TabType } from './components/Navigation';
 import { Dashboard } from './components/Dashboard';
@@ -14,12 +15,27 @@ import { ActivityLog } from './components/ActivityLog';
 import { QRScan } from './components/QRScan';
 import { Finances } from './components/Finances';
 import { AnnouncementsView } from './components/AnnouncementsView';
+import { useIdleTimer } from './hooks/useIdleTimer';
 import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
 function MainAppContent() {
-  const { currentUser, isAuthenticated, isAdmin } = useAuth();
-  const { toastMessage, clearToast } = useNotifications();
+  const { currentUser, isAuthenticated, isAdmin, logout } = useAuth();
+  const { toastMessage, clearToast, triggerPushAlert } = useNotifications();
+
+  // Automatic security logout after 5 minutes of inactivity for both members & administrators
+  useIdleTimer({
+    timeoutMs: 5 * 60 * 1000,
+    enabled: isAuthenticated,
+    onIdle: () => {
+      logout();
+      triggerPushAlert(
+        'Session Expired',
+        'You have been automatically logged out due to 5 minutes of inactivity for account security.',
+        'system'
+      );
+    },
+  });
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const saved = localStorage.getItem('bcc_active_tab');
@@ -40,6 +56,8 @@ function MainAppContent() {
   const [printTrigger, setPrintTrigger] = useState(0);
 
   const isMember = !currentUser?.role || currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
+  const isTreasurer = currentUser?.role === 'Treasurer' || currentUser?.role?.toLowerCase() === 'treasurer';
+  const canAccessFinances = isAdmin || isTreasurer;
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -48,12 +66,17 @@ function MainAppContent() {
           setActiveTab('dashboard');
         }
       } else {
-        if (activeTab === 'dashboard' || activeTab === 'members' || (isMember && activeTab === 'qr')) {
+        if (
+          activeTab === 'dashboard' ||
+          activeTab === 'members' ||
+          (isMember && activeTab === 'qr') ||
+          (!canAccessFinances && activeTab === 'finances')
+        ) {
           setActiveTab('profile');
         }
       }
     }
-  }, [isAuthenticated, isAdmin, isMember, activeTab]);
+  }, [isAuthenticated, isAdmin, isMember, canAccessFinances, activeTab]);
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -227,10 +250,12 @@ function MainAppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <NotificationProvider>
-        <MainAppContent />
-      </NotificationProvider>
-    </AuthProvider>
+    <LoaderProvider>
+      <AuthProvider>
+        <NotificationProvider>
+          <MainAppContent />
+        </NotificationProvider>
+      </AuthProvider>
+    </LoaderProvider>
   );
 }

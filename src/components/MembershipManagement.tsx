@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
+import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store } from '../lib/db';
 import { User, MembershipType } from '../types';
 import { MemberRegistrationForm } from './MemberRegistrationForm';
 import { EditMemberModal, cleanBarangayCityAddress } from './EditMemberModal';
-import { OfficialLoader } from './OfficialLoader';
 import { RoleAvatarBadge } from './RoleAvatarBadge';
 import {
   Users,
+  User as UserIcon,
   Search,
   Plus,
   ShieldCheck,
@@ -172,6 +173,7 @@ const DEFAULT_AVATAR = '/avatar.svg';
 
 export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOpenDuesModal }) => {
   const { currentUser, isAdmin, refreshUserData } = useAuth();
+  const { runWithLoader, refreshTick } = useLoader();
   const [members, setMembers] = useState<User[]>(() =>
     store.getUsers().filter((m) => m.role !== 'admin')
   );
@@ -189,6 +191,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
   useEffect(() => {
     localStorage.setItem('bcc_roster_tab', rosterTab);
   }, [rosterTab]);
+
+  useEffect(() => {
+    setMembers([...store.getUsers().filter((m) => m.role !== 'admin')]);
+  }, [refreshTick]);
+
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const [reviewingPendingUser, setReviewingPendingUser] = useState<User | null>(null);
@@ -197,7 +204,6 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
     type: 'approve' | 'reject' | 'delete';
     member: User;
   } | null>(null);
-  const [loaderState, setLoaderState] = useState<{ isLoading: boolean; message: string }>({ isLoading: false, message: '' });
 
   useModalDismiss(!!confirmModal, () => setConfirmModal(null));
   useModalDismiss(!!reviewingPendingUser, () => setReviewingPendingUser(null));
@@ -206,53 +212,69 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
 
   const activeDropdownMember = openDropdownId ? members.find((m) => m.id === openDropdownId) : null;
 
-  const handleApproveMember = (memberId: string) => {
+  const handleApproveMember = async (memberId: string) => {
     const target = members.find((m) => m.id === memberId);
     if (target) {
-      setLoaderState({ isLoading: true, message: 'Approving Member...' });
-      setTimeout(() => {
-        target.approvalStatus = 'Approved';
-        if (!target.memberNumber || target.memberNumber === 'BCC-MEMBER' || target.memberNumber === 'BRC-MEMBER' || target.memberNumber.startsWith('BCC-') || target.memberNumber === 'Pending') {
-          const approvedCount = members.filter((m) => m.approvalStatus === 'Approved').length;
-          target.memberNumber = `BRC-${String(approvedCount + 1).padStart(4, '0')}`;
+      await runWithLoader(
+        async () => {
+          target.approvalStatus = 'Approved';
+          if (
+            !target.memberNumber ||
+            target.memberNumber === 'BCC-MEMBER' ||
+            target.memberNumber === 'BRC-MEMBER' ||
+            target.memberNumber.startsWith('BCC-') ||
+            target.memberNumber === 'Pending'
+          ) {
+            const approvedCount = members.filter((m) => m.approvalStatus === 'Approved').length;
+            target.memberNumber = `BRC-${String(approvedCount + 1).padStart(4, '0')}`;
+          }
+          store.approveRegistration(target);
+          if (selectedMember?.id === memberId) setSelectedMember(null);
+          if (reviewingPendingUser?.id === memberId) setReviewingPendingUser(null);
+          setConfirmModal(null);
+          refreshList();
+          setRosterTab('active');
+        },
+        {
+          message: 'Approving Member & Refreshing Data...',
+          onComplete: () => {
+            setSyncStatusMsg({
+              type: 'success',
+              text: 'Member is accepted',
+            });
+            setTimeout(() => {
+              setSyncStatusMsg(null);
+            }, 2000);
+          },
         }
-        store.approveRegistration(target);
+      );
+    }
+  };
+
+  const handleRejectMember = async (memberId: string) => {
+    const target = members.find((m) => m.id === memberId);
+    const memberName = target?.name || 'Applicant';
+    await runWithLoader(
+      async () => {
+        store.deleteUser(memberId);
         if (selectedMember?.id === memberId) setSelectedMember(null);
         if (reviewingPendingUser?.id === memberId) setReviewingPendingUser(null);
         setConfirmModal(null);
         refreshList();
-        setRosterTab('active');
-        setLoaderState({ isLoading: false, message: '' });
-        setSyncStatusMsg({
-          type: 'success',
-          text: 'Member is accepted',
-        });
-        setTimeout(() => {
-          setSyncStatusMsg(null);
-        }, 2000);
-      }, 500);
-    }
-  };
-
-  const handleRejectMember = (memberId: string) => {
-    const target = members.find((m) => m.id === memberId);
-    const memberName = target?.name || 'Applicant';
-    setLoaderState({ isLoading: true, message: 'Rejecting Application...' });
-    setTimeout(() => {
-      store.deleteUser(memberId);
-      if (selectedMember?.id === memberId) setSelectedMember(null);
-      if (reviewingPendingUser?.id === memberId) setReviewingPendingUser(null);
-      setConfirmModal(null);
-      refreshList();
-      setLoaderState({ isLoading: false, message: '' });
-      setSyncStatusMsg({
-        type: 'success',
-        text: `Application for "${memberName}" has been rejected and removed from pending requests.`,
-      });
-      setTimeout(() => {
-        setSyncStatusMsg(null);
-      }, 3000);
-    }, 600);
+      },
+      {
+        message: 'Rejecting Application & Refreshing...',
+        onComplete: () => {
+          setSyncStatusMsg({
+            type: 'success',
+            text: `Application for "${memberName}" has been rejected and removed from pending requests.`,
+          });
+          setTimeout(() => {
+            setSyncStatusMsg(null);
+          }, 3000);
+        },
+      }
+    );
   };
 
   const activeMembersList = members.filter((m) => m.approvalStatus !== 'Pending' && m.role !== 'admin');
@@ -654,6 +676,9 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     <h3 className="font-heading font-bold text-[#1b4332] text-lg">
                       {selectedMember.name}
                     </h3>
+                    <p className="text-xs font-semibold text-[#2d6a4f]">
+                      @{selectedMember.username || (selectedMember.email ? selectedMember.email.split('@')[0] : 'rider')}
+                    </p>
                   </div>
                 </div>
                 <button
@@ -685,6 +710,10 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
                   <div className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2">
                     <span className="text-[#52605d] font-bold block">Personal & License Info</span>
+                    <p className="text-[#2d3a3a] flex items-center gap-2">
+                      <UserIcon className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                      Username: <strong className="text-[#1b4332]">{selectedMember.username || (selectedMember.email ? selectedMember.email.split('@')[0] : 'rider')}</strong>
+                    </p>
                     <p className="text-[#2d3a3a] flex items-center gap-2">
                       <Mail className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
                       {selectedMember.email}
@@ -1116,10 +1145,17 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
         {editingMember && (
           <EditMemberModal
             member={editingMember}
-            onSave={(updatedUser) => {
-              store.updateUser(updatedUser);
-              refreshList();
-              setEditingMember(null);
+            onSave={async (updatedUser) => {
+              await runWithLoader(
+                async () => {
+                  store.updateUser(updatedUser);
+                  refreshList();
+                  setEditingMember(null);
+                },
+                {
+                  message: 'Saving Profile Changes & Refreshing...',
+                }
+              );
             }}
             onClose={() => setEditingMember(null)}
           />
@@ -1239,7 +1275,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                 ) : confirmModal.type === 'delete' ? (
                   <button
                     type="button"
-                    onClick={() => {
+                    onClick={async () => {
                       const targetId = confirmModal.member.id;
                       setConfirmModal(null);
                       if (selectedMember?.id === targetId) {
@@ -1248,19 +1284,24 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                       if (reviewingPendingUser?.id === targetId) {
                         setReviewingPendingUser(null);
                       }
-                      setLoaderState({ isLoading: true, message: 'Deleting Member Record...' });
-                      setTimeout(() => {
-                        store.deleteUser(targetId);
-                        refreshList();
-                        setLoaderState({ isLoading: false, message: '' });
-                        setSyncStatusMsg({
-                          type: 'success',
-                          text: 'Member record has been deleted.',
-                        });
-                        setTimeout(() => {
-                          setSyncStatusMsg(null);
-                        }, 2000);
-                      }, 600);
+                      await runWithLoader(
+                        async () => {
+                          store.deleteUser(targetId);
+                          refreshList();
+                        },
+                        {
+                          message: 'Deleting Member Record & Refreshing...',
+                          onComplete: () => {
+                            setSyncStatusMsg({
+                              type: 'success',
+                              text: 'Member record has been deleted.',
+                            });
+                            setTimeout(() => {
+                              setSyncStatusMsg(null);
+                            }, 2000);
+                          },
+                        }
+                      );
                     }}
                     className="py-2.5 px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors"
                   >
@@ -1289,7 +1330,6 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
           </div>
         )}
       </AnimatePresence>
-      <OfficialLoader isLoading={loaderState.isLoading} message={loaderState.message} />
     </div>
   );
 };

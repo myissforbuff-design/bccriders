@@ -11,6 +11,7 @@ import {
   FinanceSettings,
   MonthlyDue,
   DynamicCollection,
+  SecuritySettings,
 } from '../types';
 
 export const INITIAL_USERS: User[] = [
@@ -62,6 +63,58 @@ export const INITIAL_USERS: User[] = [
       year: 2024,
       engineCc: '1084cc',
       licensePlate: 'BCC-01',
+    },
+  },
+  {
+    id: 'usr_member_1',
+    username: 'elena_r',
+    name: 'Elena Rostova',
+    email: 'elena.rostova@example.com',
+    role: 'Member',
+    memberNumber: 'BRC-0002',
+    password: 'bccriders123',
+    phone: '+63 918 234 5678',
+    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=250',
+    bio: 'Adventure touring & off-road trail enthusiast.',
+    joinDate: '2026-02-15',
+    approvalStatus: 'Approved',
+    emergencyContact: {
+      name: 'Dmitri Rostova',
+      relationship: 'Brother',
+      phone: '+63 918 876 5432',
+    },
+    bikeInfo: {
+      make: 'BMW',
+      model: 'R 1250 GS Adventure',
+      year: 2023,
+      engineCc: '1254cc',
+      licensePlate: 'ELN-88',
+    },
+  },
+  {
+    id: 'usr_member_2',
+    username: 'carlos_m',
+    name: 'Carlos Mendoza',
+    email: 'carlos.mendoza@example.com',
+    role: 'Member',
+    memberNumber: 'BRC-0003',
+    password: 'bccriders123',
+    phone: '+63 919 345 6789',
+    avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=250',
+    bio: 'Weekend cruiser and safety course advocate.',
+    joinDate: '2026-03-10',
+    approvalStatus: 'Approved',
+    emergencyContact: {
+      name: 'Maria Mendoza',
+      relationship: 'Spouse',
+      phone: '+63 919 765 4321',
+    },
+    bikeInfo: {
+      make: 'Kawasaki',
+      model: 'Ninja ZX-6R',
+      year: 2022,
+      engineCc: '636cc',
+      licensePlate: 'CRL-99',
     },
   },
 ];
@@ -158,9 +211,15 @@ export const INITIAL_ANNOUNCEMENTS: Announcement[] = [];
 export const INITIAL_FINANCE_SETTINGS: FinanceSettings = {
   membershipFee: 500,
   annualFee: 1000,
+  annualPromoEnabled: true,
 };
 
 export const INITIAL_MONTHLY_DUES: MonthlyDue[] = [];
 
 export const INITIAL_DYNAMIC_COLLECTIONS: DynamicCollection[] = [];
+
+export const INITIAL_SECURITY_SETTINGS: SecuritySettings = {
+  adminOtpEnabled: true,
+};
+
 

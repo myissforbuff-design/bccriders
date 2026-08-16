@@ -7,6 +7,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   login: (usernameOrEmail: string, passwordAttempt: string) => boolean;
+  loginWithUserId: (userId: string) => boolean;
   logout: () => void;
   switchUser: (userId: string) => void;
   updateUser: (updated: User) => void;
@@ -25,6 +26,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = (usernameOrEmail: string, passwordAttempt: string): boolean => {
     const user = store.login(usernameOrEmail, passwordAttempt);
+    if (user) {
+      setCurrentUser({ ...user });
+      return true;
+    }
+    return false;
+  };
+
+  const loginWithUserId = (userId: string): boolean => {
+    const user = store.loginWithUserId(userId);
     if (user) {
       setCurrentUser({ ...user });
       return true;
@@ -56,6 +66,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isAuthenticated: !!currentUser,
         isAdmin: currentUser?.role === 'admin',
         login,
+        loginWithUserId,
         logout,
         switchUser,
         updateUser,

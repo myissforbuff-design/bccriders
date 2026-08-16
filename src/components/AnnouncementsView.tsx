@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
+import { useLoader } from '../context/LoaderContext';
 import { store } from '../lib/db';
 import { Announcement, AnnouncementPriority } from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
@@ -58,6 +59,7 @@ const PRIORITY_OPTIONS = [
 
 export const AnnouncementsView: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
+  const { runWithLoader, refreshTick } = useLoader();
   const [announcements, setAnnouncements] = useState<Announcement[]>(() =>
     store.getAnnouncements()
   );
@@ -66,6 +68,10 @@ export const AnnouncementsView: React.FC = () => {
   const [selectedPriority, setSelectedPriority] = useState<string>('All');
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false);
   const priorityDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setAnnouncements([...store.getAnnouncements()]);
+  }, [refreshTick]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -127,7 +133,7 @@ export const AnnouncementsView: React.FC = () => {
     setShowModal(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim() || !formContent.trim()) return;
 
@@ -140,44 +146,64 @@ export const AnnouncementsView: React.FC = () => {
       }
     }
 
-    if (editingAnn) {
-      store.updateAnnouncement({
-        ...editingAnn,
-        title: formTitle.trim(),
-        content: formContent.trim(),
-        facebookUrl: cleanFbUrl || undefined,
-        priority: formPriority,
-        pinned: formPinned,
-        authorName: formAuthorName.trim() || 'Executive Officer',
-        authorRole: formAuthorRole.trim() || 'Officer',
-      });
-    } else {
-      store.createAnnouncement({
-        title: formTitle.trim(),
-        content: formContent.trim(),
-        facebookUrl: cleanFbUrl || undefined,
-        priority: formPriority,
-        pinned: formPinned,
-        authorId: currentUser?.id || 'usr_admin',
-        authorName: formAuthorName.trim() || 'Executive Officer',
-        authorRole: formAuthorRole.trim() || 'Officer',
-      });
-    }
+    await runWithLoader(
+      async () => {
+        if (editingAnn) {
+          store.updateAnnouncement({
+            ...editingAnn,
+            title: formTitle.trim(),
+            content: formContent.trim(),
+            facebookUrl: cleanFbUrl || undefined,
+            priority: formPriority,
+            pinned: formPinned,
+            authorName: formAuthorName.trim() || 'Executive Officer',
+            authorRole: formAuthorRole.trim() || 'Officer',
+          });
+        } else {
+          store.createAnnouncement({
+            title: formTitle.trim(),
+            content: formContent.trim(),
+            facebookUrl: cleanFbUrl || undefined,
+            priority: formPriority,
+            pinned: formPinned,
+            authorId: currentUser?.id || 'usr_admin',
+            authorName: formAuthorName.trim() || 'Executive Officer',
+            authorRole: formAuthorRole.trim() || 'Officer',
+          });
+        }
 
-    refreshAnnouncements();
-    setShowModal(false);
+        refreshAnnouncements();
+        setShowModal(false);
+      },
+      {
+        message: editingAnn ? 'Updating Bulletin & Refreshing...' : 'Publishing Bulletin & Refreshing...',
+      }
+    );
   };
 
-  const handleDelete = (id: string) => {
-    store.deleteAnnouncement(id);
-    refreshAnnouncements();
-    setDeletingId(null);
-    window.location.reload();
+  const handleDelete = async (id: string) => {
+    await runWithLoader(
+      async () => {
+        store.deleteAnnouncement(id);
+        refreshAnnouncements();
+        setDeletingId(null);
+      },
+      {
+        message: 'Deleting Bulletin & Refreshing...',
+      }
+    );
   };
 
-  const handleTogglePin = (id: string) => {
-    store.togglePinAnnouncement(id);
-    refreshAnnouncements();
+  const handleTogglePin = async (id: string) => {
+    await runWithLoader(
+      async () => {
+        store.togglePinAnnouncement(id);
+        refreshAnnouncements();
+      },
+      {
+        message: 'Updating Pin Status & Refreshing...',
+      }
+    );
   };
 
   // Filter & Search Logic

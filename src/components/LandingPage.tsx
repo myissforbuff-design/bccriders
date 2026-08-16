@@ -4,6 +4,8 @@ import { store } from '../lib/db';
 import { ConstitutionView } from './ConstitutionView';
 import { RegistrationPageFlow } from './RegistrationPageFlow';
 import { OfficialLoader } from './OfficialLoader';
+import { ForgotPasswordModal } from './ForgotPasswordModal';
+import { LoginOtpModal } from './LoginOtpModal';
 import { isModalOpen } from '../hooks/useModalDismiss';
 import {
   Bike,
@@ -27,10 +29,17 @@ interface LandingPageProps {
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
-  const { login } = useAuth();
+  const { login, loginWithUserId } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
+  const [showLoginOtpModal, setShowLoginOtpModal] = useState(false);
+  const [loginOtpData, setLoginOtpData] = useState<{ email: string; maskedEmail: string; userId?: string }>({
+    email: '',
+    maskedEmail: '',
+    userId: '',
+  });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [regViewMode, setRegViewMode] = useState<'landing' | 'constitution' | 'register'>('landing');
@@ -170,37 +179,110 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
     };
   }, [regViewMode, regPage]);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
-    setTimeout(() => {
-      // Check if user exists and is pending
-      const normalizedInput = username.trim().toLowerCase();
-      const allUsers = store.getUsers();
-      const matched = allUsers.find(
-        (u) =>
-          (u.username && u.username.trim().toLowerCase() === normalizedInput) ||
-          (u.email && u.email.trim().toLowerCase() === normalizedInput) ||
-          (u.memberNumber && u.memberNumber.trim().toLowerCase() === normalizedInput) ||
-          (normalizedInput === 'admin' && (u.role === 'admin' || u.role?.toLowerCase() === 'admin'))
-      );
+    const cleanUsername = username.trim();
+    const cleanPassword = password.trim();
 
-      if (matched && matched.approvalStatus === 'Pending') {
+    if (!cleanUsername || !cleanPassword) {
+      setLoading(false);
+      setError('Please enter both your registered username and password.');
+      return;
+    }
+
+    // 1. Verify credentials locally first if available
+    const credCheck = store.checkCredentials(cleanUsername, cleanPassword);
+    if (!credCheck.success && credCheck.error && credCheck.error.includes('Pending')) {
+      setLoading(false);
+      setError(credCheck.error);
+      return;
+    }
+
+    const matchedUser = credCheck.user;
+
+    // Fast-path: If user is recognized as Admin locally and Admin OTP is disabled, log in directly without OTP
+    const isMatchedAdmin =
+      matchedUser &&
+      (matchedUser.role === 'admin' ||
+        matchedUser.role?.toLowerCase() === 'admin' ||
+        matchedUser.username?.toLowerCase() === 'admin' ||
+        matchedUser.id === 'usr_admin');
+
+    if (credCheck.success && isMatchedAdmin) {
+      const securitySettings = store.getSecuritySettings();
+      if (!securitySettings.adminOtpEnabled) {
+        const success = login(cleanUsername, cleanPassword);
+        if (success) {
+          setLoading(false);
+          onLoginSuccess();
+          return;
+        }
+      }
+    }
+
+    // 2. Request OTP from backend (which checks MongoDB database and sends Resend authorization email)
+    try {
+      const res = await fetch('/api/auth/login-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: cleanUsername,
+          password: cleanPassword,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Invalid Username or Password.');
+      }
+
+      // If OTP is bypassed (e.g. Admin with OTP disabled), sign in immediately
+      if (data.requiresOtp === false) {
+        const targetId = data.userId || matchedUser?.id;
+        if (targetId) {
+          loginWithUserId(targetId);
+        } else {
+          login(cleanUsername, cleanPassword);
+        }
         setLoading(false);
-        setError('Registration Pending: Your member application is currently awaiting admin approval before you can sign in to the portal.');
+        onLoginSuccess();
         return;
       }
 
-      const success = login(username, password);
+      // If user exists in MongoDB but not in local store, sync background state
+      if (data.userId && !store.getUsers().some((u) => u.id === data.userId)) {
+        await store.initMongoDb().catch(() => {});
+      }
+
       setLoading(false);
+      setLoginOtpData({
+        email: data.email || matchedUser?.email || '',
+        maskedEmail: data.maskedEmail || matchedUser?.email || '',
+        userId: data.userId || matchedUser?.id || '',
+      });
+      setShowLoginOtpModal(true);
+    } catch (err: any) {
+      setLoading(false);
+      setError(err.message || 'Invalid Username or Password.');
+    }
+  };
+
+  const handleLoginOtpSuccess = (verifiedUserId: string) => {
+    setShowLoginOtpModal(false);
+    const targetId = verifiedUserId || loginOtpData.userId;
+    if (targetId) {
+      loginWithUserId(targetId);
+      onLoginSuccess();
+    } else {
+      const success = login(username, password);
       if (success) {
         onLoginSuccess();
-      } else {
-        setError('Invalid username or password.');
       }
-    }, 600);
+    }
   };
 
   return (
@@ -367,7 +449,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                 <form onSubmit={handleLoginSubmit} className="space-y-4 text-xs">
                   <div>
                     <label className="text-[#2d3a3a] font-semibold mb-1.5 block">
-                      Username
+                      Registered Username
                     </label>
                     <div className="relative">
                       <input
@@ -379,16 +461,28 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                         autoCorrect="off"
                         spellCheck={false}
                         className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] text-sm focus:outline-none focus:border-[#2d6a4f]"
-                        placeholder="Enter your username"
+                        placeholder="Enter your registered username"
                       />
                       <User className="w-4 h-4 text-[#52605d] absolute left-3.5 top-3.5" />
                     </div>
                   </div>
 
                   <div>
-                    <label className="text-[#2d3a3a] font-semibold mb-1.5 block">
-                      Password
-                    </label>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <label className="text-[#2d3a3a] font-semibold block">
+                        Password
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError('');
+                          setShowForgotPasswordModal(true);
+                        }}
+                        className="text-[#2d6a4f] hover:text-[#1b4332] font-bold text-xs hover:underline cursor-pointer transition-colors"
+                      >
+                        Forgot password?
+                      </button>
+                    </div>
                     <div className="relative">
                       <input
                         type={showPassword ? 'text' : 'password'}
@@ -434,9 +528,29 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
             </div>
           </main>
 
+          <ForgotPasswordModal
+            isOpen={showForgotPasswordModal}
+            onClose={() => setShowForgotPasswordModal(false)}
+            onSuccess={(resetEmail) => {
+              setUsername(resetEmail);
+              setPassword('');
+            }}
+          />
+
+          <LoginOtpModal
+            isOpen={showLoginOtpModal}
+            onClose={() => setShowLoginOtpModal(false)}
+            email={loginOtpData.email}
+            maskedEmail={loginOtpData.maskedEmail}
+            userId={loginOtpData.userId}
+            usernameOrEmail={username.trim()}
+            passwordAttempt={password.trim()}
+            onSuccess={handleLoginOtpSuccess}
+          />
+
           <OfficialLoader
             isLoading={loading || isNavigatingReg}
-            message={isNavigatingReg ? regNavMsg : 'Authenticating Sign In...'}
+            message={isNavigatingReg ? regNavMsg : 'Sending Security Code...'}
           />
 
           {/* Footer */}

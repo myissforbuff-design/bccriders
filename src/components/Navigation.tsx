@@ -52,14 +52,22 @@ export const Navigation: React.FC<NavigationProps> = ({
 }) => {
   const { currentUser, isAdmin } = useAuth();
   const [showOfficerAlert, setShowOfficerAlert] = useState(false);
+  const [showTreasurerAlert, setShowTreasurerAlert] = useState(false);
 
   useModalDismiss(showOfficerAlert, () => setShowOfficerAlert(false));
+  useModalDismiss(showTreasurerAlert, () => setShowTreasurerAlert(false));
 
   const isMember = !currentUser?.role || currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
+  const isTreasurer = currentUser?.role === 'Treasurer' || currentUser?.role?.toLowerCase() === 'treasurer';
+  const canAccessFinances = isAdmin || isTreasurer;
 
   const handleTabClick = (tab: TabType) => {
     if (tab === 'qr' && isMember) {
       setShowOfficerAlert(true);
+      return;
+    }
+    if (tab === 'finances' && !canAccessFinances) {
+      setShowTreasurerAlert(true);
       return;
     }
     setActiveTab(tab);
@@ -89,9 +97,13 @@ export const Navigation: React.FC<NavigationProps> = ({
           { id: 'settings', label: 'Settings', icon: Settings },
         ];
 
-  const navItems = isMember
-    ? rawNavItems.filter((item) => item.id !== 'qr')
-    : rawNavItems;
+  let navItems = rawNavItems;
+  if (isMember) {
+    navItems = navItems.filter((item) => item.id !== 'qr');
+  }
+  if (!canAccessFinances) {
+    navItems = navItems.filter((item) => item.id !== 'finances');
+  }
 
   return (
     <>
@@ -126,6 +138,45 @@ export const Navigation: React.FC<NavigationProps> = ({
             <button
               type="button"
               onClick={() => setShowOfficerAlert(false)}
+              className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-2xl font-bold text-sm shadow-md transition-all cursor-pointer active:scale-95"
+            >
+              Understood
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Treasurer Permission Alert Modal */}
+      {showTreasurerAlert && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
+            <button
+              type="button"
+              onClick={() => setShowTreasurerAlert(false)}
+              className="absolute top-4 right-4 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center mx-auto mb-4 shadow-sm">
+              <ShieldAlert className="w-8 h-8" />
+            </div>
+
+            <h3 className="font-heading text-xl font-extrabold text-[#1b4332] mb-2">
+              Access Restricted
+            </h3>
+
+            <p className="text-stone-800 font-extrabold text-sm sm:text-base mb-2">
+              Finances is handled by the Treasurer only
+            </p>
+
+            <p className="text-stone-500 text-xs mb-6 leading-relaxed">
+              Only the designated Club Treasurer and System Administrator are authorized to manage club finances, log collections, and liquidate disbursements.
+            </p>
+
+            <button
+              type="button"
+              onClick={() => setShowTreasurerAlert(false)}
               className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-2xl font-bold text-sm shadow-md transition-all cursor-pointer active:scale-95"
             >
               Understood

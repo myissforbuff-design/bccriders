@@ -2,9 +2,42 @@ import express from 'express';
 import path from 'path';
 import { MongoClient, Db } from 'mongodb';
 import { createServer as createViteServer } from 'vite';
+import { Resend } from 'resend';
 
 const app = express();
 const PORT = 3000;
+
+// Canonical domain redirect: Redirect default *.onrender.com traffic to custom domain bccriders.cc
+app.use((req, res, next) => {
+  const host = req.headers.host || '';
+  if (host.includes('onrender.com')) {
+    const targetUrl = `https://bccriders.cc${req.originalUrl || req.url}`;
+    return res.redirect(301, targetUrl);
+  }
+  next();
+});
+
+// Lazy initialize Resend client
+let resendClient: Resend | null = null;
+function getResendClient(): Resend | null {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) return null;
+  if (!resendClient) {
+    resendClient = new Resend(apiKey);
+  }
+  return resendClient;
+}
+
+// In-memory OTP storage for Password Resets & Login 2FA Authorization (5 min TTL)
+interface OtpEntry {
+  email: string;
+  otp: string;
+  expiresAt: number;
+  userId?: string;
+  name?: string;
+  type?: 'reset' | 'login';
+}
+const otpCache = new Map<string, OtpEntry>();
 
 // Increase payload limit for avatar image base64 uploads or large documents
 app.use(express.json({ limit: '10mb' }));
@@ -91,6 +124,17 @@ function sanitizeMemberForMongo(rawMember: any) {
   } else {
     rest.memberNumber = 'BRC-0000';
   }
+
+  const emailStr = (rest.email || '').trim();
+  const fallbackUsername = emailStr
+    ? emailStr.split('@')[0]
+    : rest.name
+    ? String(rest.name).trim().toLowerCase().replace(/\s+/g, '_')
+    : `rider_${String(rest.id || Date.now()).slice(-4)}`;
+
+  rest.username = (rest.username && String(rest.username).trim()) || fallbackUsername;
+  rest.email = emailStr;
+
   return rest;
 }
 
@@ -98,16 +142,24 @@ function sanitizeMemberForMongo(rawMember: any) {
 function sanitizeRegistrationForMongo(rawReg: any) {
   if (!rawReg || typeof rawReg !== 'object') return rawReg;
   const { _id, ...rest } = rawReg;
+  const emailStr = (rest.email || '').trim();
+  const fallbackUsername = emailStr
+    ? emailStr.split('@')[0]
+    : rest.name
+    ? String(rest.name).trim().toLowerCase().replace(/\s+/g, '_')
+    : `user_${Date.now()}`;
+  const cleanUsername = (rest.username && String(rest.username).trim()) || fallbackUsername;
+
   return {
     id: rest.id || `reg_${Date.now()}`,
-    username: rest.username || (rest.email ? rest.email.split('@')[0] : `user_${Date.now()}`),
+    username: cleanUsername,
     name: rest.name || `${rest.firstName || ''} ${rest.lastName || ''}`.trim() || 'Applicant',
     firstName: rest.firstName || '',
     lastName: rest.lastName || '',
     birthdate: rest.birthdate || '',
     age: rest.age,
     gender: rest.gender || 'Male',
-    email: rest.email || '',
+    email: emailStr,
     password: rest.password || 'bccriders123',
     phone: rest.phone || rest.mobileNo || '',
     mobileNo: rest.mobileNo || rest.phone || '',
@@ -147,9 +199,11 @@ async function initMongoIndexes() {
   try {
     // Initialize 'members', 'registration', and 'attendanceLogs' collections
     await database.collection('members').createIndex({ id: 1 }, { unique: true });
+    await database.collection('members').createIndex({ username: 1 });
     await database.collection('members').createIndex({ email: 1 });
 
     await database.collection('registration').createIndex({ id: 1 }, { unique: true });
+    await database.collection('registration').createIndex({ username: 1 });
     await database.collection('registration').createIndex({ email: 1 });
 
     await database.collection('attendanceLogs').createIndex({ id: 1 }, { unique: true });
@@ -176,6 +230,52 @@ async function initMongoIndexes() {
         },
       }
     );
+
+    // Ensure all existing documents in 'members' collection have non-empty, trimmed username
+    const membersWithoutUsername = await database.collection('members').find({
+      $or: [
+        { username: { $exists: false } },
+        { username: null },
+        { username: '' },
+        { username: { $type: 'string', $regex: /^\s*$/ } },
+      ],
+    }).toArray();
+
+    for (const doc of membersWithoutUsername) {
+      const emailStr = (doc.email || '').trim();
+      const fallbackUser = emailStr
+        ? emailStr.split('@')[0]
+        : doc.name
+        ? String(doc.name).trim().toLowerCase().replace(/\s+/g, '_')
+        : `rider_${String(doc.id || doc._id).slice(-4)}`;
+      await database.collection('members').updateOne(
+        { _id: doc._id },
+        { $set: { username: fallbackUser } }
+      );
+    }
+
+    // Ensure all existing documents in 'registration' collection have non-empty, trimmed username
+    const regsWithoutUsername = await database.collection('registration').find({
+      $or: [
+        { username: { $exists: false } },
+        { username: null },
+        { username: '' },
+        { username: { $type: 'string', $regex: /^\s*$/ } },
+      ],
+    }).toArray();
+
+    for (const doc of regsWithoutUsername) {
+      const emailStr = (doc.email || '').trim();
+      const fallbackUser = emailStr
+        ? emailStr.split('@')[0]
+        : doc.name
+        ? String(doc.name).trim().toLowerCase().replace(/\s+/g, '_')
+        : `user_${String(doc.id || doc._id).slice(-4)}`;
+      await database.collection('registration').updateOne(
+        { _id: doc._id },
+        { $set: { username: fallbackUser } }
+      );
+    }
 
     // Update legacy BCC- member numbers to BRC- format
     const legacyDocs = await database.collection('members').find({ memberNumber: /^BCC-/i }).toArray();
@@ -248,6 +348,555 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString() });
 });
 
+// Resend Status & Configuration Endpoint
+app.get('/api/resend/status', (req, res) => {
+  const hasKey = !!process.env.RESEND_API_KEY;
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@bccriders.cc';
+  res.json({
+    configured: hasKey,
+    fromEmail,
+    domain: 'bccriders.cc',
+  });
+});
+
+// In-memory & MongoDB Server Security Settings
+let serverSecuritySettings = {
+  adminOtpEnabled: true,
+};
+
+async function loadServerSecuritySettings() {
+  const database = await getMongoDb();
+  if (database) {
+    try {
+      const doc = await database.collection('settings').findOne({ id: 'security_settings' });
+      if (doc && doc.adminOtpEnabled !== undefined) {
+        serverSecuritySettings.adminOtpEnabled = Boolean(doc.adminOtpEnabled);
+      }
+    } catch (err) {
+      console.warn('Load security settings notice:', err);
+    }
+  }
+}
+
+// Security Settings Endpoints
+app.get('/api/settings/security', async (req, res) => {
+  await loadServerSecuritySettings();
+  res.json({
+    success: true,
+    settings: serverSecuritySettings,
+  });
+});
+
+app.post('/api/settings/security', async (req, res) => {
+  const { adminOtpEnabled } = req.body || {};
+  if (adminOtpEnabled !== undefined) {
+    serverSecuritySettings.adminOtpEnabled = Boolean(adminOtpEnabled);
+  }
+  const database = await getMongoDb();
+  if (database) {
+    try {
+      await database.collection('settings').updateOne(
+        { id: 'security_settings' },
+        {
+          $set: {
+            id: 'security_settings',
+            category: 'security',
+            adminOtpEnabled: serverSecuritySettings.adminOtpEnabled,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+        { upsert: true }
+      );
+    } catch (err) {
+      console.warn('Save security settings to MongoDB notice:', err);
+    }
+  }
+  res.json({
+    success: true,
+    settings: serverSecuritySettings,
+  });
+});
+
+// AUTH: Request Login Authorization OTP via Resend (strictly by registered Username)
+app.post('/api/auth/login-otp', async (req, res) => {
+  const inputUsername = req.body?.username || req.body?.usernameOrEmail;
+  const inputPassword = req.body?.password;
+
+  if (!inputUsername || !inputPassword) {
+    return res.status(400).json({ error: 'Registered username and password are required.' });
+  }
+
+  const rawUsername = String(inputUsername).trim();
+  const normalizedUsername = rawUsername.toLowerCase();
+  const cleanPassword = String(inputPassword).trim();
+
+  let matchedUser: any = null;
+
+  // Search MongoDB members collection first by registered username only
+  const database = await getMongoDb();
+  if (database) {
+    try {
+      const escapedUsername = normalizedUsername.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const orConditions: any[] = [
+        { username: { $regex: new RegExp(`^${escapedUsername}$`, 'i') } },
+      ];
+
+      if (normalizedUsername === 'admin') {
+        orConditions.push({ role: { $regex: /^admin$/i } });
+      }
+
+      let doc = await database.collection('members').findOne({ $or: orConditions });
+
+      // If not found in members, check registration collection to detect pending registration
+      if (!doc) {
+        doc = await database.collection('registration').findOne({ $or: orConditions });
+      }
+
+      if (doc) {
+        matchedUser = doc;
+      }
+    } catch (err) {
+      console.warn('MongoDB search for login error:', err);
+    }
+  }
+
+  // Fallback to initial seed members by registered username only
+  if (!matchedUser) {
+    matchedUser = INITIAL_SEED_MEMBERS.find((m) => {
+      const mUsername = (m.username || '').trim().toLowerCase();
+      const mRole = (m.role || '').trim().toLowerCase();
+
+      return (
+        (mUsername && mUsername === normalizedUsername) ||
+        (normalizedUsername === 'admin' && (mRole === 'admin' || m.role === 'admin'))
+      );
+    });
+  }
+
+  if (!matchedUser) {
+    return res.status(401).json({ error: 'Invalid Username or Password.' });
+  }
+
+  // Check pending status
+  if (matchedUser.approvalStatus === 'Pending') {
+    return res.status(403).json({
+      error: 'Registration Pending: Your member application is currently awaiting admin approval before you can sign in to the portal.',
+    });
+  }
+
+  // Verify password
+  const expectedPassword = String(matchedUser.password || 'bccriders123').trim();
+  if (cleanPassword !== expectedPassword) {
+    return res.status(401).json({ error: 'Invalid Username or Password.' });
+  }
+
+  const memberId = matchedUser.id || matchedUser._id?.toString();
+
+  // Check if account is admin
+  const isAdminUser =
+    matchedUser.role === 'admin' ||
+    String(matchedUser.role).toLowerCase() === 'admin' ||
+    String(matchedUser.username).toLowerCase() === 'admin' ||
+    matchedUser.id === 'usr_admin';
+
+  // Load latest security settings
+  await loadServerSecuritySettings();
+
+  // If Admin OTP is disabled in Security Settings, bypass OTP
+  if (isAdminUser && !serverSecuritySettings.adminOtpEnabled) {
+    return res.json({
+      success: true,
+      requiresOtp: false,
+      isAdmin: true,
+      userId: memberId,
+      message: 'Admin credentials verified. Bypassing OTP as configured in Security Settings.',
+    });
+  }
+
+  // Extract email for 2FA OTP authorization (fallback for admin if empty)
+  const memberEmail = (matchedUser.email || (isAdminUser ? 'admin@bccriders.org' : '')).trim().toLowerCase();
+  if (!memberEmail || !memberEmail.includes('@')) {
+    return res.status(400).json({
+      error: 'No registered email found for this account. Please contact an administrator.',
+    });
+  }
+
+  const memberName = matchedUser.name || matchedUser.firstName || matchedUser.username || (isAdminUser ? 'Administrator' : 'Club Member');
+
+  // Generate 6-digit numeric OTP for Login Security
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+  // Mask email for user preview (e.g., m***f@gmail.com)
+  const [localPart, domainPart] = memberEmail.split('@');
+  const maskedLocal = localPart.length <= 2 ? `${localPart[0]}*` : `${localPart[0]}${'*'.repeat(Math.max(1, localPart.length - 2))}${localPart[localPart.length - 1]}`;
+  const maskedEmail = `${maskedLocal}@${domainPart}`;
+
+  otpCache.set(`login_${memberEmail}`, {
+    email: memberEmail,
+    otp,
+    expiresAt,
+    userId: memberId,
+    name: memberName,
+    type: 'login',
+  });
+
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@bccriders.cc';
+  const resend = getResendClient();
+
+  const emailHtml = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Login Security Authorization OTP</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f7f9f7; margin: 0; padding: 24px; color: #2d3a3a; }
+        .container { max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 24px; overflow: hidden; border: 1px solid #e2ece2; box-shadow: 0 8px 30px rgba(0,0,0,0.06); }
+        .header { background: #1b4332; padding: 32px 24px; text-align: center; color: #ffffff; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 0.5px; }
+        .header p { margin: 6px 0 0; font-size: 13px; color: #95d5b2; font-weight: 600; letter-spacing: 0.5px; }
+        .content { padding: 32px 28px; }
+        .greeting { font-size: 16px; font-weight: 700; color: #1b4332; margin-bottom: 12px; }
+        .text { font-size: 14px; line-height: 1.6; color: #52605d; margin-bottom: 20px; }
+        .otp-card { background: #f0f9f1; border: 2px dashed #74c69d; border-radius: 18px; padding: 24px; text-align: center; margin: 24px 0; }
+        .otp-label { font-size: 11px; text-transform: uppercase; font-weight: 800; color: #2d6a4f; letter-spacing: 1.5px; margin-bottom: 8px; }
+        .otp-digits { font-size: 38px; font-weight: 900; letter-spacing: 10px; color: #1b4332; font-family: monospace; }
+        .expiry { font-size: 12px; color: #52605d; margin-top: 8px; }
+        .warning { font-size: 12px; color: #747d7c; border-top: 1px solid #e2ece2; padding-top: 20px; margin-top: 24px; line-height: 1.5; }
+        .footer { background: #fafcfa; padding: 18px 24px; text-align: center; font-size: 11px; color: #8a9695; border-top: 1px solid #e2ece2; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>BCC RIDERS CLUB</h1>
+          <p>Love &bull; Peace &bull; Joy &bull; Sign-in Verification</p>
+        </div>
+        <div class="content">
+          <div class="greeting">Hello ${memberName},</div>
+          <div class="text">
+            A sign-in request was initiated for your <strong>BCC Riders Club</strong> account. For security purposes, please enter the One-Time Password (OTP) below to authorize your sign-in session:
+          </div>
+          <div class="otp-card">
+            <div class="otp-label">Your Sign-In OTP Code</div>
+            <div class="otp-digits">${otp}</div>
+            <div class="expiry">Valid for <strong>5 minutes</strong>.</div>
+          </div>
+          <div class="warning">
+            <strong>Security Notice:</strong> If you did not initiate this sign-in attempt, please change your password immediately or contact club administrators. Never share this code with anyone.
+          </div>
+        </div>
+        <div class="footer">
+          &copy; 2026 BCC Riders Club &bull; Sent from noreply@bccriders.cc
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  if (resend) {
+    try {
+      const response = await resend.emails.send({
+        from: `BCC Riders Club <${fromEmail}>`,
+        to: [memberEmail],
+        subject: `Your verification code - Verify it's you to stay secure`,
+        html: emailHtml,
+      });
+      console.log(`[Resend] Login OTP sent to ${memberEmail}. Resend ID:`, response.data?.id);
+      return res.json({
+        success: true,
+        requiresOtp: true,
+        email: memberEmail,
+        maskedEmail,
+        userId: memberId,
+        message: `A 6-digit authorization code has been sent to ${maskedEmail}.`,
+      });
+    } catch (err: any) {
+      console.error('[Resend Error] Login OTP delivery error:', err);
+      return res.json({
+        success: true,
+        requiresOtp: true,
+        email: memberEmail,
+        maskedEmail,
+        userId: memberId,
+        message: `Authorization code generated for ${maskedEmail}. (Resend notice: ${err?.message || 'Check server settings'})`,
+        devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
+      });
+    }
+  } else {
+    console.warn(`[LOGIN OTP DEV MODE] RESEND_API_KEY is not set. Login OTP for ${memberEmail}: ${otp}`);
+    return res.json({
+      success: true,
+      requiresOtp: true,
+      email: memberEmail,
+      maskedEmail,
+      userId: memberId,
+      message: `Authorization code generated for ${maskedEmail}.`,
+      devOtp: otp,
+    });
+  }
+});
+
+// AUTH: Verify Login OTP and Complete Sign-In
+app.post('/api/auth/verify-login-otp', (req, res) => {
+  const { email, otp } = req.body || {};
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP code are required.' });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const entry = otpCache.get(`login_${normalizedEmail}`);
+
+  if (!entry) {
+    return res.status(400).json({ error: 'No active sign-in authorization found. Please try signing in again.' });
+  }
+
+  if (Date.now() > entry.expiresAt) {
+    otpCache.delete(`login_${normalizedEmail}`);
+    return res.status(400).json({ error: 'The sign-in code has expired. Please sign in again to receive a fresh code.' });
+  }
+
+  if (entry.otp !== otp.trim()) {
+    return res.status(400).json({ error: 'Invalid verification code. Please check your email and try again.' });
+  }
+
+  // Invalidate OTP after successful verification
+  otpCache.delete(`login_${normalizedEmail}`);
+
+  res.json({
+    success: true,
+    verified: true,
+    userId: entry.userId,
+    message: 'Sign-in authorized successfully.',
+  });
+});
+
+// AUTH: Request Password Reset OTP via Resend
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body || {};
+  if (!email || typeof email !== 'string') {
+    return res.status(400).json({ error: 'Please enter a valid registered email address.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // Look for registered member across MongoDB or fallback seed members
+  let memberName = 'Club Member';
+  let memberId = '';
+  let found = false;
+
+  const database = await getMongoDb();
+  if (database) {
+    try {
+      const doc = await database.collection('members').findOne({
+        email: { $regex: new RegExp(`^${normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      });
+      if (doc) {
+        found = true;
+        memberName = doc.name || doc.firstName || 'Club Member';
+        memberId = doc.id;
+      }
+    } catch (err) {
+      console.warn('MongoDB search member for OTP warning:', err);
+    }
+  }
+
+  if (!found) {
+    const seed = INITIAL_SEED_MEMBERS.find((m) => m.email && m.email.trim().toLowerCase() === normalizedEmail);
+    if (seed) {
+      found = true;
+      memberName = seed.name;
+      memberId = seed.id;
+    }
+  }
+
+  if (!found) {
+    return res.status(404).json({
+      error: `No registered account found with email "${email}". Please verify your email address or contact an administrator.`,
+    });
+  }
+
+  // Generate 6-digit numeric OTP
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  const expiresAt = Date.now() + 5 * 60 * 1000; // 5 minutes
+
+  otpCache.set(normalizedEmail, {
+    email: normalizedEmail,
+    otp,
+    expiresAt,
+    userId: memberId,
+    name: memberName,
+  });
+
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@bccriders.cc';
+  const resend = getResendClient();
+
+  const emailHtml = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Password Reset OTP</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f7f9f7; margin: 0; padding: 24px; color: #2d3a3a; }
+        .container { max-width: 520px; margin: 0 auto; background: #ffffff; border-radius: 24px; overflow: hidden; border: 1px solid #e2ece2; box-shadow: 0 8px 30px rgba(0,0,0,0.06); }
+        .header { background: #1b4332; padding: 32px 24px; text-align: center; color: #ffffff; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 0.5px; }
+        .header p { margin: 6px 0 0; font-size: 13px; color: #95d5b2; font-weight: 600; letter-spacing: 0.5px; }
+        .content { padding: 32px 28px; }
+        .greeting { font-size: 16px; font-weight: 700; color: #1b4332; margin-bottom: 12px; }
+        .text { font-size: 14px; line-height: 1.6; color: #52605d; margin-bottom: 20px; }
+        .otp-card { background: #f0f9f1; border: 2px dashed #74c69d; border-radius: 18px; padding: 24px; text-align: center; margin: 24px 0; }
+        .otp-label { font-size: 11px; text-transform: uppercase; font-weight: 800; color: #2d6a4f; letter-spacing: 1.5px; margin-bottom: 8px; }
+        .otp-digits { font-size: 38px; font-weight: 900; letter-spacing: 10px; color: #1b4332; font-family: monospace; }
+        .expiry { font-size: 12px; color: #52605d; margin-top: 8px; }
+        .warning { font-size: 12px; color: #747d7c; border-top: 1px solid #e2ece2; padding-top: 20px; margin-top: 24px; line-height: 1.5; }
+        .footer { background: #fafcfa; padding: 18px 24px; text-align: center; font-size: 11px; color: #8a9695; border-top: 1px solid #e2ece2; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>BCC RIDERS CLUB</h1>
+          <p>Love &bull; Peace &bull; Joy &bull; Verification System</p>
+        </div>
+        <div class="content">
+          <div class="greeting">Hello ${memberName},</div>
+          <div class="text">
+            We received a request to reset the password for your <strong>BCC Riders Club</strong> account. Use the 6-digit One-Time Password (OTP) below to verify your identity and set a new password:
+          </div>
+          <div class="otp-card">
+            <div class="otp-label">Your One-Time Password</div>
+            <div class="otp-digits">${otp}</div>
+            <div class="expiry">Expires in <strong>5 minutes</strong>.</div>
+          </div>
+          <div class="warning">
+            <strong>Security Notice:</strong> If you did not make this request, you can safely disregard this email. Your account remains secure and no changes will take effect. Never disclose this code to anyone.
+          </div>
+        </div>
+        <div class="footer">
+          &copy; 2026 BCC Riders Club &bull; Sent from noreply@bccriders.cc
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  if (resend) {
+    try {
+      const response = await resend.emails.send({
+        from: `BCC Riders Club <${fromEmail}>`,
+        to: [normalizedEmail],
+        subject: `Your verification code - Verify it's you to stay secure`,
+        html: emailHtml,
+      });
+
+      console.log(`[Resend] OTP email successfully sent to ${normalizedEmail}. Resend ID:`, response.data?.id);
+      return res.json({
+        success: true,
+        message: `A 6-digit verification code has been sent to ${normalizedEmail}. Please check your inbox.`,
+      });
+    } catch (err: any) {
+      console.error('[Resend Error] Delivery failed:', err);
+      return res.json({
+        success: true,
+        message: `OTP generated for ${normalizedEmail}. (Resend notice: ${err?.message || 'Check server settings'})`,
+        devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
+      });
+    }
+  } else {
+    console.warn(`[OTP DEV MODE] RESEND_API_KEY is not configured. OTP for ${normalizedEmail}: ${otp}`);
+    return res.json({
+      success: true,
+      message: `OTP generated for ${normalizedEmail}. (Resend API key not yet set in environment; code logged for testing).`,
+      devOtp: otp,
+    });
+  }
+});
+
+// AUTH: Verify OTP
+app.post('/api/auth/verify-otp', (req, res) => {
+  const { email, otp } = req.body || {};
+  if (!email || !otp) {
+    return res.status(400).json({ error: 'Email and OTP code are required.' });
+  }
+  const normalizedEmail = email.trim().toLowerCase();
+  const entry = otpCache.get(normalizedEmail);
+
+  if (!entry) {
+    return res.status(400).json({ error: 'No active OTP found for this email. Please request a new code.' });
+  }
+
+  if (Date.now() > entry.expiresAt) {
+    otpCache.delete(normalizedEmail);
+    return res.status(400).json({ error: 'This verification code has expired. Please request a new one.' });
+  }
+
+  if (entry.otp !== otp.trim()) {
+    return res.status(400).json({ error: 'Invalid verification code. Please check your email and try again.' });
+  }
+
+  res.json({ success: true, message: 'OTP verified successfully.' });
+});
+
+// AUTH: Reset Password with OTP
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { email, otp, newPassword } = req.body || {};
+  if (!email || !otp || !newPassword) {
+    return res.status(400).json({ error: 'Email, OTP code, and new password are required.' });
+  }
+
+  if (typeof newPassword !== 'string' || newPassword.trim().length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters in length.' });
+  }
+
+  const normalizedEmail = email.trim().toLowerCase();
+  const entry = otpCache.get(normalizedEmail);
+
+  if (!entry) {
+    return res.status(400).json({ error: 'No active OTP verification session found. Please request a new code.' });
+  }
+
+  if (Date.now() > entry.expiresAt) {
+    otpCache.delete(normalizedEmail);
+    return res.status(400).json({ error: 'This verification code has expired. Please request a new one.' });
+  }
+
+  if (entry.otp !== otp.trim()) {
+    return res.status(400).json({ error: 'Invalid verification code.' });
+  }
+
+  const cleanPassword = newPassword.trim();
+
+  // Update in MongoDB members collection
+  const database = await getMongoDb();
+  if (database) {
+    try {
+      await database.collection('members').updateMany(
+        { email: { $regex: new RegExp(`^${normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+        { $set: { password: cleanPassword, updatedAt: new Date().toISOString() } }
+      );
+      await database.collection('registrations').updateMany(
+        { email: { $regex: new RegExp(`^${normalizedEmail.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+        { $set: { password: cleanPassword, updatedAt: new Date().toISOString() } }
+      );
+      console.log(`[Auth] Password updated successfully in MongoDB for ${normalizedEmail}`);
+    } catch (err: any) {
+      console.error('Failed to update password in MongoDB:', err);
+    }
+  }
+
+  // Invalidate OTP
+  otpCache.delete(normalizedEmail);
+
+  res.json({
+    success: true,
+    message: 'Your password has been successfully reset! You can now sign in with your new password.',
+  });
+});
+
 // MongoDB Status & Stats Endpoint
 app.get('/api/mongodb/status', async (req, res) => {
   if (!mongoUri) {
@@ -305,15 +954,23 @@ app.get('/api/mongodb/members', async (req, res) => {
     const members = docs.map(({ _id, ...rest }) => {
       const cleaned = sanitizeMemberForMongo(rest);
       const docId = cleaned.id || (_id ? _id.toString() : `usr_${Math.random().toString(36).substring(2, 9)}`);
+      const emailStr = (cleaned.email || '').trim();
+      const fallbackUser = emailStr
+        ? emailStr.split('@')[0]
+        : cleaned.name
+        ? String(cleaned.name).trim().toLowerCase().replace(/\s+/g, '_')
+        : `user_${docId.substring(0, 6)}`;
+      const finalUsername = (cleaned.username && String(cleaned.username).trim()) || fallbackUser;
+
       return {
+        ...cleaned,
         id: docId,
-        username: cleaned.username || cleaned.email?.split('@')[0] || `user_${docId.substring(0, 6)}`,
-        name: cleaned.name || cleaned.username || 'Club Member',
+        username: finalUsername,
+        name: cleaned.name || finalUsername || 'Club Member',
         role: cleaned.role || 'Members',
         duesStatus: cleaned.duesStatus || 'Active',
         approvalStatus: cleaned.approvalStatus || 'Approved',
         duesExpiryDate: cleaned.duesExpiryDate || '2027-12-31',
-        ...cleaned,
       };
     });
     res.json({ success: true, count: members.length, data: members });
@@ -966,6 +1623,61 @@ app.delete('/api/mongodb/liquidationLogs/:id', async (req, res) => {
   try {
     const result = await database.collection('liquidationLogs').deleteOne({ id });
     res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// FINANCE ARCHIVES API ("financeArchives" collection table)
+app.get('/api/mongodb/financeArchives', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    const docs = await database.collection('financeArchives').find({}).sort({ year: -1 }).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, count: data.length, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+app.post('/api/mongodb/financeArchives', async (req, res) => {
+  const database = await getMongoDb();
+  const archive = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!archive || (!archive.id && !archive.year)) {
+    return res.status(400).json({ error: 'Archive record must contain an id or year property' });
+  }
+
+  const archiveId = archive.id || `archive_${archive.year}`;
+  try {
+    const result = await database.collection('financeArchives').updateOne(
+      { $or: [{ id: archiveId }, { year: archive.year }] },
+      { $set: { ...archive, id: archiveId, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({
+      success: true,
+      id: archiveId,
+      message: 'Finance archive saved in MongoDB "financeArchives" collection table.',
+      result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/financeArchives/:idOrYear', async (req, res) => {
+  const database = await getMongoDb();
+  const { idOrYear } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const numericYear = parseInt(idOrYear, 10);
+    const filter = isNaN(numericYear)
+      ? { id: idOrYear }
+      : { $or: [{ id: idOrYear }, { year: numericYear }] };
+    const result = await database.collection('financeArchives').deleteOne(filter);
+    res.json({ success: true, idOrYear, deletedCount: result.deletedCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

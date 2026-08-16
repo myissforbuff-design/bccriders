@@ -146,7 +146,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
 
   // 2. BCC Information State
   const [network, setNetwork] = useState<string>('');
-  const [chapter, setChapter] = useState<string>('');
+  const [chapter, setChapter] = useState<string>('Buhangin (Main)');
   const [leadersName, setLeadersName] = useState<string>('');
   const [leadersContactNo, setLeadersContactNo] = useState<string>('');
   const [affiliations, setAffiliations] = useState<string[]>([]);
@@ -494,7 +494,6 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
     firstName.trim() &&
     lastName.trim() &&
     username.trim() &&
-    email.trim() &&
     password.trim() &&
     phAddress &&
     phAddress.fullAddressString &&
@@ -518,6 +517,18 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
   const isPage4Valid = Boolean(
     bikeMake.trim() &&
     bikeModel.trim() &&
+    bikeEngineCc.trim() &&
+    bikeColor.trim() &&
+    bikeEngineNo.trim() &&
+    bikeChassisNo.trim() &&
+    bikePlateNo.trim() &&
+    bikeCondition.trim() &&
+    bikeYearsInService.trim() &&
+    bikeOrNo.trim() &&
+    bikeOrExpiryDate.trim() &&
+    bikeCrNo.trim() &&
+    licenseNo.trim() &&
+    licenseExpiryDate.trim() &&
     bikePhotoUrl.trim() &&
     ridingExperience.trim() &&
     riderType.trim() &&
@@ -525,7 +536,55 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
     recommendedBy.trim()
   );
 
+  // Get list of missing fields for current page for instant user feedback
+  const getMissingFields = () => {
+    const missing: string[] = [];
+    if (currentPage === 1) {
+      if (!firstName.trim()) missing.push('First Name');
+      if (!lastName.trim()) missing.push('Last Name');
+      if (!username.trim()) missing.push('Username');
+      if (!password.trim()) missing.push('Password');
+      if (!phAddress?.fullAddressString) missing.push('Philippine Address (Region, Province, City, Brgy)');
+      if (mobileNo.trim().length !== 11) missing.push('Mobile No (11 digits)');
+    } else if (currentPage === 2) {
+      if (!network.trim()) missing.push('Network');
+      if (!chapter.trim()) missing.push('Chapter');
+      if (affiliations.length === 0 && !customAffiliation.trim()) missing.push('Affiliation');
+      if (leadersContactNo.trim() && leadersContactNo.trim().length !== 11) missing.push("Leader's Contact No (11 digits)");
+    } else if (currentPage === 3) {
+      if (!emergencyFullName.trim()) missing.push('Emergency Contact Name');
+      if (!emergencyRelationship.trim()) missing.push('Relationship');
+      if (emergencyPhone.trim().length !== 11) missing.push('Emergency Phone (11 digits)');
+    } else if (currentPage === 4) {
+      if (!bikeMake.trim()) missing.push('Bike Make');
+      if (!bikeModel.trim()) missing.push('Bike Model');
+      if (!bikeEngineCc.trim()) missing.push('Engine Displacement (CC)');
+      if (!bikeColor.trim()) missing.push('Color');
+      if (!bikeEngineNo.trim()) missing.push('Engine No');
+      if (!bikeChassisNo.trim()) missing.push('Chassis No');
+      if (!bikePlateNo.trim()) missing.push('Plate No');
+      if (!bikeCondition.trim()) missing.push('Status / Condition');
+      if (!bikeYearsInService.trim()) missing.push("Vehicle's Years of Service");
+      if (!bikeOrNo.trim()) missing.push('OR No');
+      if (!bikeOrExpiryDate.trim()) missing.push('OR Expiration Date');
+      if (!bikeCrNo.trim()) missing.push('CR No');
+      if (!licenseNo.trim()) missing.push("Driver's License No");
+      if (!licenseExpiryDate.trim()) missing.push('License Expiration Date');
+      if (!bikePhotoUrl.trim()) missing.push('Motorcycle Photo');
+      if (!ridingExperience.trim()) missing.push('Riding Experience');
+      if (!riderType.trim()) missing.push('Type of Rider');
+      if (!reasonForJoining.trim()) missing.push('Reason for Joining');
+      if (!recommendedBy.trim()) missing.push('Recommended By');
+    } else if (currentPage === 5) {
+      if (!agreedDeclaration) missing.push('Membership Agreement Checkbox');
+      if (!applicantSignature.trim()) missing.push('Signature');
+    }
+    return missing;
+  };
+
   const isPage5Valid = Boolean(agreedDeclaration && applicantSignature.trim());
+
+  const missingFieldsList = getMissingFields();
 
   // Final Form Submit Execution with Official Loader
   const handleFinalSubmit = async () => {
@@ -1009,13 +1068,13 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
 
                   <div className="space-y-1">
                     <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                      Active Email Address <span className="text-rose-500">*</span>
+                      Active Email Address <span className="text-gray-400 font-normal text-[9px] sm:text-xs">(Optional)</span>
                     </label>
                     <input
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="rider@example.com"
+                      placeholder="rider@example.com (optional)"
                       className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
                     />
                   </div>
@@ -1085,18 +1144,17 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                     searchable
                   />
 
-                  <div className="space-y-1">
-                    <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                      Chapter <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={chapter}
-                      onChange={(e) => setChapter(e.target.value)}
-                      placeholder="e.g. Buhangin Main Chapter"
-                      className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
-                    />
-                  </div>
+                  {/* Chapter Dropdown */}
+                  <CustomSelect
+                    label="Chapter"
+                    required
+                    value={chapter || 'Buhangin (Main)'}
+                    onChange={(val) => setChapter(val)}
+                    options={[
+                      { value: 'Buhangin (Main)', label: 'Buhangin (Main)' }
+                    ]}
+                    placeholder="Select Chapter..."
+                  />
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                     <div className="space-y-1">
@@ -1301,7 +1359,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Make</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Make <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={bikeMake}
@@ -1312,7 +1372,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Model</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Model <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={bikeModel}
@@ -1324,7 +1386,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
 
                       <div className="space-y-1">
                         <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                          Engine Displacement (CC) <span className="text-gray-500 font-normal text-[9px]">(Numbers only)</span>
+                          Engine Displacement (CC) <span className="text-rose-500">*</span>
                         </label>
                         <input
                           type="text"
@@ -1337,7 +1399,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Color</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Color <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={bikeColor}
@@ -1350,7 +1414,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Engine No.</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Engine No. <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={bikeEngineNo}
@@ -1361,7 +1427,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Chassis No.</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Chassis No. <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={bikeChassisNo}
@@ -1372,7 +1440,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Plate No.</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Plate No. <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={bikePlateNo}
@@ -1386,6 +1456,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <CustomSelect
                         label="Status / Condition"
+                        required
                         value={bikeCondition}
                         onChange={(val) => setBikeCondition(val)}
                         options={['Excellent', 'Good', 'Fair', 'Custom / Modified', 'Under Maintenance']}
@@ -1393,7 +1464,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
 
                       <div className="space-y-1">
                         <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                          Vehicle's Years of Service <span className="text-gray-500 font-normal text-[9px]">(Numbers only)</span>
+                          Vehicle's Years of Service <span className="text-rose-500">*</span>
                         </label>
                         <input
                           type="text"
@@ -1487,7 +1558,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">OR No. (Official Receipt)</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          OR No. (Official Receipt) <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={bikeOrNo}
@@ -1498,7 +1571,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">OR Expiration Date</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          OR Expiration Date <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="date"
                           value={bikeOrExpiryDate}
@@ -1508,7 +1583,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">CR No. (Certificate of Registration)</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          CR No. (Certificate of Registration) <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={bikeCrNo}
@@ -1531,7 +1608,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">Driver's License No.</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          Driver's License No. <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="text"
                           value={licenseNo}
@@ -1542,7 +1621,9 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                       </div>
 
                       <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">License Expiration Date</label>
+                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
+                          License Expiration Date <span className="text-rose-500">*</span>
+                        </label>
                         <input
                           type="date"
                           value={licenseExpiryDate}
@@ -1809,6 +1890,26 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Missing Fields Indicator Reminder */}
+            {missingFieldsList.length > 0 && (
+              <div className="p-2.5 sm:p-3 rounded-xl bg-amber-50/80 border border-amber-200/90 text-amber-900 text-[10px] sm:text-xs flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <span className="font-bold">Required field(s) left to continue on this step:</span>
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {missingFieldsList.map((f, i) => (
+                      <span
+                        key={i}
+                        className="inline-block px-2 py-0.5 rounded-md bg-amber-100/80 border border-amber-300/80 text-amber-950 font-bold text-[9px] sm:text-[10px]"
+                      >
+                        {f}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Form Page Controls Bar */}
             <div className="flex items-center justify-between pt-4 sm:pt-6 border-t border-[#e2ece2] gap-2">

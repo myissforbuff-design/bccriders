@@ -139,6 +139,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
     member.lastName || (member.name ? member.name.split(' ').slice(1).join(' ') : '')
   );
   const [role, setRole] = useState<string>(member.role || 'Member');
+  const [username, setUsername] = useState(
+    member.username || (member.email ? member.email.split('@')[0] : '')
+  );
   const [email, setEmail] = useState(member.email || '');
   const [phone, setPhone] = useState(member.phone || '');
   const [mobileNo, setMobileNo] = useState(member.mobileNo || member.phone || '');
@@ -265,13 +268,18 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
     const fullName = `${firstName.trim()} ${lastName.trim()}`;
 
+    const cleanEmail = email.trim();
+    const fallbackUsername = cleanEmail ? cleanEmail.split('@')[0] : `rider_${String(member.id || Date.now()).slice(-4)}`;
+    const cleanUsername = username.trim() || member.username || fallbackUsername;
+
     const updatedUser: User = {
       ...member,
       name: fullName,
+      username: cleanUsername,
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       role: role,
-      email: email.trim(),
+      email: cleanEmail,
       phone: (mobileNo.trim() || phone.trim()),
       address: cleanBarangayCityAddress(address.trim(), streetAddress.trim()),
       streetAddress: streetAddress.trim(),
@@ -390,6 +398,23 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                   placeholder="e.g. BRC-0000"
                 />
               </div>
+
+              <div>
+                <label className="font-bold text-[#1b4332] block mb-1.5">
+                  Portal Sign-in Username *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  className={inputStyle}
+                  placeholder="e.g. rider_john"
+                />
+                <p className="text-[10px] text-[#52605d] mt-1">
+                  Unique username used by the member to sign in to the portal.
+                </p>
+              </div>
             </div>
 
 
@@ -461,16 +486,14 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                   className={inputStyle}
                 />
               </div>
-              <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Chapter</label>
-                <input
-                  type="text"
-                  value={chapter}
-                  onChange={(e) => setChapter(e.target.value)}
-                  placeholder="e.g. Buhangin Chapter"
-                  className={inputStyle}
-                />
-              </div>
+              <InteractiveSelect
+                label="Chapter"
+                value={chapter || 'Buhangin (Main)'}
+                onChange={setChapter}
+                options={[
+                  { value: 'Buhangin (Main)', label: 'Buhangin (Main)' },
+                ]}
+              />
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -749,7 +772,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Make</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Make <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="text"
                   value={bikeMake}
@@ -758,7 +783,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 />
               </div>
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Model</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Model <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="text"
                   value={bikeModel}
@@ -768,7 +795,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               </div>
               <div>
                 <label className="font-bold text-[#1b4332] block mb-1">
-                  Engine Displacement (CC) <span className="text-[#52605d] font-normal text-[10px]">(Numbers only)</span>
+                  Engine Displacement (CC) <span className="text-rose-600 font-extrabold">*</span>
                 </label>
                 <input
                   type="text"
@@ -783,7 +810,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Color</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Color <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="text"
                   value={bikeColor}
@@ -792,7 +821,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 />
               </div>
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Plate No.</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Plate No. <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="text"
                   value={plateNo}
@@ -802,6 +833,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               </div>
               <InteractiveSelect
                 label="Status / Condition"
+                required
                 value={bikeCondition}
                 onChange={setBikeCondition}
                 options={[
@@ -817,7 +849,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="font-bold text-[#1b4332] block mb-1">
-                  Vehicle's Years of Service <span className="text-[#52605d] font-normal text-[10px]">(Numbers only)</span>
+                  Vehicle's Years of Service <span className="text-rose-600 font-extrabold">*</span>
                 </label>
                 <input
                   type="text"
@@ -862,7 +894,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Engine Number</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Engine Number <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="text"
                   value={engineNo}
@@ -871,7 +905,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 />
               </div>
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">Chassis / VIN Number</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  Chassis / VIN Number <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="text"
                   value={chassisNo}
@@ -883,7 +919,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">CR No.</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  CR No. <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="text"
                   value={crNo}
@@ -892,7 +930,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 />
               </div>
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">OR No.</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  OR No. <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="text"
                   value={orNo}
@@ -901,7 +941,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 />
               </div>
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">OR Expiry Date</label>
+                <label className="font-bold text-[#1b4332] block mb-1">
+                  OR Expiry Date <span className="text-rose-600 font-extrabold">*</span>
+                </label>
                 <input
                   type="date"
                   value={orExpiryDate}

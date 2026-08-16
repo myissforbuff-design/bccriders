@@ -245,6 +245,7 @@ export interface Announcement {
 export interface FinanceSettings {
   membershipFee: number;
   annualFee: number;
+  annualPromoEnabled?: boolean;
 }
 
 export interface MonthlyDue {
@@ -268,4 +269,163 @@ export interface DynamicCollection {
   status: 'Active' | 'Completed' | 'Archived';
   description?: string;
   createdAt: string;
+  collectionType?: 'Standard' | 'Donation';
+  donorName?: string;
 }
+
+export interface SecuritySettings {
+  adminOtpEnabled: boolean;
+}
+
+export type FinanceItemType = 'Membership Fee' | 'Monthly Due' | 'Vest Payment' | 'Annual Upfront Promo' | 'Donation Collection' | 'Other';
+
+export interface FinanceRecord {
+  id: string;
+  itemType: FinanceItemType;
+  coveredMonth?: string; // e.g., "August 2026"
+  customItemName?: string;
+  userId: string;
+  userName: string;
+  userMemberNo?: string;
+  amount: number;
+  dueDate: string;
+  paidDate?: string;
+  status: 'Paid' | 'Pending' | 'Overdue' | 'Waived';
+  paymentMethod?: 'GCash' | 'Cash' | 'Bank Transfer' | 'Credit Card' | 'Other';
+  referenceNo?: string;
+  notes?: string;
+  updatedAt: string;
+  createdAt?: string;
+}
+
+export type ExpenseCategory =
+  | 'Event Logistics'
+  | 'Equipment & Gear'
+  | 'Venue & Rental'
+  | 'Food & Catering'
+  | 'Administrative'
+  | 'Fuel & Travel'
+  | 'Utilities'
+  | 'Other';
+
+export interface ExpenseRecord {
+  id: string;
+  title: string;
+  category: ExpenseCategory;
+  amount: number;
+  date: string;
+  receiptRef?: string;
+  payeeOrDisbursedTo?: string;
+  loggedBy?: string;
+  notes?: string;
+  updatedAt: string;
+  createdAt?: string;
+}
+
+export interface FinanceYearArchive {
+  id: string;
+  year: number;
+  archivedAt: string;
+  archivedBy: string;
+  totalIncome: number;
+  totalDisbursements: number;
+  netSurplus: number;
+  carriedOverTreasury: number;
+  activeMemberCount: number;
+  totalTransactionsCount: number;
+  totalExpensesCount: number;
+  auditNotes?: string;
+  isAudited: boolean;
+  status: 'Audited & Closed';
+}
+
+export interface ArchivePackageData {
+  manifest: {
+    archiveId: string;
+    clubName: string;
+    year: number;
+    archivedAt: string;
+    archivedBy: string;
+    isAudited: boolean;
+    auditNotes?: string;
+    totalIncome: number;
+    totalDisbursements: number;
+    netSurplus: number;
+    carriedOverTreasury: number;
+    activeMemberCount: number;
+    totalTransactionsCount: number;
+    totalExpensesCount: number;
+    version: string;
+  };
+  activeMembers: {
+    id: string;
+    name: string;
+    memberNumber: string;
+    role: string;
+    chapter?: string;
+    phone: string;
+    email: string;
+    bikeInfo?: string;
+    affiliation?: string;
+    joinDate: string;
+    status: string;
+  }[];
+  collectionsRegister: {
+    id: string;
+    date: string;
+    memberName: string;
+    memberNo: string;
+    itemType: string;
+    description: string;
+    amount: number;
+    status: string;
+    paymentMethod: string;
+    referenceNo?: string;
+    notes?: string;
+  }[];
+  disbursementsLog: {
+    id: string;
+    date: string;
+    title: string;
+    category: string;
+    amount: number;
+    payee: string;
+    loggedBy: string;
+    receiptRef?: string;
+    notes?: string;
+  }[];
+  financialStatement: {
+    year: number;
+    totalIncome: number;
+    totalDisbursements: number;
+    netSurplus: number;
+    incomeByCategory: Record<string, number>;
+    expensesByCategory: Record<string, number>;
+    monthlyBreakdown: { month: string; income: number; expenses: number; surplus: number }[];
+  };
+  agingAndCompliance: {
+    memberId: string;
+    memberName: string;
+    memberNo: string;
+    role: string;
+    membershipFeePaid: boolean;
+    annualPromoEnrolled: boolean;
+    paidMonthsCount: number;
+    pendingMonthsCount: number;
+    overdueAmount: number;
+    complianceRate: string;
+  }[];
+  customProjects: {
+    id: string;
+    name: string;
+    type: string;
+    targetAmount?: number;
+    amountPerMember?: number;
+    totalCollected: number;
+    totalExpenses: number;
+    netBalance: number;
+    status: string;
+    donorName?: string;
+  }[];
+}
+

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { jsPDF } from 'jspdf';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
+import { useLoader } from '../context/LoaderContext';
 import { store } from '../lib/db';
 import { CustomSelect } from './CustomSelect';
 import { useModalDismiss } from '../hooks/useModalDismiss';
@@ -10,8 +11,14 @@ import {
   FinanceSettings,
   MonthlyDue,
   DynamicCollection,
+  SecuritySettings,
   User,
+  FinanceYearArchive,
+  ArchivePackageData,
 } from '../types';
+import { YearlyArchiveModal } from './YearlyArchiveModal';
+import { ArchiveExportModal } from './ArchiveExportModal';
+import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import {
   Coins,
   Wallet,
@@ -22,6 +29,10 @@ import {
   CheckCircle2,
   Users,
   Shield,
+  ShieldCheck,
+  Key,
+  Lock,
+  Mail,
   Settings as SettingsIcon,
   Save,
   X,
@@ -46,6 +57,10 @@ import {
   DollarSign,
   Clock,
   AlertCircle,
+  HeartHandshake,
+  Archive,
+  FolderArchive,
+  Upload,
 } from 'lucide-react';
 
 const MONTH_OPTIONS = [
@@ -73,6 +88,7 @@ const SUB_TAB_OPTIONS = [
 
 export const Settings: React.FC = () => {
   const { currentUser, isAdmin, logout } = useAuth();
+  const { runWithLoader, refreshTick } = useLoader();
 
   // Settings Sub-Navigation Dropdown & Tabs
   const [activeSubTab, setActiveSubTab] = useState<'finance' | 'reports' | 'security'>(() => {
@@ -136,6 +152,29 @@ export const Settings: React.FC = () => {
   );
   const [feeSavedToast, setFeeSavedToast] = useState(false);
 
+  // Security Settings State
+  const [securitySettings, setSecuritySettings] = useState<SecuritySettings>(() =>
+    store.getSecuritySettings()
+  );
+  const [securityToast, setSecurityToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+
+  const handleToggleAdminOtp = () => {
+    const updatedValue = !securitySettings.adminOtpEnabled;
+    const newSettings = store.updateSecuritySettings({ adminOtpEnabled: updatedValue });
+    setSecuritySettings({ ...newSettings });
+
+    setSecurityToast({
+      message: updatedValue
+        ? 'Admin 2FA OTP Enabled: Signing in as Administrator now requires a 6-digit authorization code.'
+        : 'Admin 2FA OTP Disabled: Administrator accounts can now log in directly with password.',
+      type: updatedValue ? 'success' : 'info',
+    });
+
+    setTimeout(() => {
+      setSecurityToast(null);
+    }, 4500);
+  };
+
   // Monthly Due Modal State
   const [showMonthlyDueModal, setShowMonthlyDueModal] = useState(false);
   const [editingDue, setEditingDue] = useState<MonthlyDue | null>(null);
@@ -148,7 +187,9 @@ export const Settings: React.FC = () => {
   // Dynamic Collection Modal State
   const [showCollectionModal, setShowCollectionModal] = useState(false);
   const [editingCollection, setEditingCollection] = useState<DynamicCollection | null>(null);
+  const [colType, setColType] = useState<'Standard' | 'Donation'>('Standard');
   const [colName, setColName] = useState('');
+  const [colDonorName, setColDonorName] = useState('');
   const [colAmount, setColAmount] = useState<number>(500);
   const [colTargetAmount, setColTargetAmount] = useState<string>('');
   const [colDescription, setColDescription] = useState('');
@@ -222,6 +263,13 @@ export const Settings: React.FC = () => {
     onPdfDownload?: () => void;
   } | null>(null);
 
+  // Yearly Archive and Compressed Zip Import Modal States
+  const [showYearlyArchiveModal, setShowYearlyArchiveModal] = useState(false);
+  const [showArchiveExportModal, setShowArchiveExportModal] = useState(false);
+  const [importedArchiveData, setImportedArchiveData] = useState<ArchivePackageData | null>(null);
+  const [isImportingZip, setIsImportingZip] = useState(false);
+  const zipInputRef = useRef<HTMLInputElement | null>(null);
+
   const modalScrollRef = useRef<HTMLDivElement | null>(null);
   const [isDraggingModal, setIsDraggingModal] = useState(false);
   const [modalStartX, setModalStartX] = useState(0);
@@ -251,6 +299,82 @@ export const Settings: React.FC = () => {
   useModalDismiss(Boolean(deleteTarget), () => setDeleteTarget(null));
   useModalDismiss(showLogoutModal, () => setShowLogoutModal(false));
   useModalDismiss(Boolean(previewModal), () => setPreviewModal(null));
+  useModalDismiss(showYearlyArchiveModal, () => setShowYearlyArchiveModal(false));
+  useModalDismiss(showArchiveExportModal, () => {
+    setShowArchiveExportModal(false);
+    setImportedArchiveData(null);
+  });
+
+  const deleteRecordsForYear = async (targetYear: number) => {
+    const yearStr = targetYear.toString();
+    const recordsToDelete = reportPayments.filter(r => {
+      const recYear = (r.createdAt || r.paidDate || r.coveredMonth || '').slice(0, 4);
+      return recYear === yearStr;
+    });
+    const expensesToDelete = reportExpenses.filter(e => {
+      const expYear = (e.date || e.createdAt || '').slice(0, 4);
+      return expYear === yearStr;
+    });
+
+    const updatedRecords = reportPayments.filter(r => {
+      const recYear = (r.createdAt || r.paidDate || r.coveredMonth || '').slice(0, 4);
+      return recYear !== yearStr;
+    });
+    const updatedExpenses = reportExpenses.filter(e => {
+      const expYear = (e.date || e.createdAt || '').slice(0, 4);
+      return expYear !== yearStr;
+    });
+
+    setReportPayments(updatedRecords);
+    setReportExpenses(updatedExpenses);
+    localStorage.setItem('bcc_finance_records_v3', JSON.stringify(updatedRecords));
+    localStorage.setItem('bcc_expense_records_v1', JSON.stringify(updatedExpenses));
+
+    for (const rec of recordsToDelete) {
+      if (rec.id) {
+        try {
+          await fetch(`/api/mongodb/financeLogs?id=${encodeURIComponent(rec.id)}`, { method: 'DELETE' });
+        } catch (err) {
+          console.error(`Failed to delete finance log ${rec.id}:`, err);
+        }
+      }
+    }
+
+    for (const exp of expensesToDelete) {
+      if (exp.id) {
+        try {
+          await fetch(`/api/mongodb/liquidationLogs?id=${encodeURIComponent(exp.id)}`, { method: 'DELETE' });
+        } catch (err) {
+          console.error(`Failed to delete liquidation log ${exp.id}:`, err);
+        }
+      }
+    }
+  };
+
+  const handleArchiveComplete = () => {
+    loadReportsData();
+    setShowYearlyArchiveModal(false);
+  };
+
+  const handleImportZipFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImportingZip(true);
+    try {
+      const archiveData = await extractZipArchive(file);
+      setImportedArchiveData(archiveData);
+      setShowArchiveExportModal(true);
+    } catch (err: any) {
+      console.error('Failed to parse zip archive:', err);
+      alert('Failed to read the compressed archive file. Please ensure it is a valid yearly finance archive .zip generated by BCC Riders Club.');
+    } finally {
+      setIsImportingZip(false);
+      if (zipInputRef.current) {
+        zipInputRef.current.value = '';
+      }
+    }
+  };
 
   const loadReportsData = () => {
     // Users (Exclude Admin)
@@ -682,6 +806,7 @@ export const Settings: React.FC = () => {
       (acc, p) => acc + (Number(p.amount) || 0),
       0
     );
+    const totalDiscount = paidPayments.filter((p) => p.itemType === 'Annual Upfront Promo').length * 200;
 
     const incomeByType: Record<string, number> = {};
     paidPayments.forEach((p) => {
@@ -712,6 +837,7 @@ export const Settings: React.FC = () => {
       });
     }
 
+    rows.push(['Discount', totalDiscount.toFixed(2)]);
     rows.push(['Total Funds', totalIncome.toFixed(2)]);
     rows.push(['', '']);
     rows.push(['EXPENSES', '']);
@@ -773,6 +899,7 @@ export const Settings: React.FC = () => {
       (acc, p) => acc + (Number(p.amount) || 0),
       0
     );
+    const totalDiscount = paidPayments.filter((p) => p.itemType === 'Annual Upfront Promo').length * 200;
 
     const incomeByType: Record<string, number> = {};
     paidPayments.forEach((p) => {
@@ -870,6 +997,21 @@ export const Settings: React.FC = () => {
         y += 6.5;
       });
     }
+
+    // Discount Row
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(31, 41, 55);
+    doc.text('Discount', margin + 8, y + 5);
+    doc.text(
+      totalDiscount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      pageWidth - margin - 4,
+      y + 5,
+      { align: 'right' }
+    );
+    doc.setDrawColor(243, 244, 246);
+    doc.line(margin + 4, y + 6.5, pageWidth - margin - 4, y + 6.5);
+    y += 6.5;
 
     // Total Funds Row
     doc.setFillColor(240, 247, 244);
@@ -1110,15 +1252,48 @@ export const Settings: React.FC = () => {
   };
 
   // Handle Save Fee Configuration
-  const handleSaveFees = (e: React.FormEvent) => {
+  const handleSaveFees = async (e: React.FormEvent) => {
     e.preventDefault();
-    const updated = store.updateFinanceSettings({
-      membershipFee: Number(membershipFeeInput) || 0,
-      annualFee: Number(annualFeeInput) || 0,
-    });
-    setFinanceSettings(updated);
-    setFeeSavedToast(true);
-    setTimeout(() => setFeeSavedToast(false), 3000);
+    await runWithLoader(
+      async () => {
+        const updated = store.updateFinanceSettings({
+          membershipFee: Number(membershipFeeInput) || 0,
+          annualFee: Number(annualFeeInput) || 0,
+          annualPromoEnabled: financeSettings.annualPromoEnabled !== false,
+        });
+        setFinanceSettings(updated);
+      },
+      {
+        message: 'Updating Fee Configuration & Refreshing...',
+        onComplete: () => {
+          setFeeSavedToast(true);
+          setTimeout(() => setFeeSavedToast(false), 3000);
+        },
+      }
+    );
+  };
+
+  // Toggle Annual Upfront Promo State
+  const handleToggleAnnualPromo = async () => {
+    const isCurrentlyEnabled = financeSettings.annualPromoEnabled !== false;
+    const newStatus = !isCurrentlyEnabled;
+    await runWithLoader(
+      async () => {
+        const updated = store.updateFinanceSettings({
+          membershipFee: Number(membershipFeeInput) || financeSettings.membershipFee || 500,
+          annualFee: Number(annualFeeInput) || financeSettings.annualFee || 1000,
+          annualPromoEnabled: newStatus,
+        });
+        setFinanceSettings(updated);
+      },
+      {
+        message: newStatus ? 'Enabling Annual Upfront Promo...' : 'Disabling Annual Upfront Promo...',
+        onComplete: () => {
+          setFeeSavedToast(true);
+          setTimeout(() => setFeeSavedToast(false), 3000);
+        },
+      }
+    );
   };
 
   // Monthly Due Handlers
@@ -1143,37 +1318,44 @@ export const Settings: React.FC = () => {
     setShowMonthlyDueModal(true);
   };
 
-  const handleSubmitDue = (e: React.FormEvent) => {
+  const handleSubmitDue = async (e: React.FormEvent) => {
     e.preventDefault();
     const titleVal = `${dueMonth} ${dueYear} Monthly Due`;
 
-    let savedDue: MonthlyDue;
-    if (editingDue) {
-      savedDue = store.updateMonthlyDue({
-        ...editingDue,
-        title: titleVal,
-        amount: Number(dueAmount) || 0,
-        month: dueMonth,
-        year: Number(dueYear) || 2026,
-        notes: dueNotes.trim(),
-      });
-    } else {
-      savedDue = store.createMonthlyDue({
-        title: titleVal,
-        amount: Number(dueAmount) || 0,
-        month: dueMonth,
-        year: Number(dueYear) || 2026,
-        status: 'Active',
-        notes: dueNotes.trim(),
-      });
-    }
+    await runWithLoader(
+      async () => {
+        let savedDue: MonthlyDue;
+        if (editingDue) {
+          savedDue = store.updateMonthlyDue({
+            ...editingDue,
+            title: titleVal,
+            amount: Number(dueAmount) || 0,
+            month: dueMonth,
+            year: Number(dueYear) || 2026,
+            notes: dueNotes.trim(),
+          });
+        } else {
+          savedDue = store.createMonthlyDue({
+            title: titleVal,
+            amount: Number(dueAmount) || 0,
+            month: dueMonth,
+            year: Number(dueYear) || 2026,
+            status: 'Active',
+            notes: dueNotes.trim(),
+          });
+        }
 
-    if (savedDue) {
-      generatePendingMonthlyDueRecords(savedDue);
-    }
+        if (savedDue) {
+          generatePendingMonthlyDueRecords(savedDue);
+        }
 
-    refreshFinanceData();
-    setShowMonthlyDueModal(false);
+        refreshFinanceData();
+        setShowMonthlyDueModal(false);
+      },
+      {
+        message: editingDue ? 'Updating Monthly Due & Refreshing...' : 'Creating Monthly Due & Refreshing...',
+      }
+    );
   };
 
   // Helper to generate pending monthly due records for all approved non-admin members
@@ -1200,6 +1382,14 @@ export const Settings: React.FC = () => {
       let updated = false;
 
       approved.forEach(u => {
+        // Check if member has availed Annual Upfront Promo for this year
+        const hasAnnualPromo = recs.some(r =>
+          r.userId === u.id &&
+          r.itemType === 'Annual Upfront Promo' &&
+          r.status === 'Paid' &&
+          (r.coveredMonth?.includes(String(due.year)) || r.customItemName?.includes(String(due.year)) || !r.coveredMonth)
+        );
+
         const existingIdx = recs.findIndex(r =>
           r.userId === u.id &&
           r.itemType === 'Monthly Due' &&
@@ -1217,9 +1407,12 @@ export const Settings: React.FC = () => {
             coveredMonth: coveredMonthStr,
             customItemName: due.title,
             dueDate: todayStr,
-            status: 'Pending',
+            paidDate: hasAnnualPromo ? todayStr : undefined,
+            status: hasAnnualPromo ? 'Paid' : 'Pending',
             paymentMethod: 'GCash',
-            notes: `Automated pending monthly due for ${coveredMonthStr}`,
+            notes: hasAnnualPromo
+              ? 'Satisfied by Annual Upfront Promo Package'
+              : `Automated pending monthly due for ${coveredMonthStr}`,
             updatedAt: todayStr,
           };
           recs.push(newRec);
@@ -1229,7 +1422,18 @@ export const Settings: React.FC = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newRec),
           }).catch(err => console.warn('MongoDB auto monthly due sync error:', err));
-        } else if (recs[existingIdx].status === 'Pending' && recs[existingIdx].amount !== due.amount) {
+        } else if (hasAnnualPromo && (recs[existingIdx].status === 'Pending' || recs[existingIdx].status === 'Overdue')) {
+          recs[existingIdx].status = 'Paid';
+          recs[existingIdx].paidDate = recs[existingIdx].paidDate || todayStr;
+          recs[existingIdx].notes = 'Satisfied by Annual Upfront Promo Package';
+          recs[existingIdx].updatedAt = todayStr;
+          updated = true;
+          fetch('/api/mongodb/financeLogs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(recs[existingIdx]),
+          }).catch(err => console.warn('MongoDB update monthly due sync error:', err));
+        } else if (!hasAnnualPromo && recs[existingIdx].status === 'Pending' && recs[existingIdx].amount !== due.amount) {
           recs[existingIdx].amount = due.amount;
           updated = true;
           fetch('/api/mongodb/financeLogs', {
@@ -1284,6 +1488,11 @@ export const Settings: React.FC = () => {
   // Helper to generate pending custom collection records for all approved non-admin members
   const generatePendingCollectionRecords = (col: DynamicCollection) => {
     try {
+      // If collection is a Donation, do not include in pending collections
+      if (col.collectionType === 'Donation' || col.name?.toLowerCase().includes('donation')) {
+        return;
+      }
+
       const todayStr = new Date().toISOString().split('T')[0];
       const recItem = localStorage.getItem('bcc_finance_records_v3');
       let recs: any[] = recItem ? JSON.parse(recItem) : [];
@@ -1371,6 +1580,11 @@ export const Settings: React.FC = () => {
           promises.push(fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
           return false;
         }
+        // Also remove direct donation entry if created from this collection
+        if (r.id === `rec_donation_${colId}` || (r.itemType === 'Donation Collection' && targetCol?.name && r.customItemName === targetCol.name)) {
+          promises.push(fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
+          return false;
+        }
         return true;
       });
       localStorage.setItem('bcc_finance_records_v3', JSON.stringify(filtered));
@@ -1384,7 +1598,9 @@ export const Settings: React.FC = () => {
   // Dynamic Collection Handlers
   const handleOpenCreateCollection = () => {
     setEditingCollection(null);
+    setColType('Standard');
     setColName('');
+    setColDonorName('');
     const count = approvedMembers.length;
     const initialAmount = 500;
     setColAmount(initialAmount);
@@ -1393,69 +1609,136 @@ export const Settings: React.FC = () => {
     setShowCollectionModal(true);
   };
 
+  const handleOpenCreateDonation = () => {
+    setEditingCollection(null);
+    setColType('Donation');
+    setColName('');
+    setColDonorName('');
+    setColAmount(1000);
+    setColTargetAmount('');
+    setColDescription('');
+    setShowCollectionModal(true);
+  };
+
   const handleOpenEditCollection = (col: DynamicCollection) => {
     setEditingCollection(col);
+    const isDon = col.collectionType === 'Donation' || col.name?.toLowerCase().includes('donation');
+    setColType(isDon ? 'Donation' : 'Standard');
     setColName(col.name);
+    setColDonorName(col.donorName || '');
     setColAmount(col.amount);
     const count = approvedMembers.length;
-    const target = col.targetAmount !== undefined && col.targetAmount !== null ? String(col.targetAmount) : String(col.amount * count);
+    const target = col.targetAmount !== undefined && col.targetAmount !== null ? String(col.targetAmount) : (count > 0 ? String(col.amount * count) : '0');
     setColTargetAmount(target);
     setColDescription(col.description || '');
     setShowCollectionModal(true);
   };
 
-  const handleSubmitCollection = (e: React.FormEvent) => {
+  const handleSubmitCollection = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!colName.trim()) return;
 
-    const parsedTarget = colTargetAmount.trim() !== '' && !isNaN(Number(colTargetAmount)) ? Number(colTargetAmount) : undefined;
+    const isDonation = colType === 'Donation';
+    const parsedTarget = !isDonation && colTargetAmount.trim() !== '' && !isNaN(Number(colTargetAmount)) ? Number(colTargetAmount) : undefined;
 
-    let savedCol: DynamicCollection;
-    if (editingCollection) {
-      savedCol = store.updateDynamicCollection({
-        ...editingCollection,
-        name: colName.trim(),
-        amount: Number(colAmount) || 0,
-        targetAmount: parsedTarget,
-        description: colDescription.trim(),
-      });
-    } else {
-      savedCol = store.createDynamicCollection({
-        name: colName.trim(),
-        amount: Number(colAmount) || 0,
-        targetAmount: parsedTarget,
-        status: 'Active',
-        description: colDescription.trim(),
-      });
-    }
-    if (savedCol && approvedMembers.length > 0) {
-      generatePendingCollectionRecords(savedCol);
-    }
-    refreshFinanceData();
-    setShowCollectionModal(false);
+    await runWithLoader(
+      async () => {
+        let savedCol: DynamicCollection;
+        if (editingCollection) {
+          savedCol = store.updateDynamicCollection({
+            ...editingCollection,
+            name: colName.trim(),
+            amount: Number(colAmount) || 0,
+            targetAmount: isDonation ? undefined : parsedTarget,
+            description: colDescription.trim(),
+            collectionType: colType,
+            donorName: isDonation ? (colDonorName.trim() || 'Club Donor / Voluntary Contributor') : undefined,
+          });
+        } else {
+          savedCol = store.createDynamicCollection({
+            name: colName.trim(),
+            amount: Number(colAmount) || 0,
+            targetAmount: isDonation ? undefined : parsedTarget,
+            status: 'Active',
+            description: colDescription.trim(),
+            collectionType: colType,
+            donorName: isDonation ? (colDonorName.trim() || 'Club Donor / Voluntary Contributor') : undefined,
+          });
+        }
+
+        // If it's a Donation Collection, record it directly as Paid funds so it's added to Total Funds and Net Treasury (and NOT included in Pending collections)
+        if (isDonation) {
+          const todayStr = new Date().toISOString().split('T')[0];
+          const recItem = localStorage.getItem('bcc_finance_records_v3');
+          let recs: any[] = recItem ? JSON.parse(recItem) : [];
+          const donationRecId = `rec_donation_${savedCol.id}`;
+          const existingIdx = recs.findIndex(r => r.id === donationRecId);
+
+          const donationRecord = {
+            id: donationRecId,
+            itemType: 'Donation Collection',
+            userId: 'usr_donation_pool',
+            userName: colDonorName.trim() || 'Club Donor / Voluntary Contributor',
+            userMemberNo: 'DONATION',
+            amount: Number(colAmount) || 0,
+            coveredMonth: savedCol.name,
+            customItemName: savedCol.name,
+            dueDate: todayStr,
+            paidDate: todayStr,
+            status: 'Paid',
+            paymentMethod: 'Cash',
+            notes: colDescription.trim() ? `Donation Collection: ${colDescription.trim()}` : `Voluntary Donation Collection for ${savedCol.name}`,
+            updatedAt: todayStr,
+          };
+
+          if (existingIdx >= 0) {
+            recs[existingIdx] = donationRecord;
+          } else {
+            recs.unshift(donationRecord);
+          }
+          localStorage.setItem('bcc_finance_records_v3', JSON.stringify(recs));
+          fetch('/api/mongodb/financeLogs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(donationRecord),
+          }).catch(err => console.warn('MongoDB donation financeLogs sync error:', err));
+        } else {
+          if (savedCol && approvedMembers.length > 0) {
+            generatePendingCollectionRecords(savedCol);
+          }
+        }
+
+        refreshFinanceData();
+        setShowCollectionModal(false);
+      },
+      {
+        message: editingCollection
+          ? (isDonation ? 'Updating Donation Collection & Refreshing...' : 'Updating Collection & Refreshing...')
+          : (isDonation ? 'Logging Donation Collection & Refreshing...' : 'Creating Collection & Refreshing...'),
+      }
+    );
   };
 
   // Execute Deletion
   const confirmDeleteAction = async () => {
     if (!deleteTarget) return;
-    setIsProcessing(true);
-    try {
-      if (deleteTarget.type === 'monthly_due') {
-        store.deleteMonthlyDue(deleteTarget.id);
-        await deletePendingMonthlyDueRecords(deleteTarget.id);
-      } else if (deleteTarget.type === 'dynamic_collection') {
-        store.deleteDynamicCollection(deleteTarget.id);
-        await deletePendingCollectionRecords(deleteTarget.id);
+    const targetType = deleteTarget.type === 'monthly_due' ? 'Monthly Due' : 'Collection';
+    await runWithLoader(
+      async () => {
+        if (deleteTarget.type === 'monthly_due') {
+          store.deleteMonthlyDue(deleteTarget.id);
+          await deletePendingMonthlyDueRecords(deleteTarget.id);
+        } else if (deleteTarget.type === 'dynamic_collection') {
+          store.deleteDynamicCollection(deleteTarget.id);
+          await deletePendingCollectionRecords(deleteTarget.id);
+        }
+        refreshFinanceData();
+        setDeleteTarget(null);
+      },
+      {
+        message: `Deleting ${targetType} & Refreshing...`,
       }
-      refreshFinanceData();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setDeleteTarget(null);
-      setTimeout(() => {
-        window.location.reload();
-      }, 400);
-    }
+    );
   };
 
   const approvedMemberCount = approvedMembers.length;
@@ -1655,6 +1938,67 @@ export const Settings: React.FC = () => {
       {/* SUB TAB 1: FINANCE SETTINGS */}
       {activeSubTab === 'finance' && (
         <div className="space-y-6 sm:space-y-8">
+          {/* Section: Yearly Financial Archiving & Audit */}
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 sm:pb-4 border-b border-[#e2ece2]">
+              <div>
+                <h2 className="font-heading text-sm sm:text-base md:text-lg font-black text-[#1b4332] flex items-center gap-2">
+                  <Archive className="w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0" />
+                  <span>Annual Financial Archiving & Audit</span>
+                </h2>
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-1 leading-snug">
+                  Audit and archive whole year finances (January to December), carry forward Net Treasury into active funds, or import compressed (.zip) archive packages.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center shrink-0">
+                {/* Yearly Archiving Action Button - Official Forest Dark Scheme */}
+                <button
+                  type="button"
+                  onClick={() => setShowYearlyArchiveModal(true)}
+                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
+                  title="Audit & Archive Financial Year (January - December)"
+                >
+                  <Archive className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#74c69d] shrink-0" />
+                  <span className="truncate">Yearly Archiving</span>
+                </button>
+
+                {/* Import Compressed (.zip) Archive Button - Official Mint Light Scheme */}
+                <button
+                  type="button"
+                  onClick={() => zipInputRef.current?.click()}
+                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#d8f3dc] hover:bg-[#b7e4c7] text-[#1b4332] border border-[#b7e4c7] rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
+                  title="Import .zip Archive Package & Export Multi-Tab Excel or Income Statement PDF"
+                >
+                  <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#1b4332] shrink-0" />
+                  <span className="truncate">Import (.zip)</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3 text-xs">
+              <div className="bg-[#f7f9f7] p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-[#e2ece2] space-y-0.5 sm:space-y-1">
+                <span className="font-bold text-[#1b4332] text-xs flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f] shrink-0" />
+                  Year-End Audit & Treasury Carryover
+                </span>
+                <p className="text-[#52605d] text-[10.5px] sm:text-[11px] leading-relaxed">
+                  Calculates annual surplus, locks books, automatically adds remaining Net Treasury to active total funds, and purges outgoing year data.
+                </p>
+              </div>
+
+              <div className="bg-[#f7f9f7] p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-[#e2ece2] space-y-0.5 sm:space-y-1">
+                <span className="font-bold text-[#1b4332] text-xs flex items-center gap-1.5">
+                  <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f] shrink-0" />
+                  Archive Import & Export Center
+                </span>
+                <p className="text-[#52605d] text-[10.5px] sm:text-[11px] leading-relaxed">
+                  Import compressed <code>.zip</code> packages to inspect historic records and choose between 7-tab Excel workbooks or Income Statement PDFs.
+                </p>
+              </div>
+            </div>
+          </div>
+
           {/* Section 1: Standard Fee Configuration */}
           <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-4 sm:space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#e2ece2]">
@@ -1722,9 +2066,15 @@ export const Settings: React.FC = () => {
               <button
                 type="button"
                 onClick={handleOpenCreateDue}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02] shrink-0"
+                disabled={approvedMemberCount === 0}
+                title={approvedMemberCount === 0 ? "Requires at least 1 registered active member" : "Create a new monthly due"}
+                className={`w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shrink-0 ${
+                  approvedMemberCount === 0
+                    ? 'bg-[#e8efe8] text-[#86998d] border border-[#d2ddd2] cursor-not-allowed select-none shadow-none'
+                    : 'bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-md cursor-pointer hover:scale-[1.02]'
+                }`}
               >
-                <Plus className="w-4 h-4 text-[#74c69d]" />
+                <Plus className={`w-4 h-4 ${approvedMemberCount === 0 ? 'text-[#86998d]' : 'text-[#74c69d]'}`} />
                 <span>Create Monthly Due</span>
               </button>
             </div>
@@ -1833,41 +2183,85 @@ export const Settings: React.FC = () => {
                   <span>Promotional Campaigns & Packages</span>
                 </h3>
                 <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 sm:mt-1">
-                  Active promotional offers, upfront annual discounts, and seasonal campaign rates
+                  Configure upfront annual discounts and promotional package availability for members
                 </p>
               </div>
-              <span className="self-start sm:self-center text-[10px] sm:text-[11px] font-bold px-2.5 py-1 rounded-full bg-amber-100 text-amber-900 border border-amber-200 flex items-center gap-1.5 shrink-0">
-                <Calendar className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-700 shrink-0" />
-                <span>January Campaign Window</span>
-              </span>
+
+              {/* Annual Promo Global Toggle Switch */}
+              <div className="flex items-center gap-2.5 self-start sm:self-center bg-[#f7f9f7] px-3.5 py-2 rounded-2xl border border-[#e2ece2]">
+                <div className="text-right">
+                  <span className="text-xs font-extrabold text-[#1b4332] block leading-none">
+                    Annual Promo
+                  </span>
+                  <span className={`text-[10px] font-bold ${financeSettings.annualPromoEnabled !== false ? 'text-emerald-700' : 'text-stone-500'}`}>
+                    {financeSettings.annualPromoEnabled !== false ? 'Enabled' : 'Disabled'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleToggleAnnualPromo}
+                  role="switch"
+                  aria-checked={financeSettings.annualPromoEnabled !== false}
+                  className={`w-12 h-6.5 flex items-center rounded-full p-1 transition-colors duration-200 cursor-pointer ${
+                    financeSettings.annualPromoEnabled !== false ? 'bg-[#1b4332]' : 'bg-stone-300'
+                  }`}
+                  title={financeSettings.annualPromoEnabled !== false ? 'Click to disable Annual Promo' : 'Click to enable Annual Promo'}
+                >
+                  <motion.div
+                    layout
+                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                    className={`bg-white w-4.5 h-4.5 rounded-full shadow-md ${
+                      financeSettings.annualPromoEnabled !== false ? 'ml-auto' : 'mr-auto'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
 
-            <div className="p-3 sm:p-5 rounded-2xl bg-gradient-to-br from-[#f7f9f7] via-emerald-50/60 to-[#f7f9f7] border border-[#e2ece2] space-y-3">
+            <div className={`p-3 sm:p-5 rounded-2xl border space-y-3 transition-colors ${
+              financeSettings.annualPromoEnabled !== false
+                ? 'bg-gradient-to-br from-[#f7f9f7] via-emerald-50/60 to-[#f7f9f7] border-emerald-200/80'
+                : 'bg-stone-50 border-stone-200 opacity-75'
+            }`}>
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                  <span className="px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-amber-400 text-slate-950 uppercase tracking-wider whitespace-nowrap">
+                  <span className={`px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider whitespace-nowrap ${
+                    financeSettings.annualPromoEnabled !== false
+                      ? 'bg-amber-400 text-slate-950 shadow-2xs'
+                      : 'bg-stone-200 text-stone-600'
+                  }`}>
                     Annual Upfront Promo
                   </span>
                   <span className="text-xs font-bold text-[#1b4332]">Full Year Monthly Dues Package</span>
                 </div>
                 <span className={`text-[9px] sm:text-[10px] font-black px-2.5 py-0.5 rounded-full border self-start sm:self-auto shrink-0 ${
-                  new Date().getMonth() === 0
+                  financeSettings.annualPromoEnabled !== false
                     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
-                    : 'bg-amber-100 text-amber-800 border-amber-300'
+                    : 'bg-stone-200 text-stone-700 border-stone-300'
                 }`}>
-                  {new Date().getMonth() === 0 ? '🟢 Active Campaign (January)' : '🗓️ Available in January'}
+                  {financeSettings.annualPromoEnabled !== false ? '🟢 Promo Active / Available' : '⚪ Promo Disabled'}
                 </span>
               </div>
 
               <p className="text-xs text-[#52605d] leading-relaxed">
-                Members who pay for a full year upfront during the month of <strong>January</strong> receive a discounted flat rate of <strong>₱1,000</strong> for all 12 monthly dues (regular value: ₱1,200/year at ₱100/month).
+                {financeSettings.annualPromoEnabled !== false ? (
+                  <>
+                    Members who pay upfront for a full year receive a discounted flat rate of <strong>₱1,000</strong> for all 12 monthly dues (regular value: ₱1,200/year at ₱100/month). Member saves <strong>₱200</strong>!
+                  </>
+                ) : (
+                  <>
+                    The Annual Upfront Promo is currently <strong>disabled</strong> in settings. When disabled, the promo package is muted and unavailable for selection in member payment records. Toggle on to activate.
+                  </>
+                )}
               </p>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
                 <div className="bg-white p-3 rounded-xl border border-[#e2ece2] flex flex-col justify-center min-w-0">
                   <span className="text-[10px] text-[#52605d] font-bold block uppercase tracking-wider">Promo Price</span>
                   <div className="flex items-baseline gap-1 mt-0.5">
-                    <span className="text-base sm:text-lg font-black text-[#1b4332]">₱1,000.00</span>
+                    <span className={`text-base sm:text-lg font-black ${financeSettings.annualPromoEnabled !== false ? 'text-[#1b4332]' : 'text-stone-500'}`}>
+                      ₱1,000.00
+                    </span>
                     <span className="text-xs text-[#52605d] font-semibold">/ yr</span>
                   </div>
                 </div>
@@ -1878,44 +2272,71 @@ export const Settings: React.FC = () => {
                     <span className="text-xs text-slate-400 font-semibold">/ yr</span>
                   </div>
                 </div>
-                <div className="bg-emerald-100/80 p-3 rounded-xl border border-emerald-200 flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-emerald-800 font-extrabold block uppercase tracking-wider">Member Savings</span>
+                <div className={`p-3 rounded-xl border flex flex-col justify-center min-w-0 ${
+                  financeSettings.annualPromoEnabled !== false
+                    ? 'bg-emerald-100/80 border-emerald-200'
+                    : 'bg-stone-100 border-stone-200'
+                }`}>
+                  <span className={`text-[10px] font-extrabold block uppercase tracking-wider ${
+                    financeSettings.annualPromoEnabled !== false ? 'text-emerald-800' : 'text-stone-600'
+                  }`}>
+                    Member Savings
+                  </span>
                   <div className="flex items-baseline gap-1.5 mt-0.5 flex-wrap">
-                    <span className="text-base sm:text-lg font-black text-emerald-900">₱200.00</span>
-                    <span className="text-xs font-extrabold text-emerald-700">(16.7% OFF)</span>
+                    <span className={`text-base sm:text-lg font-black ${
+                      financeSettings.annualPromoEnabled !== false ? 'text-emerald-900' : 'text-stone-700'
+                    }`}>
+                      ₱200.00
+                    </span>
+                    <span className={`text-xs font-extrabold ${
+                      financeSettings.annualPromoEnabled !== false ? 'text-emerald-700' : 'text-stone-500'
+                    }`}>
+                      (16.7% OFF)
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Section 3: Dynamic Collections Management */}
+          {/* Section 3: Dynamic Collections & Donations Management */}
           <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-4 sm:space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#e2ece2]">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-[#e2ece2]">
               <div>
                 <h2 className="font-heading text-base sm:text-lg font-black text-[#1b4332] flex items-center gap-2">
                   <PiggyBank className="w-5 h-5 text-[#2d6a4f]" />
-                  Dynamic Custom Collections
+                  Dynamic Collections & Donations
                 </h2>
                 <p className="text-xs text-[#52605d] mt-1">
-                  Create custom payment drives, special event tickets, or uniform/merchandise collections with custom amounts.
+                  Create custom payment drives, uniform/merchandise collections, or record direct donation collections.
                 </p>
               </div>
 
-              <button
-                type="button"
-                onClick={handleOpenCreateCollection}
-                disabled={approvedMemberCount === 0}
-                title={approvedMemberCount === 0 ? "Requires at least 1 registered active member" : "Create a new custom collection"}
-                className={`w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shrink-0 ${
-                  approvedMemberCount === 0
-                    ? 'bg-[#e8efe8] text-[#86998d] border border-[#d2ddd2] cursor-not-allowed select-none shadow-none'
-                    : 'bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-md cursor-pointer hover:scale-[1.02]'
-                }`}
-              >
-                <Plus className={`w-4 h-4 ${approvedMemberCount === 0 ? 'text-[#86998d]' : 'text-[#74c69d]'}`} />
-                <span>Create Collection</span>
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenCreateDonation}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white shadow-md cursor-pointer hover:scale-[1.02]"
+                >
+                  <HeartHandshake className="w-4 h-4 text-emerald-200" />
+                  <span>+ Add Donation Collection</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleOpenCreateCollection}
+                  disabled={approvedMemberCount === 0}
+                  title={approvedMemberCount === 0 ? "Requires at least 1 registered active member" : "Create a new custom assessment collection"}
+                  className={`w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shrink-0 ${
+                    approvedMemberCount === 0
+                      ? 'bg-[#e8efe8] text-[#86998d] border border-[#d2ddd2] cursor-not-allowed select-none shadow-none'
+                      : 'bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-md cursor-pointer hover:scale-[1.02]'
+                  }`}
+                >
+                  <Plus className={`w-4 h-4 ${approvedMemberCount === 0 ? 'text-[#86998d]' : 'text-[#74c69d]'}`} />
+                  <span>Create Collection</span>
+                </button>
+              </div>
             </div>
 
             {/* Collections Grid */}
@@ -1923,14 +2344,15 @@ export const Settings: React.FC = () => {
               {dynamicCollections.length === 0 ? (
                 <div className="p-6 sm:p-8 text-center bg-[#f7f9f7] rounded-2xl border border-dashed border-[#e2ece2] space-y-2">
                   <Layers className="w-8 h-8 text-[#52605d] mx-auto" />
-                  <p className="text-xs text-[#52605d] font-bold">No Custom Collections Created</p>
+                  <p className="text-xs text-[#52605d] font-bold">No Custom Collections or Donations Created</p>
                   <p className="text-[11px] text-[#52605d]">
-                    Add dynamic collections for merchandise, fellowship tours, or special fundraisers.
+                    Add dynamic collections for merchandise, fellowship tours, or direct voluntary donation funds.
                   </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   {dynamicCollections.map((col) => {
+                    const isDonation = col.collectionType === 'Donation' || col.name?.toLowerCase().includes('donation');
                     const totalTargetCollection =
                       col.targetAmount !== undefined && col.targetAmount !== null && !isNaN(Number(col.targetAmount)) && Number(col.targetAmount) > 0
                         ? Number(col.targetAmount)
@@ -1938,17 +2360,31 @@ export const Settings: React.FC = () => {
                     return (
                       <div
                         key={col.id}
-                        className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2ece2] shadow-xs hover:border-[#2d6a4f] transition-all space-y-3 sm:space-y-4 relative overflow-hidden"
+                        className={`bg-white rounded-2xl p-4 sm:p-5 border shadow-xs hover:border-[#2d6a4f] transition-all space-y-3 sm:space-y-4 relative overflow-hidden ${
+                          isDonation ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-[#e2ece2]'
+                        }`}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <div>
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold mb-1">
-                              <Receipt className="w-3 h-3 text-amber-700" />
-                              Custom Collection
-                            </span>
+                            {isDonation ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-extrabold mb-1">
+                                <HeartHandshake className="w-3 h-3 text-emerald-700" />
+                                Donation Collection
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold mb-1">
+                                <Receipt className="w-3 h-3 text-amber-700" />
+                                Custom Collection
+                              </span>
+                            )}
                             <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base leading-tight">
                               {col.name}
                             </h3>
+                            {isDonation && col.donorName && (
+                              <p className="text-[11px] text-emerald-800 font-semibold mt-0.5">
+                                Contributor: {col.donorName}
+                              </p>
+                            )}
                           </div>
 
                           <div className="flex items-center gap-1 shrink-0">
@@ -1984,28 +2420,50 @@ export const Settings: React.FC = () => {
                           </p>
                         )}
 
-                        <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-3 border-t border-[#e2ece2] text-xs">
-                          <div className="bg-[#f7f9f7] p-2.5 sm:p-3 rounded-xl border border-[#e2ece2] min-w-0">
-                            <span className="text-[9px] sm:text-[10px] text-[#52605d] font-bold block truncate">
-                              Set Collection Amount
-                            </span>
-                            <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
-                              ₱{(Number(col.amount) || 0).toLocaleString()}
-                            </span>
-                          </div>
+                        {isDonation ? (
+                          <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-3 border-t border-emerald-100 text-xs">
+                            <div className="bg-emerald-50/70 p-2.5 sm:p-3 rounded-xl border border-emerald-200 min-w-0">
+                              <span className="text-[9px] sm:text-[10px] text-emerald-800 font-bold block truncate">
+                                Total Donation Amount
+                              </span>
+                              <span className="text-sm sm:text-base font-black text-emerald-900 truncate block">
+                                ₱{(Number(col.amount) || 0).toLocaleString()}
+                              </span>
+                            </div>
 
-                          <div className="bg-amber-50 p-2.5 sm:p-3 rounded-xl border border-amber-200 min-w-0">
-                            <span className="text-[9px] sm:text-[10px] text-amber-800 font-extrabold block truncate">
-                              Expected Target Collection
-                            </span>
-                            <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
-                              ₱{(Number(totalTargetCollection) || 0).toLocaleString()}
-                              {approvedMemberCount === 0 && col.targetAmount === undefined && (
-                                <span className="text-[10px] text-amber-700 font-medium ml-1">(Muted)</span>
-                              )}
-                            </span>
+                            <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-emerald-200 min-w-0 flex flex-col justify-center">
+                              <span className="text-[9px] sm:text-[10px] text-emerald-800 font-extrabold block truncate">
+                                Treasury Status
+                              </span>
+                              <span className="text-[11px] font-bold text-emerald-700 truncate block mt-0.5">
+                                Included in Total Funds & Net Treasury
+                              </span>
+                            </div>
                           </div>
-                        </div>
+                        ) : (
+                          <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-3 border-t border-[#e2ece2] text-xs">
+                            <div className="bg-[#f7f9f7] p-2.5 sm:p-3 rounded-xl border border-[#e2ece2] min-w-0">
+                              <span className="text-[9px] sm:text-[10px] text-[#52605d] font-bold block truncate">
+                                Set Collection Amount
+                              </span>
+                              <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
+                                ₱{(Number(col.amount) || 0).toLocaleString()}
+                              </span>
+                            </div>
+
+                            <div className="bg-amber-50 p-2.5 sm:p-3 rounded-xl border border-amber-200 min-w-0">
+                              <span className="text-[9px] sm:text-[10px] text-amber-800 font-extrabold block truncate">
+                                Expected Target Collection
+                              </span>
+                              <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
+                                ₱{(Number(totalTargetCollection) || 0).toLocaleString()}
+                                {approvedMemberCount === 0 && col.targetAmount === undefined && (
+                                  <span className="text-[10px] text-amber-700 font-medium ml-1">(Muted)</span>
+                                )}
+                              </span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -2175,6 +2633,54 @@ export const Settings: React.FC = () => {
                   ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
                 <span className="text-[10px] text-amber-800 block">Net Operating Cash Flow</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Yearly Financial Archiving & Compressed Zip Import Hub */}
+          <div className="bg-gradient-to-br from-[#1b4332] via-[#245340] to-[#123023] rounded-2xl sm:rounded-3xl p-5 sm:p-7 text-white shadow-xl relative overflow-hidden">
+            <div className="absolute -right-10 -bottom-10 w-44 h-44 rounded-full bg-white/5 pointer-events-none blur-xl" />
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
+              <div className="space-y-1.5 max-w-xl">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-emerald-300 text-[10px] font-extrabold border border-white/10 uppercase tracking-wider">
+                  <Archive className="w-3 h-3 text-emerald-400" />
+                  Fiscal Year Auditing & Data Archiving
+                </div>
+                <h3 className="font-heading text-lg sm:text-xl font-black text-white">
+                  Yearly Financial Archiving & Zip Import
+                </h3>
+                <p className="text-xs text-emerald-100/80 leading-relaxed">
+                  Archive audited annual finances (Jan–Dec) to lock books, carry forward remaining Net Treasury into active funds, and safely purge the outgoing year's operational logs. You can also import any previous <code className="text-emerald-300 font-mono">.zip</code> archive to view, verify, and export multi-sheet XLSX or Income Statement PDF reports.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                <input
+                  type="file"
+                  ref={zipInputRef}
+                  onChange={handleImportZipFile}
+                  accept=".zip,application/zip,application/x-zip-compressed"
+                  className="hidden"
+                  id="settings-zip-import-input"
+                />
+                <button
+                  type="button"
+                  onClick={() => zipInputRef.current?.click()}
+                  disabled={isImportingZip}
+                  className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-extrabold text-xs transition-all border border-white/20 flex items-center gap-2 shadow-xs cursor-pointer hover:scale-[1.02]"
+                >
+                  <Upload className="w-4 h-4 text-emerald-300" />
+                  <span>{isImportingZip ? 'Reading Zip...' : 'Import Archive (.zip)'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setShowYearlyArchiveModal(true)}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-[#0f281e] font-black text-xs transition-all shadow-md flex items-center gap-2 cursor-pointer hover:scale-[1.02]"
+                >
+                  <FolderArchive className="w-4 h-4 text-[#0f281e]" />
+                  <span>Yearly Archiving</span>
+                </button>
               </div>
             </div>
           </div>
@@ -2705,34 +3211,153 @@ export const Settings: React.FC = () => {
 
       {/* SUB TAB 3: SYSTEM SECURITY */}
       {activeSubTab === 'security' && (
-        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#e2ece2] shadow-xs space-y-6">
-          <div className="pb-4 border-b border-[#e2ece2]">
-            <h2 className="font-heading text-lg font-black text-[#1b4332] flex items-center gap-2">
-              <Shield className="w-5 h-5 text-[#2d6a4f]" />
-              System & Security Settings
-            </h2>
-            <p className="text-xs text-[#52605d] mt-1">
-              Manage your administrator session and account security
-            </p>
+        <div className="bg-white rounded-3xl p-4 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-5 sm:space-y-6">
+          {/* Section Header */}
+          <div className="pb-4 border-b border-[#e2ece2] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-heading text-base sm:text-lg font-black text-[#1b4332] flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-[#2d6a4f] shrink-0" />
+                  <span>System & Security</span>
+                </h2>
+                <span className="sm:hidden px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7] flex items-center gap-1 shrink-0">
+                  <Shield className="w-3 h-3 text-[#2d6a4f]" />
+                  Executive
+                </span>
+              </div>
+              <p className="text-[11px] sm:text-xs text-[#52605d] mt-1 leading-relaxed">
+                Configure administrative two-factor authorization policies, portal credentials, and session controls.
+              </p>
+            </div>
+            <div className="hidden sm:flex items-center gap-2">
+              <span className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7] flex items-center gap-1.5 shrink-0">
+                <Shield className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                Executive Access
+              </span>
+            </div>
           </div>
 
-          {/* Sign Out Card */}
-          <div className="p-5 rounded-2xl bg-rose-50/60 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          {/* Toast Notification for Security Changes */}
+          <AnimatePresence>
+            {securityToast && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className={`p-3.5 rounded-2xl text-xs font-bold border flex items-center justify-between gap-3 ${
+                  securityToast.type === 'success'
+                    ? 'bg-[#f0f9f1] border-[#74c69d] text-[#1b4332]'
+                    : 'bg-stone-50 border-stone-300 text-stone-700'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                  <span>{securityToast.message}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSecurityToast(null)}
+                  className="text-stone-400 hover:text-stone-700 cursor-pointer p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Card 1: Admin 2FA OTP Toggle Settings */}
+          <div className="bg-[#f7f9f7] rounded-2xl p-4 sm:p-5 md:p-6 border border-[#e2ece2] space-y-4 sm:space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-[#1b4332] text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5 sm:mt-0">
+                  <Key className="w-4 h-4 sm:w-5 sm:h-5 text-[#74c69d]" />
+                </div>
+                <div className="space-y-1 min-w-0 flex-1">
+                  <div className="flex items-center justify-between sm:justify-start gap-2 flex-wrap">
+                    <h3 className="font-heading font-black text-xs sm:text-sm md:text-base text-[#1b4332] leading-snug">
+                      Admin Sign-In 2FA (OTP)
+                    </h3>
+                    {securitySettings.adminOtpEnabled ? (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                        OTP ACTIVE
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-stone-200 text-stone-700 border border-stone-300 flex items-center gap-1 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-stone-500"></span>
+                        OTP BYPASSED
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed max-w-xl">
+                    Require a 6-digit One-Time Password (OTP) authorization code sent via email whenever an administrator signs in.
+                  </p>
+                </div>
+              </div>
+
+              {/* Toggle Switch */}
+              <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#e2ece2] shrink-0">
+                <span className="text-[11px] sm:text-xs font-black text-[#1b4332]">
+                  {securitySettings.adminOtpEnabled ? 'OTP Enabled' : 'OTP Disabled'}
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={securitySettings.adminOtpEnabled}
+                  onClick={handleToggleAdminOtp}
+                  className={`relative inline-flex h-6 sm:h-7 w-12 sm:w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-[#2d6a4f] focus:ring-offset-2 ${
+                    securitySettings.adminOtpEnabled ? 'bg-[#1b4332]' : 'bg-stone-300'
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className={`pointer-events-none inline-block h-5 w-5 sm:h-6 sm:w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      securitySettings.adminOtpEnabled ? 'translate-x-6 sm:translate-x-7' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* Explanatory Details Box */}
+            <div className="p-3.5 sm:p-4 rounded-xl bg-white border border-[#e2ece2] space-y-2 text-[11px] sm:text-xs">
+              <div className="flex items-center gap-2 font-extrabold text-[#1b4332]">
+                <Mail className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f] shrink-0" />
+                <span>Delivery & Dispatch Configuration</span>
+              </div>
+              <p className="text-[#52605d] leading-relaxed break-words">
+                When this toggle is <strong>enabled</strong>, signing in with admin credentials triggers a 6-digit verification code dispatched from <span className="font-mono text-[#2d6a4f] font-semibold">noreply@bccriders.cc</span> to the admin email (<strong className="text-[#1b4332] break-all">{currentUser?.email || 'admin@bccriders.org'}</strong>).
+              </p>
+              <div className="pt-2 border-t border-[#f0f4f0] grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-[#52605d]">
+                <div className="flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  <span>Validity: <strong>5 minutes</strong> per session</span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  <span>Security: <strong>Single-use token</strong></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2: Executive Sign Out Card */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-rose-50/60 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
             <div className="space-y-1">
               <div className="flex items-center gap-2">
-                <LogOut className="w-4 h-4 text-rose-700" />
-                <h3 className="font-heading font-extrabold text-rose-950 text-sm">
+                <LogOut className="w-4 h-4 text-rose-700 shrink-0" />
+                <h3 className="font-heading font-extrabold text-rose-950 text-xs sm:text-sm">
                   Executive Account Session
                 </h3>
               </div>
-              <p className="text-xs text-[#52605d]">
-                Sign out of your administrator account session safely when done.
+              <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
+                Sign out of your administrator account session safely when your executive tasks are completed.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setShowLogoutModal(true)}
-              className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-2 shrink-0"
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-2 shrink-0"
             >
               <LogOut className="w-4 h-4" />
               <span>Sign Out Account</span>
@@ -2744,103 +3369,107 @@ export const Settings: React.FC = () => {
       {/* MODAL: CREATE / EDIT MONTHLY DUE */}
       <AnimatePresence>
         {showMonthlyDueModal && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-[#e2ece2] space-y-6 relative my-8"
+              className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full shadow-2xl border border-[#e2ece2] relative my-auto max-h-[92vh] sm:max-h-[88vh] flex flex-col overflow-hidden"
             >
-              <button
-                type="button"
-                onClick={() => setShowMonthlyDueModal(false)}
-                className="absolute top-5 right-5 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
-                  <Calendar className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-heading font-extrabold text-[#1b4332] text-lg">
-                    {editingDue ? 'Edit Monthly Due' : 'Create Monthly Due'}
-                  </h3>
-                  <p className="text-xs text-[#52605d]">
-                    Set monthly due amount for a specific month and year period
-                  </p>
-                </div>
-              </div>
-
-              <form onSubmit={handleSubmitDue} className="space-y-4 text-xs">
-                {/* Amount Due */}
-                <div>
-                  <label className="font-bold text-[#1b4332] mb-1 block">
-                    Amount Due Per Member (₱) <span className="text-rose-600">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      step="any"
-                      value={dueAmount}
-                      onChange={(e) => setDueAmount(Number(e.target.value))}
-                      className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                    />
-                    <span className="absolute left-3 top-3 text-xs font-bold text-[#52605d]">₱</span>
-                  </div>
-                </div>
-
-                {/* Amount Due Period: Month & Year Dropdown Selection */}
-                <div className="grid grid-cols-2 gap-3 bg-[#f0f9f1] p-3.5 rounded-2xl border border-[#c8e6c9]">
-                  <CustomSelect
-                    label="Select Month"
-                    required
-                    value={dueMonth}
-                    onChange={(val) => setDueMonth(val)}
-                    options={MONTH_OPTIONS}
-                  />
-
-                  <CustomSelect
-                    label="Select Year"
-                    required
-                    value={dueYear}
-                    onChange={(val) => setDueYear(val)}
-                    options={YEAR_OPTIONS}
-                  />
-                </div>
-
-                {/* Live Calculated Pending Collection Preview */}
-                <div className="p-3.5 bg-[#1b4332] text-white rounded-2xl space-y-1">
-                  <span className="text-[10px] text-[#74c69d] font-bold uppercase tracking-wider block">
-                    Calculated Total Pending Collection
-                  </span>
-                  <div className="text-lg font-black text-white">
-                    ₱{(approvedMemberCount * (Number(dueAmount) || 0)).toLocaleString()}
-                  </div>
-                  <span className="text-[10px] text-[#d8f3dc] block">
-                    Based on {approvedMemberCount} approved member account(s)
-                  </span>
-                </div>
-
-
-
-                {/* Buttons */}
-                <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#e2ece2]">
+              <form onSubmit={handleSubmitDue} className="flex flex-col h-full max-h-[92vh] sm:max-h-[88vh] overflow-hidden">
+                {/* Header (Fixed) */}
+                <div className="p-3.5 sm:p-5 pb-2.5 sm:pb-3 border-b border-[#e2ece2] relative shrink-0 bg-white">
                   <button
                     type="button"
                     onClick={() => setShowMonthlyDueModal(false)}
-                    className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
+                    className="absolute top-3 sm:top-4 right-3 sm:right-4 p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+
+                  <div className="flex items-center gap-2.5 sm:gap-3 pr-8">
+                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+                      <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base md:text-lg leading-tight truncate">
+                        {editingDue ? 'Edit Monthly Due' : 'Create Monthly Due'}
+                      </h3>
+                      <p className="text-[10px] sm:text-xs text-[#52605d] leading-tight mt-0.5 truncate">
+                        Set monthly due amount for a specific month and year
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Body (Scrollable) */}
+                <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3 sm:space-y-4 text-xs">
+                  {/* Amount Due */}
+                  <div>
+                    <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
+                      Amount Due Per Member (₱) <span className="text-rose-600">*</span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="number"
+                        required
+                        min="0"
+                        step="any"
+                        value={dueAmount}
+                        onChange={(e) => setDueAmount(Number(e.target.value))}
+                        className="w-full pl-7 sm:pl-8 pr-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      />
+                      <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-xs font-bold text-[#52605d]">₱</span>
+                    </div>
+                  </div>
+
+                  {/* Amount Due Period: Month & Year Dropdown Selection */}
+                  <div className="grid grid-cols-2 gap-2.5 bg-[#f0f9f1] p-3 rounded-2xl border border-[#c8e6c9]">
+                    <CustomSelect
+                      label="Select Month"
+                      required
+                      value={dueMonth}
+                      onChange={(val) => setDueMonth(val)}
+                      options={MONTH_OPTIONS}
+                    />
+
+                    <CustomSelect
+                      label="Select Year"
+                      required
+                      value={dueYear}
+                      onChange={(val) => setDueYear(val)}
+                      options={YEAR_OPTIONS}
+                    />
+                  </div>
+
+                  {/* Live Calculated Pending Collection Preview */}
+                  <div className="p-3 bg-[#1b4332] text-white rounded-2xl space-y-1">
+                    <span className="text-[10px] text-[#74c69d] font-bold uppercase tracking-wider block">
+                      Calculated Total Pending Collection
+                    </span>
+                    <div className="text-base sm:text-lg font-black text-white">
+                      ₱{(approvedMemberCount * (Number(dueAmount) || 0)).toLocaleString()}
+                    </div>
+                    <span className="text-[10px] text-[#d8f3dc] block">
+                      Based on {approvedMemberCount} approved member account(s)
+                    </span>
+                  </div>
+                </div>
+
+                {/* Fixed Footer Buttons */}
+                <div className="p-3 sm:p-4 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-2.5 sm:gap-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowMonthlyDueModal(false)}
+                    className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5"
+                    className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5"
                   >
-                    <CheckCircle2 className="w-4 h-4 text-[#74c69d]" />
+                    <CheckCircle2 className="w-4 h-4 text-[#74c69d] shrink-0" />
                     <span>{editingDue ? 'Save Changes' : 'Save Monthly Due'}</span>
                   </button>
                 </div>
@@ -2853,140 +3482,256 @@ export const Settings: React.FC = () => {
       {/* MODAL: CREATE / EDIT DYNAMIC COLLECTION */}
       <AnimatePresence>
         {showCollectionModal && (
-          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 15 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-[#e2ece2] space-y-6 relative my-8"
+              className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full shadow-2xl border border-[#e2ece2] relative my-auto max-h-[92vh] sm:max-h-[88vh] flex flex-col overflow-hidden"
             >
-              <button
-                type="button"
-                onClick={() => setShowCollectionModal(false)}
-                className="absolute top-5 right-5 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-                  <PiggyBank className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-heading font-extrabold text-[#1b4332] text-lg">
-                    {editingCollection ? 'Edit Dynamic Collection' : 'Create Dynamic Collection'}
-                  </h3>
-                  <p className="text-xs text-[#52605d]">
-                    Name the custom collection and set amount & target period
-                  </p>
-                </div>
-              </div>
-
-              <form onSubmit={handleSubmitCollection} className="space-y-4 text-xs">
-                {/* Collection Name */}
-                <div>
-                  <label className="font-bold text-[#1b4332] mb-1 block">
-                    Collection Name / Title <span className="text-rose-600">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={colName}
-                    onChange={(e) => setColName(e.target.value)}
-                    placeholder="e.g., Annual Fellowship Gala Shirt, Outreach Relief Fund"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                  />
-                </div>
-
-                {/* Amount */}
-                <div>
-                  <label className="font-bold text-[#1b4332] mb-1 block">
-                    Amount Per Contributor (₱) <span className="text-rose-600">*</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      required
-                      min="0"
-                      step="any"
-                      value={colAmount}
-                      onChange={(e) => {
-                        const valStr = e.target.value;
-                        const numVal = Number(valStr);
-                        setColAmount(numVal);
-                        const count = approvedMembers.length;
-                        if (valStr !== '' && !isNaN(numVal) && numVal >= 0) {
-                          setColTargetAmount(String(Math.round(numVal * count * 100) / 100));
-                        } else {
-                          setColTargetAmount('');
-                        }
-                      }}
-                      className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                    />
-                    <span className="absolute left-3 top-3 text-xs font-bold text-[#52605d]">₱</span>
-                  </div>
-                </div>
-
-                {/* Expected Target Collection */}
-                <div>
-                  <label className="font-bold text-[#1b4332] mb-1 block">
-                    Expected Target Collection (₱) <span className="text-[10px] font-normal text-[#52605d]">(Optional)</span>
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      value={colTargetAmount}
-                      onChange={(e) => {
-                        const targetValStr = e.target.value;
-                        setColTargetAmount(targetValStr);
-                        const count = approvedMembers.length;
-                        const targetNum = Number(targetValStr);
-                        if (targetValStr !== '' && !isNaN(targetNum) && targetNum >= 0) {
-                          const calculatedAmount = count > 0 ? Math.round((targetNum / count) * 100) / 100 : 0;
-                          setColAmount(calculatedAmount);
-                        }
-                      }}
-                      placeholder={approvedMembers.length > 0 ? `Auto: ₱${(approvedMembers.length * (Number(colAmount) || 0)).toLocaleString()}` : 'Auto: ₱0.00 (Muted)'}
-                      className="w-full pl-8 pr-3 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                    />
-                    <span className="absolute left-3 top-3 text-xs font-bold text-[#52605d]">₱</span>
-                  </div>
-                  <p className="text-[10px] text-[#52605d] mt-1">
-                    Auto-calculated based on {approvedMembers.length} active member(s) (₱{colAmount || 0} × {approvedMembers.length} = ₱{(Number(colTargetAmount) || 0).toLocaleString()}).
-                  </p>
-                </div>
-
-                {/* Description */}
-                <div>
-                  <label className="font-bold text-[#1b4332] mb-1 block">
-                    Description / Details
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={colDescription}
-                    onChange={(e) => setColDescription(e.target.value)}
-                    placeholder="Details about what this custom collection covers..."
-                    className="w-full px-3.5 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] resize-none"
-                  />
-                </div>
-
-                {/* Buttons */}
-                <div className="flex items-center justify-end gap-3 pt-3 border-t border-[#e2ece2]">
+              <form onSubmit={handleSubmitCollection} className="flex flex-col h-full max-h-[92vh] sm:max-h-[88vh] overflow-hidden">
+                {/* Header (Fixed) */}
+                <div className="p-3.5 sm:p-5 pb-2.5 sm:pb-3 border-b border-[#e2ece2] relative shrink-0 bg-white">
                   <button
                     type="button"
                     onClick={() => setShowCollectionModal(false)}
-                    className="px-4 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
+                    className="absolute top-3 sm:top-4 right-3 sm:right-4 p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+
+                  <div className="flex items-center gap-2.5 sm:gap-3 pr-8">
+                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 ${
+                      colType === 'Donation' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {colType === 'Donation' ? <HeartHandshake className="w-4 h-4 sm:w-5 sm:h-5" /> : <PiggyBank className="w-4 h-4 sm:w-5 sm:h-5" />}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base md:text-lg leading-tight truncate">
+                        {editingCollection
+                          ? (colType === 'Donation' ? 'Edit Donation Collection' : 'Edit Dynamic Collection')
+                          : (colType === 'Donation' ? 'Add Donation Collection' : 'Create Dynamic Collection')}
+                      </h3>
+                      <p className="text-[10px] sm:text-xs text-[#52605d] leading-tight mt-0.5 truncate">
+                        {colType === 'Donation'
+                          ? 'Direct voluntary funds added to Net Treasury'
+                          : 'Set custom fee and bill approved members'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Type Switcher */}
+                  <div className="grid grid-cols-2 gap-1 p-1 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] mt-2.5 sm:mt-3">
+                    <button
+                      type="button"
+                      onClick={() => setColType('Standard')}
+                      className={`py-1.5 px-2 rounded-lg font-extrabold text-[11px] sm:text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        colType === 'Standard'
+                          ? 'bg-white text-[#1b4332] shadow-xs border border-[#e2ece2]'
+                          : 'text-[#52605d] hover:text-[#1b4332]'
+                      }`}
+                    >
+                      <Receipt className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Standard Assessment</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setColType('Donation')}
+                      className={`py-1.5 px-2 rounded-lg font-extrabold text-[11px] sm:text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                        colType === 'Donation'
+                          ? 'bg-emerald-700 text-white shadow-xs'
+                          : 'text-[#52605d] hover:text-emerald-700'
+                      }`}
+                    >
+                      <HeartHandshake className="w-3.5 h-3.5 shrink-0" />
+                      <span className="truncate">Donation Collection</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Scrollable Form Body */}
+                <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3 sm:space-y-4 text-xs">
+                  {colType === 'Donation' ? (
+                    <>
+                      {/* Donation Collection Name */}
+                      <div>
+                        <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
+                          Donation Purpose / Drive Name <span className="text-rose-600">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={colName}
+                          onChange={(e) => setColName(e.target.value)}
+                          placeholder="e.g., Medical Relief Fund, Outreach Drive"
+                          className="w-full px-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        />
+                      </div>
+
+                      {/* Donor / Contributor Name */}
+                      <div>
+                        <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
+                          Contributor / Donor Name <span className="text-[10px] font-normal text-[#52605d]">(Optional)</span>
+                        </label>
+                        <input
+                          type="text"
+                          value={colDonorName}
+                          onChange={(e) => setColDonorName(e.target.value)}
+                          placeholder="e.g., Anonymous Sponsor, BCC Chapter 1, John Doe"
+                          className="w-full px-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        />
+                      </div>
+
+                      {/* Donation Amount */}
+                      <div>
+                        <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
+                          Total Donation Amount (₱) <span className="text-rose-600">*</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            required
+                            min="1"
+                            step="any"
+                            value={colAmount}
+                            onChange={(e) => setColAmount(Number(e.target.value) || 0)}
+                            className="w-full pl-7 sm:pl-8 pr-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          />
+                          <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-xs font-bold text-[#52605d]">₱</span>
+                        </div>
+                        <p className="text-[10px] text-emerald-800 font-semibold mt-1">
+                          Directly added to Total Funds and Net Treasury upon creation.
+                        </p>
+                      </div>
+
+                      {/* Educational Info Box */}
+                      <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 sm:p-3 text-emerald-950 space-y-1">
+                        <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-extrabold text-emerald-900">
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                          <span>Treasury Impact</span>
+                        </div>
+                        <p className="text-[10px] sm:text-[11px] leading-relaxed text-emerald-850">
+                          This donation is treated as an active paid contribution. It is <strong>NOT</strong> added to pending member dues, but is instantly credited to <strong>Total Funds Collected</strong> and <strong>Net Treasury Balance</strong>.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      {/* Collection Name */}
+                      <div>
+                        <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
+                          Collection Name / Title <span className="text-rose-600">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={colName}
+                          onChange={(e) => setColName(e.target.value)}
+                          placeholder="e.g., Annual Fellowship Gala Shirt, Uniform Fund"
+                          className="w-full px-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        />
+                      </div>
+
+                      {/* Amount */}
+                      <div>
+                        <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
+                          Amount Per Contributor (₱) <span className="text-rose-600">*</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            required
+                            min="0"
+                            step="any"
+                            value={colAmount}
+                            onChange={(e) => {
+                              const valStr = e.target.value;
+                              const numVal = Number(valStr);
+                              setColAmount(numVal);
+                              const count = approvedMembers.length;
+                              if (valStr !== '' && !isNaN(numVal) && numVal >= 0) {
+                                setColTargetAmount(String(Math.round(numVal * count * 100) / 100));
+                              } else {
+                                setColTargetAmount('');
+                              }
+                            }}
+                            className="w-full pl-7 sm:pl-8 pr-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          />
+                          <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-xs font-bold text-[#52605d]">₱</span>
+                        </div>
+                      </div>
+
+                      {/* Expected Target Collection */}
+                      <div>
+                        <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
+                          Expected Target Collection (₱) <span className="text-[10px] font-normal text-[#52605d]">(Optional)</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            min="0"
+                            step="any"
+                            value={colTargetAmount}
+                            onChange={(e) => {
+                              const targetValStr = e.target.value;
+                              setColTargetAmount(targetValStr);
+                              const count = approvedMembers.length;
+                              const targetNum = Number(targetValStr);
+                              if (targetValStr !== '' && !isNaN(targetNum) && targetNum >= 0) {
+                                const calculatedAmount = count > 0 ? Math.round((targetNum / count) * 100) / 100 : 0;
+                                setColAmount(calculatedAmount);
+                              }
+                            }}
+                            placeholder={approvedMembers.length > 0 ? `Auto: ₱${(approvedMembers.length * (Number(colAmount) || 0)).toLocaleString()}` : 'Auto: ₱0.00 (Muted)'}
+                            className="w-full pl-7 sm:pl-8 pr-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          />
+                          <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-xs font-bold text-[#52605d]">₱</span>
+                        </div>
+                        <p className="text-[10px] text-[#52605d] mt-1">
+                          Auto-calculated based on {approvedMembers.length} active member(s) (₱{colAmount || 0} × {approvedMembers.length} = ₱{(Number(colTargetAmount) || 0).toLocaleString()}).
+                        </p>
+                      </div>
+                    </>
+                  )}
+
+                  {/* Description */}
+                  <div>
+                    <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
+                      Description / Details
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={colDescription}
+                      onChange={(e) => setColDescription(e.target.value)}
+                      placeholder={colType === 'Donation' ? 'Notes regarding the donation cause or benefactor...' : 'Details about what this custom collection covers...'}
+                      className="w-full px-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] resize-none"
+                    />
+                  </div>
+                </div>
+
+                {/* Fixed Footer Buttons */}
+                <div className="p-3 sm:p-4 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-2.5 sm:gap-3 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowCollectionModal(false)}
+                    className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-5 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5"
+                    className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5 ${
+                      colType === 'Donation'
+                        ? 'bg-emerald-700 hover:bg-emerald-800'
+                        : 'bg-[#1b4332] hover:bg-[#2d6a4f]'
+                    }`}
                   >
-                    <CheckCircle2 className="w-4 h-4 text-[#74c69d]" />
-                    <span>{editingCollection ? 'Save Collection' : 'Create Collection'}</span>
+                    <CheckCircle2 className="w-4 h-4 text-emerald-200 shrink-0" />
+                    <span className="truncate">
+                      {editingCollection
+                        ? (colType === 'Donation' ? 'Save Donation' : 'Save Collection')
+                        : (colType === 'Donation' ? 'Log Donation' : 'Create Collection')}
+                    </span>
                   </button>
                 </div>
               </form>
@@ -3084,6 +3829,38 @@ export const Settings: React.FC = () => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Hidden File Input for Importing Zip Archives */}
+      <input
+        type="file"
+        ref={zipInputRef}
+        onChange={handleImportZipFile}
+        accept=".zip,application/zip"
+        className="hidden"
+      />
+
+      {/* Yearly Archive Modal */}
+      <YearlyArchiveModal
+        isOpen={showYearlyArchiveModal}
+        onClose={() => setShowYearlyArchiveModal(false)}
+        records={reportPayments}
+        expenses={reportExpenses}
+        users={reportUsers}
+        dynamicCols={dynamicCollections}
+        currentUser={currentUser}
+        onArchiveComplete={handleArchiveComplete}
+        deleteRecordsForYear={deleteRecordsForYear}
+      />
+
+      {/* Archive Export Modal for Imported Zip Files */}
+      <ArchiveExportModal
+        isOpen={showArchiveExportModal}
+        onClose={() => {
+          setShowArchiveExportModal(false);
+          setImportedArchiveData(null);
+        }}
+        data={importedArchiveData}
+      />
 
       <OfficialLoader isLoading={isProcessing} message="Deleting..." />
     </div>

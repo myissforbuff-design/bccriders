@@ -146,7 +146,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
   const [streetAddress, setStreetAddress] = useState(initStreet);
   const [address, setAddress] = useState(cleanBarangayCityAddress(initialData?.address, initStreet));
   const [network, setNetwork] = useState(initialData?.network || '');
-  const [chapter, setChapter] = useState(initialData?.chapter || '');
+  const [chapter, setChapter] = useState(initialData?.chapter || 'Buhangin (Main)');
   const [civilStatus, setCivilStatus] = useState(initialData?.civilStatus || 'Single');
   const [leadersName, setLeadersName] = useState(initialData?.leadersName || '');
   const [leadersContactNo, setLeadersContactNo] = useState(initialData?.leadersContactNo || '');
@@ -965,17 +965,15 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
               className={inputStyle}
             />
           </div>
-          <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Chapter</label>
-            <input
-              type="text"
-              disabled={isReadOnly}
-              value={chapter}
-              onChange={(e) => setChapter(e.target.value)}
-              placeholder="e.g. Buhangin Chapter / Main"
-              className={inputStyle}
-            />
-          </div>
+          <InteractiveSelect
+            label="Chapter"
+            value={chapter || 'Buhangin (Main)'}
+            onChange={setChapter}
+            disabled={isReadOnly}
+            options={[
+              { value: 'Buhangin (Main)', label: 'Buhangin (Main)' },
+            ]}
+          />
         </div>
 
         {/* Civil Status, Birthdate, Age, Gender */}
@@ -1311,7 +1309,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="font-bold text-[#1b4332] block mb-1">Driver's License No.</label>
+              <label className="font-bold text-[#1b4332] block mb-1">
+                Driver's License No. {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+              </label>
               <input
                 type="text"
                 disabled={isReadOnly}
@@ -1322,7 +1322,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
               />
             </div>
             <div>
-              <label className="font-bold text-[#1b4332] block mb-1">License Expiry Date</label>
+              <label className="font-bold text-[#1b4332] block mb-1">
+                License Expiry Date {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+              </label>
               <input
                 type="date"
                 disabled={isReadOnly}
@@ -1439,7 +1441,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Bike Make</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Bike Make {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
             <input
               type="text"
               disabled={isReadOnly}
@@ -1450,7 +1454,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             />
           </div>
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Bike Model</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Bike Model {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
             <input
               type="text"
               disabled={isReadOnly}
@@ -1462,7 +1468,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
           </div>
           <div>
             <label className="font-bold text-[#1b4332] block mb-1">
-              Engine Displacement (CC) <span className="text-[#52605d] font-normal text-[10px]">(Numbers only)</span>
+              Engine Displacement (CC) {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
             </label>
             <input
               type="text"
@@ -1478,7 +1484,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Color</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Color {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
             <input
               type="text"
               disabled={isReadOnly}
@@ -1489,7 +1497,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             />
           </div>
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Plate No.</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Plate No. {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
             <input
               type="text"
               disabled={isReadOnly}
@@ -1501,6 +1511,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
           </div>
           <InteractiveSelect
             label="Status / Condition"
+            required
             value={bikeCondition}
             onChange={setBikeCondition}
             disabled={isReadOnly}
@@ -1517,7 +1528,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label className="font-bold text-[#1b4332] block mb-1">
-              Vehicle's Years in Service <span className="text-[#52605d] font-normal text-[10px]">(Numbers only)</span>
+              Vehicle's Years in Service {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
             </label>
             <input
               type="text"
@@ -1531,7 +1542,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             />
           </div>
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Engine Number</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Engine Number {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
             <input
               type="text"
               disabled={isReadOnly}
@@ -1542,7 +1555,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             />
           </div>
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">Chassis / VIN Number</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              Chassis / VIN Number {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
             <input
               type="text"
               disabled={isReadOnly}
@@ -1556,7 +1571,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">CR No (Certificate of Reg)</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              CR No (Certificate of Reg) {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
             <input
               type="text"
               disabled={isReadOnly}
@@ -1567,7 +1584,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             />
           </div>
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">OR No (Official Receipt)</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              OR No (Official Receipt) {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
             <input
               type="text"
               disabled={isReadOnly}
@@ -1578,7 +1597,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             />
           </div>
           <div>
-            <label className="font-bold text-[#1b4332] block mb-1">OR Expiry Date</label>
+            <label className="font-bold text-[#1b4332] block mb-1">
+              OR Expiry Date {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
             <input
               type="date"
               disabled={isReadOnly}

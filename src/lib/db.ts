@@ -10,6 +10,7 @@ import {
   INITIAL_FINANCE_SETTINGS,
   INITIAL_MONTHLY_DUES,
   INITIAL_DYNAMIC_COLLECTIONS,
+  INITIAL_SECURITY_SETTINGS,
 } from './mockData';
 import {
   User,
@@ -23,6 +24,8 @@ import {
   FinanceSettings,
   MonthlyDue,
   DynamicCollection,
+  SecuritySettings,
+  FinanceYearArchive,
 } from '../types';
 
 // Storage Keys for local state persistence
@@ -38,6 +41,8 @@ const STORAGE_KEYS = {
   FINANCE_SETTINGS: 'bcc_finance_settings_v1',
   MONTHLY_DUES: 'bcc_monthly_dues_v2',
   DYNAMIC_COLLECTIONS: 'bcc_dynamic_collections_v2',
+  SECURITY_SETTINGS: 'bcc_security_settings_v1',
+  FINANCE_ARCHIVES: 'bcc_finance_yearly_archives_v1',
   CURRENT_USER: 'bcc_current_user_id_v2',
 };
 
@@ -231,6 +236,8 @@ export class DataStoreService {
   private financeSettings: FinanceSettings;
   private monthlyDues: MonthlyDue[];
   private dynamicCollections: DynamicCollection[];
+  private securitySettings: SecuritySettings;
+  private financeArchives: FinanceYearArchive[];
   private currentUserId: string;
 
   constructor() {
@@ -260,6 +267,14 @@ export class DataStoreService {
       STORAGE_KEYS.DYNAMIC_COLLECTIONS,
       INITIAL_DYNAMIC_COLLECTIONS
     );
+    this.securitySettings = loadFromStorage(
+      STORAGE_KEYS.SECURITY_SETTINGS,
+      INITIAL_SECURITY_SETTINGS
+    );
+    this.financeArchives = loadFromStorage(
+      STORAGE_KEYS.FINANCE_ARCHIVES,
+      []
+    );
     this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
 
     // Init MongoDB background synchronization
@@ -281,8 +296,8 @@ export class DataStoreService {
         const pendingRegistrations = (dataRegistration.success && Array.isArray(dataRegistration.data)) ? dataRegistration.data : [];
 
         if (activeMembers.length > 0 || pendingRegistrations.length > 0) {
-          // Merge active members and pending registration forms
-          this.users = [...activeMembers, ...pendingRegistrations];
+          // Merge active members and pending registration forms with guaranteed usernames
+          this.users = [...activeMembers, ...pendingRegistrations].map((u) => this.sanitizeUser(u));
           saveToStorage(STORAGE_KEYS.USERS, this.users);
         } else {
           // Seed initial data into MongoDB if collection is empty
@@ -313,6 +328,7 @@ export class DataStoreService {
             this.financeSettings = {
               membershipFee: Number(finSettingsDoc.membershipFee) || 500,
               annualFee: Number(finSettingsDoc.annualFee) || 1200,
+              annualPromoEnabled: finSettingsDoc.annualPromoEnabled !== undefined ? Boolean(finSettingsDoc.annualPromoEnabled) : true,
             };
             saveToStorage(STORAGE_KEYS.FINANCE_SETTINGS, this.financeSettings);
           }
@@ -344,6 +360,14 @@ export class DataStoreService {
               status: (c.status || 'Active') as 'Active' | 'Completed' | 'Archived',
             }));
             saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
+          }
+
+          const secSettingsDoc = dataSettings.data.find((s: any) => s.id === 'security_settings' || s.category === 'security');
+          if (secSettingsDoc) {
+            this.securitySettings = {
+              adminOtpEnabled: secSettingsDoc.adminOtpEnabled !== undefined ? Boolean(secSettingsDoc.adminOtpEnabled) : true,
+            };
+            saveToStorage(STORAGE_KEYS.SECURITY_SETTINGS, this.securitySettings);
           }
         }
       } catch (err) {
@@ -382,25 +406,91 @@ export class DataStoreService {
     }
   }
 
-  // Auth / Login Simulation
-  login(usernameOrEmail: string, passwordAttempt: string): User | null {
-    const normalizedInput = (usernameOrEmail || '').trim().toLowerCase();
+  // Helper to ensure all required User fields are present and clean
+  private sanitizeUser(user: User): User {
+    const emailStr = (user.email || '').trim();
+    const fallbackUsername = emailStr ? emailStr.split('@')[0] : `rider_${String(user.id || Date.now()).slice(-4)}`;
+    const rawUsername = (user.username || '').trim();
+    const cleanUsername = rawUsername || fallbackUsername;
+
+    return {
+      ...user,
+      username: cleanUsername,
+      email: emailStr,
+      approvalStatus: user.approvalStatus || 'Approved',
+      role: user.role || 'Member',
+      memberNumber: user.memberNumber || 'BRC-0000',
+    };
+  }
+
+  // Check credentials strictly by registered Username (used for 2FA OTP flow)
+  checkCredentials(usernameInput: string, passwordAttempt: string): { success: boolean; user?: User; error?: string } {
+    const rawInput = (usernameInput || '').trim();
+    const normalizedUsername = rawInput.toLowerCase();
     const cleanPassword = (passwordAttempt || '').trim();
 
-    const matched = this.users.find(
-      (u) =>
-        (u.username && u.username.trim().toLowerCase() === normalizedInput) ||
-        (u.email && u.email.trim().toLowerCase() === normalizedInput) ||
-        (u.memberNumber && u.memberNumber.trim().toLowerCase() === normalizedInput) ||
-        (normalizedInput === 'admin' && (u.role === 'admin' || u.role?.toLowerCase() === 'admin'))
-    );
+    if (!normalizedUsername || !cleanPassword) {
+      return { success: false, error: 'Please enter both your registered username and password.' };
+    }
+
+    const matched = this.users.find((u) => {
+      const uUsername = (u.username || '').trim().toLowerCase();
+      const uRole = (u.role || '').trim().toLowerCase();
+
+      return (
+        (uUsername && uUsername === normalizedUsername) ||
+        (normalizedUsername === 'admin' && (uRole === 'admin' || u.role === 'admin'))
+      );
+    });
+
+    if (!matched) {
+      return { success: false, error: 'Invalid Username or Password.' };
+    }
+
+    if (matched.approvalStatus === 'Pending') {
+      return {
+        success: false,
+        error: 'Registration Pending: Your member application is currently awaiting admin approval before you can sign in to the portal.',
+      };
+    }
+
+    const expectedPassword = (matched.password || 'bccriders123').trim();
+    if (cleanPassword !== expectedPassword) {
+      return { success: false, error: 'Invalid Username or Password.' };
+    }
+
+    return { success: true, user: this.sanitizeUser(matched) };
+  }
+
+  // Authorize sign-in directly after successful 2FA OTP verification
+  loginWithUserId(userId: string): User | null {
+    return this.setCurrentUser(userId);
+  }
+
+  // Auth / Login Simulation strictly by registered Username
+  login(usernameInput: string, passwordAttempt: string): User | null {
+    const rawInput = (usernameInput || '').trim();
+    const normalizedUsername = rawInput.toLowerCase();
+    const cleanPassword = (passwordAttempt || '').trim();
+
+    if (!normalizedUsername || !cleanPassword) return null;
+
+    const matched = this.users.find((u) => {
+      const uUsername = (u.username || '').trim().toLowerCase();
+      const uRole = (u.role || '').trim().toLowerCase();
+
+      return (
+        (uUsername && uUsername === normalizedUsername) ||
+        (normalizedUsername === 'admin' && (uRole === 'admin' || u.role === 'admin'))
+      );
+    });
 
     if (matched) {
       if (matched.approvalStatus === 'Pending') {
         return null;
       }
-      const expectedPassword = matched.password || 'bccriders123';
-      if (cleanPassword !== (expectedPassword || '').trim()) {
+      const expectedPassword = (matched.password || 'bccriders123').trim();
+      if (cleanPassword !== expectedPassword) {
         return null;
       }
       return this.setCurrentUser(matched.id);
@@ -414,42 +504,63 @@ export class DataStoreService {
     return this.users;
   }
 
+  updateUserPassword(email: string, newPassword: string): boolean {
+    const cleanEmail = (email || '').trim().toLowerCase();
+    const cleanPassword = (newPassword || '').trim();
+    let updated = false;
+
+    this.users = this.users.map((u) => {
+      if (u.email && u.email.trim().toLowerCase() === cleanEmail) {
+        updated = true;
+        return { ...u, password: cleanPassword };
+      }
+      return u;
+    });
+
+    if (updated) {
+      saveToStorage(STORAGE_KEYS.USERS, this.users);
+    }
+    return updated;
+  }
+
   updateUser(updatedUser: User): User {
-    this.users = this.users.map((u) => (u.id === updatedUser.id ? updatedUser : u));
+    const sanitized = this.sanitizeUser(updatedUser);
+    this.users = this.users.map((u) => (u.id === sanitized.id ? sanitized : u));
     saveToStorage(STORAGE_KEYS.USERS, this.users);
 
-    const endpoint = updatedUser.approvalStatus === 'Pending' ? '/api/mongodb/registration' : '/api/mongodb/members';
+    const endpoint = sanitized.approvalStatus === 'Pending' ? '/api/mongodb/registration' : '/api/mongodb/members';
 
     // Sync to MongoDB asynchronously
     fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updatedUser),
+      body: JSON.stringify(sanitized),
     }).catch((err) => console.warn('MongoDB updateUser sync error:', err));
 
-    if (updatedUser.approvalStatus === 'Approved') {
-      this.recordMembershipFeePayment(updatedUser);
+    if (sanitized.approvalStatus === 'Approved') {
+      this.recordMembershipFeePayment(sanitized);
     }
 
-    return updatedUser;
+    return sanitized;
   }
 
   addUser(newUser: Partial<User>): User {
     const isPending = (newUser.approvalStatus || 'Pending') === 'Pending';
     const userId = newUser.id || (isPending ? `reg_${Date.now()}` : `usr_${Date.now()}`);
+    const emailStr = (newUser.email || '').trim();
+    const cleanUsername = (newUser.username || '').trim() || (emailStr ? emailStr.split('@')[0] : `rider_${Date.now().toString().slice(-4)}`);
+
     const user: User = {
       ...newUser,
       id: userId,
-      username:
-        newUser.username ||
-        (newUser.email ? newUser.email.split('@')[0] : `rider_${Date.now().toString().slice(-4)}`),
+      username: cleanUsername,
       name: newUser.name || `${newUser.firstName || ''} ${newUser.lastName || ''}`.trim() || 'New Club Rider',
       firstName: newUser.firstName,
       lastName: newUser.lastName,
       birthdate: newUser.birthdate,
       age: newUser.age,
       gender: newUser.gender || 'Male',
-      email: newUser.email || 'rider@bccriders.org',
+      email: emailStr || 'rider@bccriders.org',
       password: newUser.password || 'bccriders123',
       role: newUser.role || 'Member',
       memberNumber: isPending ? 'Pending' : (newUser.memberNumber || `BRC-${String(this.users.length).padStart(4, '0')}`).replace(/^BCC-/, 'BRC-'),
@@ -466,7 +577,8 @@ export class DataStoreService {
       approvalStatus: isPending ? 'Pending' : 'Approved',
     };
 
-    this.users.unshift(user);
+    const finalUser = this.sanitizeUser(user);
+    this.users.unshift(finalUser);
     saveToStorage(STORAGE_KEYS.USERS, this.users);
 
     // Save to appropriate MongoDB collection: 'registration' if Pending, 'members' if Approved
@@ -474,14 +586,14 @@ export class DataStoreService {
     fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(user),
+      body: JSON.stringify(finalUser),
     }).catch((err) => console.warn('MongoDB addUser sync error:', err));
 
     if (!isPending) {
-      this.recordMembershipFeePayment(user);
+      this.recordMembershipFeePayment(finalUser);
     }
 
-    return user;
+    return finalUser;
   }
 
   // Helper to automatically record Membership Fee payment upon member approval
@@ -536,22 +648,25 @@ export class DataStoreService {
 
   // Approve a pending registration form, removing it from 'registration' table and transferring to 'members' table
   approveRegistration(approvedUser: User): User {
-    approvedUser.approvalStatus = 'Approved';
+    const sanitized = this.sanitizeUser({
+      ...approvedUser,
+      approvalStatus: 'Approved',
+    });
 
     // Update in local memory list
-    this.users = this.users.map((u) => (u.id === approvedUser.id ? approvedUser : u));
+    this.users = this.users.map((u) => (u.id === sanitized.id ? sanitized : u));
     saveToStorage(STORAGE_KEYS.USERS, this.users);
 
     // Call MongoDB transfer endpoint
-    fetch(`/api/mongodb/registration/accept/${approvedUser.id}`, {
+    fetch(`/api/mongodb/registration/accept/${sanitized.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(approvedUser),
+      body: JSON.stringify(sanitized),
     }).catch((err) => console.warn('MongoDB approveRegistration transfer error:', err));
 
-    this.recordMembershipFeePayment(approvedUser);
+    this.recordMembershipFeePayment(sanitized);
 
-    return approvedUser;
+    return sanitized;
   }
 
   deleteUser(userId: string): void {
@@ -1012,6 +1127,83 @@ export class DataStoreService {
     fetch(`/api/mongodb/settings/${id}`, {
       method: 'DELETE',
     }).catch((err) => console.warn('MongoDB dynamic collection delete notice:', err));
+  }
+
+  // Security Settings
+  getSecuritySettings(): SecuritySettings {
+    return this.securitySettings;
+  }
+
+  updateSecuritySettings(settings: Partial<SecuritySettings>): SecuritySettings {
+    this.securitySettings = {
+      ...this.securitySettings,
+      ...settings,
+    };
+    saveToStorage(STORAGE_KEYS.SECURITY_SETTINGS, this.securitySettings);
+
+    fetch('/api/settings/security', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(this.securitySettings),
+    }).catch((err) => console.warn('Server security settings sync notice:', err));
+
+    fetch('/api/mongodb/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'security_settings', category: 'security', ...this.securitySettings }),
+    }).catch((err) => console.warn('MongoDB security settings sync notice:', err));
+
+    return this.securitySettings;
+  }
+
+  // Finance Yearly Archives
+  getFinanceArchives(): FinanceYearArchive[] {
+    try {
+      const item = localStorage.getItem(STORAGE_KEYS.FINANCE_ARCHIVES);
+      if (item) {
+        const parsed = JSON.parse(item);
+        if (Array.isArray(parsed)) {
+          this.financeArchives = parsed;
+        }
+      }
+    } catch {}
+    return this.financeArchives;
+  }
+
+  saveFinanceArchive(archive: FinanceYearArchive): FinanceYearArchive {
+    const existingIdx = this.financeArchives.findIndex((a) => a.id === archive.id || a.year === archive.year);
+    if (existingIdx > -1) {
+      this.financeArchives[existingIdx] = { ...archive };
+    } else {
+      this.financeArchives.push(archive);
+    }
+    // Sort archives by year descending
+    this.financeArchives.sort((a, b) => b.year - a.year);
+    saveToStorage(STORAGE_KEYS.FINANCE_ARCHIVES, this.financeArchives);
+
+    fetch('/api/mongodb/financeArchives', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(archive),
+    }).catch((err) => console.warn('MongoDB financeArchives sync error:', err));
+
+    return archive;
+  }
+
+  deleteFinanceArchive(idOrYear: string | number): void {
+    this.financeArchives = this.financeArchives.filter(
+      (a) => a.id !== idOrYear && String(a.year) !== String(idOrYear)
+    );
+    saveToStorage(STORAGE_KEYS.FINANCE_ARCHIVES, this.financeArchives);
+
+    fetch(`/api/mongodb/financeArchives/${idOrYear}`, {
+      method: 'DELETE',
+    }).catch((err) => console.warn('MongoDB financeArchives delete error:', err));
+  }
+
+  getTotalCarriedOverTreasury(): number {
+    const archives = this.getFinanceArchives();
+    return archives.reduce((sum, a) => sum + (Number(a.carriedOverTreasury) || 0), 0);
   }
 }
 
