@@ -7,6 +7,22 @@ import { Resend } from 'resend';
 const app = express();
 const PORT = 3000;
 
+// Security Hardening: Enable Cloudflare Trust Proxy so client IPs are accurately parsed from CF-Connecting-IP & X-Forwarded-For
+app.set('trust proxy', 1);
+
+// Security Hardening: Remove Express signature to prevent server fingerprinting
+app.disable('x-powered-by');
+
+// Security Hardening: Apply essential HTTP security headers
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(self)');
+  next();
+});
+
 // Canonical domain redirect: Redirect default *.onrender.com traffic to custom domain bccriders.cc
 app.use((req, res, next) => {
   const host = req.headers.host || '';
