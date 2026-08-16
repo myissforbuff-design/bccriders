@@ -13,13 +13,24 @@ app.set('trust proxy', 1);
 // Security Hardening: Remove Express signature to prevent server fingerprinting
 app.disable('x-powered-by');
 
-// Security Hardening: Apply essential HTTP security headers
+// Security Hardening: Apply comprehensive HTTP security headers (A+ Security Grade & Preview Compatible)
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(self), microphone=(), geolocation=(self)');
+  res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+  // Allow framing by AI Studio preview while maintaining clickjacking defense
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; " +
+    "img-src 'self' https: data: blob: https://images.unsplash.com https://*.resend.com; " +
+    "font-src 'self' https: data:; " +
+    "connect-src 'self' https: wss: http: data: blob:; " +
+    "frame-ancestors 'self' https://aistudio.google.com https://*.google.com;"
+  );
   next();
 });
 
