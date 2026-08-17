@@ -1472,6 +1472,10 @@ export const Settings: React.FC = () => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(recs[existingIdx]),
           }).catch(err => console.warn('MongoDB update monthly due sync error:', err));
+        } else if (!hasAnnualPromo && recs[existingIdx].notes?.includes('Satisfied by Annual Upfront Promo Package')) {
+          fetch(`/api/mongodb/financeLogs/${recs[existingIdx].id}`, { method: 'DELETE' }).catch(() => {});
+          recs.splice(existingIdx, 1);
+          updated = true;
         } else if (!hasAnnualPromo && recs[existingIdx].status === 'Pending' && recs[existingIdx].amount !== due.amount) {
           recs[existingIdx].amount = due.amount;
           updated = true;
@@ -1977,158 +1981,6 @@ export const Settings: React.FC = () => {
       {/* SUB TAB 1: FINANCE SETTINGS */}
       {activeSubTab === 'finance' && (
         <div className="space-y-4 sm:space-y-6">
-          {/* Section: Yearly Financial Archiving & Audit */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#e2ece2]">
-              <div>
-                <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
-                  <Archive className="w-4 h-4 text-[#2d6a4f] shrink-0" />
-                  <span>Yearly Archiving</span>
-                </h2>
-                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 leading-snug">
-                  Audit and archive annual finances into .zip packages, or import previous archives.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setShowYearlyArchiveModal(true)}
-                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
-                  title="Audit & Archive Financial Year"
-                >
-                  <Archive className="w-3.5 h-3.5 text-[#74c69d] shrink-0" />
-                  <span className="truncate">Archive Year</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => zipInputRef.current?.click()}
-                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#d8f3dc] hover:bg-[#b7e4c7] text-[#1b4332] border border-[#b7e4c7] rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
-                  title="Import .zip Archive Package"
-                >
-                  <Upload className="w-3.5 h-3.5 text-[#1b4332] shrink-0" />
-                  <span className="truncate">Import .zip</span>
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs">
-              <div className="bg-[#f7f9f7] p-2.5 sm:p-3.5 rounded-xl border border-[#e2ece2] space-y-0.5">
-                <span className="font-bold text-[#1b4332] text-xs flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
-                  Remaining Funds Handling
-                </span>
-                <p className="text-[#52605d] text-[10.5px] sm:text-[11px] leading-relaxed">
-                  Record remaining funds manually as a payment note (e.g. 2021 Year-End Carryover).
-                </p>
-              </div>
-
-              <div className="bg-[#f7f9f7] p-2.5 sm:p-3.5 rounded-xl border border-[#e2ece2] space-y-0.5">
-                <span className="font-bold text-[#1b4332] text-xs flex items-center gap-1.5">
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
-                  Archive Import & Export
-                </span>
-                <p className="text-[#52605d] text-[10.5px] sm:text-[11px] leading-relaxed">
-                  Import .zip packages to inspect records and export Excel / PDF statements.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          {/* Section: Delete a Year's Transactions */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-rose-200/80 shadow-xs space-y-3">
-            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-rose-100">
-              <div>
-                <h2 className="font-heading text-sm sm:text-base font-black text-rose-900 flex items-center gap-2">
-                  <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
-                  <span>Delete Year Transactions</span>
-                </h2>
-                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 leading-snug">
-                  Permanently purge records for a fiscal year.
-                </p>
-              </div>
-
-              {deleteYearToast && (
-                <motion.div
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-bold flex items-center gap-1 shrink-0"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                  <span>{deleteYearToast}</span>
-                </motion.div>
-              )}
-            </div>
-
-            <div className="bg-rose-50/50 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-rose-200/60 space-y-2.5">
-              <div className="space-y-1">
-                <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] block">
-                  Fiscal Year
-                </label>
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      pattern="[0-9]*"
-                      maxLength={4}
-                      value={deleteYearInput}
-                      onChange={(e) => {
-                        const numericOnly = e.target.value.replace(/\D/g, '').slice(0, 4);
-                        setDeleteYearInput(numericOnly);
-                      }}
-                      placeholder="e.g. 2024"
-                      className={`w-full pl-8.5 pr-2.5 py-2 rounded-xl bg-white border text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-hidden placeholder:font-normal placeholder:text-stone-400 transition-colors ${
-                        isNoYearMatched
-                          ? 'border-rose-300 ring-1 ring-rose-200'
-                          : isYearMatched
-                          ? 'border-emerald-400 ring-1 ring-emerald-200'
-                          : 'border-[#e2ece2] focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
-                      }`}
-                    />
-                    <Calendar className={`w-3.5 h-3.5 absolute left-2.5 top-3 pointer-events-none ${
-                      isNoYearMatched ? 'text-rose-500' : isYearMatched ? 'text-emerald-600' : 'text-stone-400'
-                    }`} />
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={handleOpenDeleteYearModal}
-                    disabled={!isYearMatched || isDeletingYear}
-                    className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shrink-0 whitespace-nowrap ${
-                      isYearMatched && !isDeletingYear
-                        ? 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs active:scale-95'
-                        : 'bg-stone-100 text-stone-400 cursor-not-allowed border border-stone-200/80 opacity-70 select-none'
-                    }`}
-                  >
-                    <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                    <span>{isYearMatched ? `Delete FY ${deleteYearInput}` : 'Delete Year'}</span>
-                  </button>
-                </div>
-              </div>
-
-              {deleteYearInput.length === 4 && isYearMatched && (
-                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-emerald-100/70 border border-emerald-200 text-emerald-900 text-[11px] font-bold">
-                  <span className="flex items-center gap-1.5 truncate">
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                    <span>FY {deleteYearInput} Matched</span>
-                  </span>
-                  <span className="text-[10px] text-emerald-800 font-semibold shrink-0">
-                    {matchedYearRecords.length} recs, {matchedYearExpenses.length} exp
-                  </span>
-                </div>
-              )}
-
-              {deleteYearInput.length === 4 && isNoYearMatched && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-100/80 border border-rose-200 text-rose-800 text-[11px] font-bold">
-                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                  <span>No Year is matched</span>
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* Section 1: Standard Fee Configuration */}
           <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
@@ -3226,6 +3078,158 @@ export const Settings: React.FC = () => {
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Section: Yearly Financial Archiving & Audit */}
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#e2ece2]">
+              <div>
+                <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
+                  <Archive className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                  <span>Yearly Archiving</span>
+                </h2>
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 leading-snug">
+                  Audit and archive annual finances into .zip packages, or import previous archives.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowYearlyArchiveModal(true)}
+                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
+                  title="Audit & Archive Financial Year"
+                >
+                  <Archive className="w-3.5 h-3.5 text-[#74c69d] shrink-0" />
+                  <span className="truncate">Archive Year</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => zipInputRef.current?.click()}
+                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#d8f3dc] hover:bg-[#b7e4c7] text-[#1b4332] border border-[#b7e4c7] rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
+                  title="Import .zip Archive Package"
+                >
+                  <Upload className="w-3.5 h-3.5 text-[#1b4332] shrink-0" />
+                  <span className="truncate">Import .zip</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs">
+              <div className="bg-[#f7f9f7] p-2.5 sm:p-3.5 rounded-xl border border-[#e2ece2] space-y-0.5">
+                <span className="font-bold text-[#1b4332] text-xs flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  Remaining Funds Handling
+                </span>
+                <p className="text-[#52605d] text-[10.5px] sm:text-[11px] leading-relaxed">
+                  Record remaining funds manually as a payment note (e.g. 2021 Year-End Carryover).
+                </p>
+              </div>
+
+              <div className="bg-[#f7f9f7] p-2.5 sm:p-3.5 rounded-xl border border-[#e2ece2] space-y-0.5">
+                <span className="font-bold text-[#1b4332] text-xs flex items-center gap-1.5">
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  Archive Import & Export
+                </span>
+                <p className="text-[#52605d] text-[10.5px] sm:text-[11px] leading-relaxed">
+                  Import .zip packages to inspect records and export Excel / PDF statements.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Section: Delete a Year's Transactions */}
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-rose-200/80 shadow-xs space-y-3">
+            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-rose-100">
+              <div>
+                <h2 className="font-heading text-sm sm:text-base font-black text-rose-900 flex items-center gap-2">
+                  <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Delete Year Transactions</span>
+                </h2>
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 leading-snug">
+                  Permanently purge records for a fiscal year.
+                </p>
+              </div>
+
+              {deleteYearToast && (
+                <motion.div
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-bold flex items-center gap-1 shrink-0"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                  <span>{deleteYearToast}</span>
+                </motion.div>
+              )}
+            </div>
+
+            <div className="bg-rose-50/50 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-rose-200/60 space-y-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] block">
+                  Fiscal Year
+                </label>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
+                      value={deleteYearInput}
+                      onChange={(e) => {
+                        const numericOnly = e.target.value.replace(/\D/g, '').slice(0, 4);
+                        setDeleteYearInput(numericOnly);
+                      }}
+                      placeholder="e.g. 2024"
+                      className={`w-full pl-8.5 pr-2.5 py-2 rounded-xl bg-white border text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-hidden placeholder:font-normal placeholder:text-stone-400 transition-colors ${
+                        isNoYearMatched
+                          ? 'border-rose-300 ring-1 ring-rose-200'
+                          : isYearMatched
+                          ? 'border-emerald-400 ring-1 ring-emerald-200'
+                          : 'border-[#e2ece2] focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
+                      }`}
+                    />
+                    <Calendar className={`w-3.5 h-3.5 absolute left-2.5 top-3 pointer-events-none ${
+                      isNoYearMatched ? 'text-rose-500' : isYearMatched ? 'text-emerald-600' : 'text-stone-400'
+                    }`} />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenDeleteYearModal}
+                    disabled={!isYearMatched || isDeletingYear}
+                    className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shrink-0 whitespace-nowrap ${
+                      isYearMatched && !isDeletingYear
+                        ? 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs active:scale-95'
+                        : 'bg-stone-100 text-stone-400 cursor-not-allowed border border-stone-200/80 opacity-70 select-none'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>{isYearMatched ? `Delete FY ${deleteYearInput}` : 'Delete Year'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {deleteYearInput.length === 4 && isYearMatched && (
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-emerald-100/70 border border-emerald-200 text-emerald-900 text-[11px] font-bold">
+                  <span className="flex items-center gap-1.5 truncate">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                    <span>FY {deleteYearInput} Matched</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-800 font-semibold shrink-0">
+                    {matchedYearRecords.length} recs, {matchedYearExpenses.length} exp
+                  </span>
+                </div>
+              )}
+
+              {deleteYearInput.length === 4 && isNoYearMatched && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-100/80 border border-rose-200 text-rose-800 text-[11px] font-bold">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span>No Year is matched</span>
+                </div>
+              )}
             </div>
           </div>
 

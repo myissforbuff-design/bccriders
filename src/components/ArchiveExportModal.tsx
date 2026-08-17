@@ -416,39 +416,45 @@ export const ArchiveExportModal: React.FC<ArchiveExportModalProps> = ({
 
           {/* TAB 6: AGING & COMPLIANCE */}
           {activeCategory === 'aging' && (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-[11px] sm:text-xs border-collapse">
-                <thead>
-                  <tr className="bg-[#1b4332] text-white">
-                    <th className="p-2 rounded-l-lg">Member</th>
-                    <th className="p-2">Reg. Fee</th>
-                    <th className="p-2">Promo</th>
-                    <th className="p-2">Paid</th>
-                    <th className="p-2">Overdue</th>
-                    <th className="p-2 rounded-r-lg">Compliance</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-stone-100 bg-white">
-                  {agingAndCompliance.map((c) => (
-                    <tr key={c.memberId} className="hover:bg-stone-50">
-                      <td className="p-2 font-bold text-stone-900">
-                        {c.memberName} <span className="text-[10px] text-stone-700 font-normal">({c.memberNo})</span>
-                      </td>
-                      <td className="p-2">
-                        <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
-                          c.membershipFeePaid ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {c.membershipFeePaid ? 'PAID' : 'UNPAID'}
-                        </span>
-                      </td>
-                      <td className="p-2 text-stone-800">{c.annualPromoEnrolled ? 'Promo (₱1k)' : 'Monthly'}</td>
-                      <td className="p-2 font-bold text-stone-900">{c.paidMonthsCount} / 12</td>
-                      <td className="p-2 font-bold text-amber-900">₱{c.overdueAmount.toLocaleString()}.00</td>
-                      <td className="p-2 font-black text-emerald-800">{c.complianceRate}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div>
+              {agingAndCompliance.length === 0 ? (
+                <div className="p-4 text-center text-xs text-stone-600">No member aging or compliance records found for this fiscal year.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-[11px] sm:text-xs border-collapse">
+                    <thead>
+                      <tr className="bg-[#1b4332] text-white">
+                        <th className="p-2 rounded-l-lg">Member</th>
+                        <th className="p-2">Reg. Fee</th>
+                        <th className="p-2">Promo</th>
+                        <th className="p-2">Paid</th>
+                        <th className="p-2">Overdue</th>
+                        <th className="p-2 rounded-r-lg">Compliance</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-stone-100 bg-white">
+                      {agingAndCompliance.map((c) => (
+                        <tr key={c.memberId} className="hover:bg-stone-50">
+                          <td className="p-2 font-bold text-stone-900">
+                            {c.memberName} <span className="text-[10px] text-stone-700 font-normal">({c.memberNo})</span>
+                          </td>
+                          <td className="p-2">
+                            <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold ${
+                              c.membershipFeePaid ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {c.membershipFeePaid ? 'PAID' : 'UNPAID'}
+                            </span>
+                          </td>
+                          <td className="p-2 text-stone-800">{c.annualPromoEnrolled ? 'Promo (₱1k)' : 'Monthly'}</td>
+                          <td className="p-2 font-bold text-stone-900">{c.paidMonthsCount} / 12</td>
+                          <td className="p-2 font-bold text-amber-900">₱{c.overdueAmount.toLocaleString()}.00</td>
+                          <td className="p-2 font-black text-emerald-800">{c.complianceRate}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           )}
 

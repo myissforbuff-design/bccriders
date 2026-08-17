@@ -399,6 +399,33 @@ export const Finances: React.FC = () => {
         hasNew = true;
       }
 
+      // 0.6. Clean up / purge any orphan records with 'Satisfied by Annual Upfront Promo Package' where the user has no paid Annual Upfront Promo
+      const lenBeforePromoCleanup = updatedList.length;
+      const paidPromoUserYears = new Set(
+        updatedList
+          .filter(r => r.itemType === 'Annual Upfront Promo' && r.status === 'Paid')
+          .map(r => {
+            const yr = r.coveredMonth?.match(/\d{4}/)?.[0] || r.paidDate?.slice(0, 4) || r.dueDate?.slice(0, 4) || String(new Date().getFullYear());
+            return `${r.userId}_${yr}`;
+          })
+      );
+
+      updatedList = updatedList.filter(r => {
+        if (r.notes?.includes('Satisfied by Annual Upfront Promo Package')) {
+          const recYear = r.coveredMonth?.match(/\d{4}/)?.[0] || r.paidDate?.slice(0, 4) || r.dueDate?.slice(0, 4) || String(new Date().getFullYear());
+          const key = `${r.userId}_${recYear}`;
+          if (!paidPromoUserYears.has(key)) {
+            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (updatedList.length !== lenBeforePromoCleanup) {
+        hasNew = true;
+      }
+
       // 1. Membership Fees
       updatedList = updatedList.map(r => {
         if (r.itemType === 'Membership Fee' && (r.id.startsWith('rec_mf_') || r.amount === 1500 || r.notes?.includes('Automated'))) {
@@ -519,6 +546,11 @@ export const Finances: React.FC = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedRec),
               }).catch(err => console.warn('MongoDB sync notice:', err));
+            } else if (!hasAnnualPromo && existingRec.notes?.includes('Satisfied by Annual Upfront Promo Package')) {
+              // Promo was deleted or is not present; remove this auto-generated satisfied record completely
+              hasNew = true;
+              fetch(`/api/mongodb/financeLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
+              updatedList.splice(existsIdx, 1);
             } else if (!hasAnnualPromo && existingRec.status === 'Pending' && existingRec.amount !== due.amount) {
               hasNew = true;
               const updatedRec = { ...existingRec, amount: due.amount };
@@ -1550,9 +1582,50 @@ export const Finances: React.FC = () => {
     await runWithLoader(
       async () => {
         if (deleteTarget.type === 'fund') {
-          const updated = records.filter(r => r.id !== deleteTarget.id);
+          const targetRec = records.find(r => r.id === deleteTarget.id);
+          let updated = records.filter(r => r.id !== deleteTarget.id);
+          const syncDeletePromises: Promise<any>[] = [deleteRecordFromMongo(deleteTarget.id)];
+
+          // If the deleted record is an Annual Upfront Promo, completely delete all satisfied/auto-generated records for that promo
+          if (
+            targetRec?.itemType === 'Annual Upfront Promo' ||
+            deleteTarget.title?.toLowerCase().includes('annual upfront promo') ||
+            targetRec?.customItemName?.toLowerCase().includes('annual upfront promo')
+          ) {
+            const promoUserId = targetRec?.userId;
+            const promoYear =
+              targetRec?.coveredMonth?.match(/\d{4}/)?.[0] ||
+              targetRec?.paidDate?.slice(0, 4) ||
+              targetRec?.dueDate?.slice(0, 4) ||
+              targetRec?.customItemName?.match(/\d{4}/)?.[0] ||
+              String(new Date().getFullYear());
+
+            if (promoUserId) {
+              updated = updated.filter(r => {
+                const isSameUser = r.userId === promoUserId;
+                const isSameYear =
+                  !r.coveredMonth ||
+                  r.coveredMonth.includes(promoYear) ||
+                  r.dueDate?.startsWith(promoYear) ||
+                  r.paidDate?.startsWith(promoYear);
+
+                if (isSameUser && isSameYear) {
+                  if (
+                    r.notes?.includes('Satisfied by Annual Upfront Promo Package') ||
+                    r.id.startsWith('rec_md_') ||
+                    r.itemType === 'Annual Upfront Promo'
+                  ) {
+                    syncDeletePromises.push(deleteRecordFromMongo(r.id));
+                    return false;
+                  }
+                }
+                return true;
+              });
+            }
+          }
+
           saveRecordsToStorage(updated);
-          await deleteRecordFromMongo(deleteTarget.id);
+          await Promise.all(syncDeletePromises);
         } else {
           const updated = expenses.filter(x => x.id !== deleteTarget.id);
           saveExpensesToStorage(updated);

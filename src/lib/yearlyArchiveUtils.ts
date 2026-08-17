@@ -36,7 +36,7 @@ export function buildArchivePackageData(params: {
     return eDate.includes(yearStr);
   });
 
-  // Active Approved Non-Admin Members
+  // Active Approved Non-Admin Members who were part of this fiscal year or have records in it
   const activeMembersList = users.filter((u) => {
     const isUserAdmin =
       u.role === 'admin' ||
@@ -45,7 +45,17 @@ export function buildArchivePackageData(params: {
       u.id === 'usr_admin' ||
       u.id === 'admin';
     if (isUserAdmin) return false;
-    return u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin');
+    const isApproved = u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin');
+    if (!isApproved) return false;
+
+    const hasYearRecords = yearRecords.some((r) => r.userId === u.id || r.userMemberNo === u.memberNumber);
+    if (hasYearRecords) return true;
+
+    const joinYear = u.joinDate ? parseInt(u.joinDate.slice(0, 4), 10) : NaN;
+    if (!isNaN(joinYear) && joinYear <= year) {
+      return yearRecords.length > 0;
+    }
+    return false;
   });
 
   // Calculate totals
@@ -140,36 +150,43 @@ export function buildArchivePackageData(params: {
   });
 
   // 6. Aging & Compliance
-  const agingAndCompliance = activeMembersList.map((u) => {
-    const userRecs = yearRecords.filter((r) => r.userId === u.id);
-    const hasMembershipFeePaid = userRecs.some((r) => r.itemType === 'Membership Fee' && r.status === 'Paid');
-    const hasAnnualPromo = userRecs.some((r) => r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
+  const agingAndCompliance = activeMembersList
+    .map((u) => {
+      const userRecs = yearRecords.filter((r) => r.userId === u.id);
+      const hasMembershipFeePaid = userRecs.some((r) => r.itemType === 'Membership Fee' && r.status === 'Paid');
+      const hasAnnualPromo = userRecs.some((r) => r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
 
-    const paidDues = userRecs.filter(
-      (r) => (r.itemType === 'Monthly Due' || r.itemType === 'Annual Upfront Promo') && r.status === 'Paid'
-    );
-    const pendingDues = userRecs.filter(
-      (r) => r.itemType === 'Monthly Due' && (r.status === 'Pending' || r.status === 'Overdue')
-    );
+      const paidDues = userRecs.filter(
+        (r) =>
+          ((r.itemType === 'Monthly Due' && (hasAnnualPromo || !r.notes?.includes('Satisfied by Annual Upfront Promo Package'))) ||
+            r.itemType === 'Annual Upfront Promo') &&
+          r.status === 'Paid'
+      );
+      const pendingDues = userRecs.filter(
+        (r) => r.itemType === 'Monthly Due' && (r.status === 'Pending' || r.status === 'Overdue')
+      );
 
-    const overdueAmount = pendingDues.reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
-    const paidMonthsCount = hasAnnualPromo ? 12 : paidDues.length;
-    const pendingMonthsCount = hasAnnualPromo ? 0 : pendingDues.length;
-    const complianceRate = hasAnnualPromo || paidMonthsCount >= 12 ? '100%' : `${Math.round((paidMonthsCount / 12) * 100)}%`;
+      const overdueAmount = pendingDues.reduce((acc, r) => acc + (Number(r.amount) || 0), 0);
+      const paidMonthsCount = hasAnnualPromo ? 12 : paidDues.length;
+      const pendingMonthsCount = hasAnnualPromo ? 0 : pendingDues.length;
+      const complianceRate = hasAnnualPromo || paidMonthsCount >= 12 ? '100%' : `${Math.round((paidMonthsCount / 12) * 100)}%`;
 
-    return {
-      memberId: u.id,
-      memberName: u.name,
-      memberNo: u.memberNumber || u.id,
-      role: u.role || 'Member',
-      membershipFeePaid: hasMembershipFeePaid,
-      annualPromoEnrolled: hasAnnualPromo,
-      paidMonthsCount,
-      pendingMonthsCount,
-      overdueAmount,
-      complianceRate,
-    };
-  });
+      return {
+        memberId: u.id,
+        memberName: u.name,
+        memberNo: u.memberNumber || u.id,
+        role: u.role || 'Member',
+        membershipFeePaid: hasMembershipFeePaid,
+        annualPromoEnrolled: hasAnnualPromo,
+        paidMonthsCount,
+        pendingMonthsCount,
+        overdueAmount,
+        complianceRate,
+        userRecsCount: userRecs.length,
+      };
+    })
+    .filter((c) => c.userRecsCount > 0)
+    .map(({ userRecsCount, ...rest }) => rest);
 
   // 7. Custom Projects
   const customProjects = dynamicCols.map((col) => {
@@ -357,8 +374,27 @@ export async function extractZipArchive(file: File | Blob): Promise<ArchivePacka
     expensesByCategory: {},
     monthlyBreakdown: [],
   });
-  const agingAndCompliance = await parseJsonFile('member_compliance.json', []);
+  const rawAgingAndCompliance = await parseJsonFile('member_compliance.json', []);
   const customProjects = await parseJsonFile('custom_projects.json', []);
+
+  // Sanitize Aging & Compliance in imported archives: filter out ghost rows with 0 transactions and 0 records
+  const agingAndCompliance = rawAgingAndCompliance.filter((c: any) => {
+    const hasTransactions = collectionsRegister.some(
+      (r: any) =>
+        (c.memberName && r.memberName?.toLowerCase() === c.memberName?.toLowerCase()) ||
+        (c.memberNo && r.memberNo === c.memberNo) ||
+        (c.memberId && (r.id?.includes(c.memberId) || r.memberNo === c.memberId))
+    );
+    const hasActivity =
+      Boolean(c.annualPromoEnrolled) ||
+      Number(c.paidMonthsCount || 0) > 0 ||
+      Number(c.pendingMonthsCount || 0) > 0 ||
+      Number(c.overdueAmount || 0) > 0 ||
+      Boolean(c.membershipFeePaid);
+
+    // Member must have collections/activity
+    return hasTransactions || (hasActivity && (Number(c.paidMonthsCount || 0) > 0 || Number(c.overdueAmount || 0) > 0));
+  });
 
   const year = manifest?.year || (collectionsRegister[0]?.date ? parseInt(collectionsRegister[0].date.slice(0, 4), 10) : new Date().getFullYear());
 
