@@ -534,6 +534,10 @@ export class DataStoreService {
 
   updateUser(updatedUser: User): User {
     const sanitized = this.sanitizeUser(updatedUser);
+    const previousUser = this.users.find((u) => u.id === sanitized.id);
+    const wasNotApproved = !previousUser || previousUser.approvalStatus !== 'Approved';
+    const isNowApproved = sanitized.approvalStatus === 'Approved';
+
     this.users = this.users.map((u) => (u.id === sanitized.id ? sanitized : u));
     saveToStorage(STORAGE_KEYS.USERS, this.users);
 
@@ -546,7 +550,18 @@ export class DataStoreService {
       body: JSON.stringify(sanitized),
     }).catch((err) => console.warn('MongoDB updateUser sync error:', err));
 
-    if (sanitized.approvalStatus === 'Approved') {
+    if (wasNotApproved && isNowApproved) {
+      // Clear from deleted tracking on fresh approval
+      try {
+        const delItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
+        if (delItem) {
+          const current: string[] = JSON.parse(delItem);
+          const filtered = current.filter((id) => id !== sanitized.id);
+          localStorage.setItem('bcc_deleted_membership_fee_user_ids', JSON.stringify(filtered));
+        }
+      } catch (e) {
+        console.error(e);
+      }
       this.recordMembershipFeePayment(sanitized);
     }
 
@@ -617,6 +632,19 @@ export class DataStoreService {
       console.error(e);
     }
 
+    // Check if membership fee was permanently deleted by admin/treasurer
+    try {
+      const delItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
+      if (delItem) {
+        const deletedUserIds: string[] = JSON.parse(delItem);
+        if (deletedUserIds.includes(approvedUser.id)) {
+          return;
+        }
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
     // Check if membership fee payment already exists for this user
     const exists = savedRecs.some(
       (r: any) => r.userId === approvedUser.id && r.itemType === 'Membership Fee'
@@ -661,6 +689,18 @@ export class DataStoreService {
       ...approvedUser,
       approvalStatus: 'Approved',
     });
+
+    // Clear from deleted tracking on approval
+    try {
+      const delItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
+      if (delItem) {
+        const current: string[] = JSON.parse(delItem);
+        const filtered = current.filter((id) => id !== sanitized.id);
+        localStorage.setItem('bcc_deleted_membership_fee_user_ids', JSON.stringify(filtered));
+      }
+    } catch (e) {
+      console.error(e);
+    }
 
     // Update in local memory list
     this.users = this.users.map((u) => (u.id === sanitized.id ? sanitized : u));

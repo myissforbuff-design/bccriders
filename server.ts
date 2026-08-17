@@ -1503,6 +1503,19 @@ app.delete('/api/mongodb/financeLogs/:id', async (req, res) => {
   }
 });
 
+app.delete('/api/mongodb/financeLogs', async (req, res) => {
+  const database = await getMongoDb();
+  const id = (req.query.id as string) || req.body?.id;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!id) return res.status(400).json({ error: 'id is required' });
+  try {
+    const result = await database.collection('financeLogs').deleteOne({ id });
+    res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // EXPENSE LOGS API ("expenseLogs" collection table)
 app.get('/api/mongodb/expenseLogs', async (req, res) => {
   const database = await getMongoDb();

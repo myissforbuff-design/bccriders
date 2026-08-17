@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { safeFetchJson, store } from '../lib/db';
+import { User as UserType } from '../types';
 import { OfficialDotSpinner } from './OfficialLoader';
+import { AttendanceTracker } from './AttendanceTracker';
 import {
   Calendar,
   CheckCircle,
@@ -19,6 +21,7 @@ import {
   Loader2,
   ChevronLeft,
   ChevronRight,
+  UserCheck,
 } from 'lucide-react';
 
 interface Attendance {
@@ -62,6 +65,27 @@ interface AttendanceLogDoc {
 export const ActivityLog: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
   const isMember = !isAdmin;
+
+  const [activeSubTab, setActiveSubTab] = useState<'events' | 'tracker'>(() => {
+    const saved = localStorage.getItem('bcc_activity_subtab');
+    return saved === 'tracker' ? 'tracker' : 'events';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('bcc_activity_subtab', activeSubTab);
+  }, [activeSubTab]);
+
+  const [usersList, setUsersList] = useState<UserType[]>(() => {
+    const local = store.getUsers() || [];
+    return local.filter(
+      (u) =>
+        u.role?.toLowerCase() !== 'admin' &&
+        u.role?.toLowerCase() !== 'administrator' &&
+        u.username?.toLowerCase() !== 'admin' &&
+        u.id !== 'usr_admin' &&
+        u.id !== 'admin'
+    );
+  });
 
   const [activities, setActivities] = useState<Activity[]>([]);
   const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLogDoc[]>([]);
@@ -107,8 +131,11 @@ export const ActivityLog: React.FC = () => {
       (u) =>
         u.role?.toLowerCase() !== 'admin' &&
         u.role?.toLowerCase() !== 'administrator' &&
-        u.username?.toLowerCase() !== 'admin'
+        u.username?.toLowerCase() !== 'admin' &&
+        u.id !== 'usr_admin' &&
+        u.id !== 'admin'
     );
+    setUsersList(nonAdminLocal);
     setRegisteredCount(nonAdminLocal.length);
 
     safeFetchJson('/api/mongodb/users')
@@ -118,8 +145,11 @@ export const ActivityLog: React.FC = () => {
             (u: any) =>
               u.role?.toLowerCase() !== 'admin' &&
               u.role?.toLowerCase() !== 'administrator' &&
-              u.username?.toLowerCase() !== 'admin'
+              u.username?.toLowerCase() !== 'admin' &&
+              u.id !== 'usr_admin' &&
+              u.id !== 'admin'
           );
+          setUsersList(nonAdminMongo);
           setRegisteredCount(nonAdminMongo.length);
         }
       })
@@ -390,9 +420,81 @@ export const ActivityLog: React.FC = () => {
     currentMemberPage * memberItemsPerPage
   );
 
+  if (activeSubTab === 'tracker') {
+    return (
+      <div className="space-y-4 sm:space-y-6 pb-12">
+        {/* Sub-Tab Navigation Header */}
+        <div className="flex p-1 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] w-full sm:w-auto self-start overflow-x-auto shadow-2xs">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('events')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+              activeSubTab === 'events'
+                ? 'bg-[#1b4332] text-white shadow-xs'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span>Activities & Events</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('tracker')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+              activeSubTab === 'tracker'
+                ? 'bg-[#1b4332] text-white shadow-xs'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
+            }`}
+          >
+            <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span>Attendance Tracker</span>
+          </button>
+        </div>
+
+        {/* Attendance Tracker View */}
+        <AttendanceTracker
+          activities={allCombinedActivities}
+          attendanceLogs={attendanceLogs}
+          users={usersList}
+          isLoading={isLoadingActivities || isLoadingLogs}
+        />
+      </div>
+    );
+  }
+
   if (isMember) {
     return (
-      <div className="space-y-6 pb-12">
+      <div className="space-y-4 sm:space-y-6 pb-12">
+        {/* Sub-Tab Navigation Header */}
+        <div className="flex p-1 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] w-full sm:w-auto self-start overflow-x-auto shadow-2xs">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('events')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+              activeSubTab === 'events'
+                ? 'bg-[#1b4332] text-white shadow-xs'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span>Activities & Events</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab('tracker')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+              activeSubTab === 'tracker'
+                ? 'bg-[#1b4332] text-white shadow-xs'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
+            }`}
+          >
+            <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span>Attendance Tracker</span>
+          </button>
+        </div>
+
         {/* Member Summary Header */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <div className="bg-white p-4 rounded-3xl border border-[#e2ece2] shadow-2xs space-y-1">
@@ -598,7 +700,36 @@ export const ActivityLog: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6 pb-12">
+    <div className="space-y-4 sm:space-y-6 pb-12">
+      {/* Sub-Tab Navigation Header */}
+      <div className="flex p-1 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] w-full sm:w-auto self-start overflow-x-auto shadow-2xs">
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('events')}
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            activeSubTab === 'events'
+              ? 'bg-[#1b4332] text-white shadow-xs'
+              : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
+          }`}
+        >
+          <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+          <span>Activities & Events</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveSubTab('tracker')}
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            activeSubTab === 'tracker'
+              ? 'bg-[#1b4332] text-white shadow-xs'
+              : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
+          }`}
+        >
+          <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+          <span>Attendance Tracker</span>
+        </button>
+      </div>
+
       {/* Header with Search and Create Activity */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 p-4 bg-white rounded-3xl border border-[#e2ece2] shadow-xs">
         <div className="flex items-center gap-2 flex-1 sm:max-w-md">

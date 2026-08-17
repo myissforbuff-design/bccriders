@@ -176,6 +176,7 @@ export const Finances: React.FC = () => {
 
   // Modal State for Funds
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
+  const [showConfirmRecordModal, setShowConfirmRecordModal] = useState(false);
   const [editingRecord, setEditingRecord] = useState<FinanceRecord | null>(null);
 
   // Form State for Payment Record
@@ -273,6 +274,7 @@ export const Finances: React.FC = () => {
     setShowAddRecordModal(false);
     setEditingRecord(null);
   });
+  useModalDismiss(showConfirmRecordModal, () => setShowConfirmRecordModal(false));
   useModalDismiss(showExpenseModal, () => {
     setShowExpenseModal(false);
     setEditingExpense(null);
@@ -426,24 +428,40 @@ export const Finances: React.FC = () => {
         hasNew = true;
       }
 
-      // 1. Membership Fees
-      updatedList = updatedList.map(r => {
-        if (r.itemType === 'Membership Fee' && (r.id.startsWith('rec_mf_') || r.amount === 1500 || r.notes?.includes('Automated'))) {
+      // 0.7. Clean up / purge any records that were permanently deleted by Admin/Treasurer
+      let deletedFeeUserIds: string[] = [];
+      try {
+        const dItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
+        if (dItem) deletedFeeUserIds = JSON.parse(dItem);
+      } catch (e) {
+        console.error(e);
+      }
+
+      let deletedRecordIds: string[] = [];
+      try {
+        const dRecItem = localStorage.getItem('bcc_deleted_finance_record_ids');
+        if (dRecItem) deletedRecordIds = JSON.parse(dRecItem);
+      } catch (e) {
+        console.error(e);
+      }
+
+      if (deletedRecordIds.length > 0 || deletedFeeUserIds.length > 0) {
+        const lenBeforeDelCheck = updatedList.length;
+        updatedList = updatedList.filter(r => {
+          if (deletedRecordIds.includes(r.id)) {
+            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            return false;
+          }
+          if (r.itemType === 'Membership Fee' && deletedFeeUserIds.includes(r.userId)) {
+            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            return false;
+          }
+          return true;
+        });
+        if (updatedList.length !== lenBeforeDelCheck) {
           hasNew = true;
-          const updatedRec = {
-            ...r,
-            amount: 200,
-            notes: 'Payment recorded upon member approval',
-          };
-          fetch('/api/mongodb/financeLogs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(updatedRec),
-          }).catch(err => console.warn('MongoDB fee update sync error:', err));
-          return updatedRec;
         }
-        return r;
-      });
+      }
 
       const approvedUsers = loadedUsers.filter(u => u.approvalStatus === 'Approved');
 
@@ -456,35 +474,7 @@ export const Finances: React.FC = () => {
         return;
       }
 
-      approvedUsers.forEach(u => {
-        const exists = updatedList.some(r => r.userId === u.id && r.itemType === 'Membership Fee');
-        if (!exists) {
-          hasNew = true;
-          const newFeeRec: FinanceRecord = {
-            id: `rec_mf_${u.id}`,
-            itemType: 'Membership Fee',
-            userId: u.id,
-            userName: u.name,
-            userMemberNo: u.memberNumber || 'BRC-MEMBER',
-            amount: 200,
-            dueDate: u.joinDate || todayStr,
-            paidDate: todayStr,
-            status: 'Paid',
-            paymentMethod: 'Cash',
-            referenceNo: undefined,
-            notes: 'Payment recorded upon member approval',
-            updatedAt: todayStr,
-          };
-          updatedList.unshift(newFeeRec);
-          fetch('/api/mongodb/financeLogs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newFeeRec),
-          }).catch(err => console.warn('MongoDB auto fee sync error:', err));
-        }
-      });
-
-      // 2. Monthly Dues
+      // 1. Monthly Dues
       const mDues = store.getMonthlyDues();
       mDues.forEach(due => {
         const coveredMonthStr = `${due.month} ${due.year}`;
@@ -861,8 +851,24 @@ export const Finances: React.FC = () => {
 
   const isPromoEnabled = finSettings?.annualPromoEnabled !== false;
 
+  const isMembershipFeePaidForSelectedMember = useMemo(() => {
+    if (!recUserId) return false;
+    return records.some(
+      r => r.userId === recUserId &&
+           r.itemType === 'Membership Fee' &&
+           r.status === 'Paid' &&
+           (!editingRecord || editingRecord.id !== r.id)
+    );
+  }, [recUserId, records, editingRecord]);
+
   const rawPaymentOptionsList: { value: string; label: string; disabled?: boolean }[] = [
-    { value: 'opt_membership_fee', label: `Membership Fee (₱${(Number(finSettings?.membershipFee) || 200).toLocaleString()})` },
+    {
+      value: 'opt_membership_fee',
+      label: isMembershipFeePaidForSelectedMember
+        ? `Membership Fee (₱${(Number(finSettings?.membershipFee) || 200).toLocaleString()}) - Already Paid`
+        : `Membership Fee (₱${(Number(finSettings?.membershipFee) || 200).toLocaleString()})`,
+      disabled: isMembershipFeePaidForSelectedMember,
+    },
     { value: 'opt_monthly_due', label: 'Monthly Due' },
     {
       value: 'opt_annual_promo',
@@ -875,8 +881,6 @@ export const Finances: React.FC = () => {
         ? `Donation Collection: ${col.name} (₱${(Number(col?.amount) || 0).toLocaleString()})`
         : `Custom Collection: ${col.name} (₱${(Number(col?.amount) || 0).toLocaleString()})`
     })),
-    { value: 'opt_donation_collection', label: 'Direct Donation Collection (Voluntary Fund / Contribution)' },
-    { value: 'opt_other', label: 'Other Item / Custom Assessment' },
   ];
 
   const paymentOptionsList = rawPaymentOptionsList.map(opt => ({
@@ -945,12 +949,97 @@ export const Finances: React.FC = () => {
     );
   }, [recItemType, recMonth, recYear, recUserId, records]);
 
+  // Form Validation for Recording Payment
+  const isRecordFormValid = useMemo(() => {
+    if (!hasMembers || !recUserId) return false;
+
+    const parsedAmount = parseFloat(recAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) return false;
+    if (!recDueDate || recDueDate.trim() === '') return false;
+    if (!recMethod) return false;
+
+    if (recItemType === 'Monthly Due') {
+      if (monthlyDuesList.length === 0) return false;
+      if (!recMonth || !recYear) return false;
+      const dueExists = monthlyDuesList.some(
+        d => String(d.year) === String(recYear) && d.month === recMonth
+      );
+      if (!dueExists) return false;
+      if (isSelectedMonthAlreadyPaid) return false;
+    } else if (recItemType === 'Annual Upfront Promo') {
+      if (!isPromoEnabled) return false;
+      if (!recYear) return false;
+    } else if (recItemType === 'Membership Fee') {
+      if (isMembershipFeePaidForSelectedMember) return false;
+    } else if (recItemType === 'Donation Collection' || recItemType === 'Other') {
+      if (!recCustomItemName || !recCustomItemName.trim()) return false;
+    }
+
+    return true;
+  }, [
+    hasMembers,
+    recUserId,
+    recAmount,
+    recDueDate,
+    recMethod,
+    recItemType,
+    recMonth,
+    recYear,
+    monthlyDuesList,
+    isSelectedMonthAlreadyPaid,
+    isPromoEnabled,
+    isMembershipFeePaidForSelectedMember,
+    recCustomItemName,
+  ]);
+
+  const recordFormInvalidReason = useMemo(() => {
+    if (!hasMembers) return 'No registered club members available to receive payment.';
+    if (!recUserId) return 'Please select a club member.';
+    if (recItemType === 'Membership Fee' && isMembershipFeePaidForSelectedMember) {
+      return 'This member has already paid their Membership Fee.';
+    }
+    if (recItemType === 'Monthly Due') {
+      if (monthlyDuesList.length === 0) return 'No monthly dues have been configured yet in Settings.';
+      if (!recMonth) return 'Please select an active covered month.';
+      const dueExists = monthlyDuesList.some(d => String(d.year) === String(recYear) && d.month === recMonth);
+      if (!dueExists) return `No monthly due created for ${recMonth} ${recYear}.`;
+      if (isSelectedMonthAlreadyPaid) return `${recMonth} ${recYear} is already recorded as paid for this member.`;
+    }
+    if (recItemType === 'Annual Upfront Promo' && !isPromoEnabled) {
+      return 'The Annual Upfront Promo package is currently disabled in Settings.';
+    }
+    if ((recItemType === 'Donation Collection' || recItemType === 'Other') && (!recCustomItemName || !recCustomItemName.trim())) {
+      return 'Please enter or select a valid collection item name.';
+    }
+    const parsedAmount = parseFloat(recAmount);
+    if (isNaN(parsedAmount) || parsedAmount <= 0) return 'Please specify a valid payment amount greater than ₱0.00.';
+    if (!recDueDate || !recDueDate.trim()) return 'Please choose a payment date.';
+    if (!recMethod) return 'Please select a payment method.';
+    return null;
+  }, [
+    hasMembers,
+    recUserId,
+    recItemType,
+    isMembershipFeePaidForSelectedMember,
+    monthlyDuesList,
+    recMonth,
+    recYear,
+    isSelectedMonthAlreadyPaid,
+    isPromoEnabled,
+    recCustomItemName,
+    recAmount,
+    recDueDate,
+    recMethod,
+  ]);
+
   const handleRecMonthChange = (m: string) => {
     setRecMonth(m);
     if (recItemType === 'Monthly Due') {
       const matchedDue = monthlyDuesList.find(d => `${d.month} ${d.year}` === `${m} ${recYear}`);
       if (matchedDue) {
         setRecAmount(String(matchedDue.amount));
+      } else {
+        setRecAmount('0');
       }
     }
   };
@@ -969,12 +1058,29 @@ export const Finances: React.FC = () => {
         }
       } else {
         setRecMonth('');
+        setRecAmount('0');
       }
+    }
+  };
+
+  const handleRecUserIdChange = (newUserId: string) => {
+    setRecUserId(newUserId);
+    const memberPaidMf = records.some(
+      r => r.userId === newUserId &&
+           r.itemType === 'Membership Fee' &&
+           r.status === 'Paid' &&
+           (!editingRecord || editingRecord.id !== r.id)
+    );
+    if (memberPaidMf && recOptionKey === 'opt_membership_fee') {
+      handleSelectPaymentOption('opt_monthly_due');
     }
   };
 
   const handleSelectPaymentOption = (val: string) => {
     if (val === 'opt_annual_promo' && !isPromoEnabled) {
+      return;
+    }
+    if (val === 'opt_membership_fee' && isMembershipFeePaidForSelectedMember) {
       return;
     }
     setRecOptionKey(val);
@@ -1000,7 +1106,7 @@ export const Finances: React.FC = () => {
         setRecAmount(String(monthlyDuesList[0].amount));
       } else {
         setRecMonth('');
-        setRecAmount('100');
+        setRecAmount('0');
       }
     } else if (val === 'opt_annual_promo') {
       setRecItemType('Annual Upfront Promo');
@@ -1022,14 +1128,6 @@ export const Finances: React.FC = () => {
           setRecAmount(String(col.amount));
         }
       }
-    } else if (val === 'opt_donation_collection') {
-      setRecItemType('Donation Collection');
-      setRecCustomItemName('Voluntary Club Donation');
-      setRecAmount('500');
-      setRecStatus('Paid');
-    } else if (val === 'opt_other') {
-      setRecItemType('Other');
-      setRecCustomItemName('');
     }
   };
 
@@ -1070,12 +1168,12 @@ export const Finances: React.FC = () => {
         setRecOptionKey('opt_annual_promo');
       } else if (presetRecord.itemType === 'Donation Collection') {
         const matchedCol = dCols.find(c => c.name === presetRecord.customItemName);
-        setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_donation_collection');
+        setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_monthly_due');
       } else if (presetRecord.customItemName) {
         const matchedCol = dCols.find(c => c.name === presetRecord.customItemName);
-        setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_other');
+        setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_monthly_due');
       } else {
-        setRecOptionKey('opt_other');
+        setRecOptionKey('opt_monthly_due');
       }
     } else {
       setEditingRecord(null);
@@ -1109,8 +1207,8 @@ export const Finances: React.FC = () => {
         setRecAmount(String(mDues[0].amount));
       } else {
         setRecYear(currentYearStr);
-        setRecMonth(currentMonthName);
-        setRecAmount('100');
+        setRecMonth('');
+        setRecAmount('0');
       }
       setRecCustomItemName('');
     }
@@ -1151,14 +1249,25 @@ export const Finances: React.FC = () => {
     openLogRecordDirectly(presetRecord);
   };
 
-  // Save Payment Record
-  const handleSaveRecord = async (e: React.FormEvent) => {
+  // Initiate Save Payment Record (Opens Confirmation Modal)
+  const handleInitiateSaveRecord = (e: React.FormEvent) => {
     e.preventDefault();
     if (!canManageFinances) return;
     if (!hasMembers) {
       alert('No registered members found. Please register members in the Members Directory first.');
       return;
     }
+    if (!isRecordFormValid) {
+      return;
+    }
+    setShowConfirmRecordModal(true);
+  };
+
+  // Proceed with Saving Payment Record after confirmation
+  const handleProceedSaveRecord = async () => {
+    setShowConfirmRecordModal(false);
+    if (!canManageFinances || !hasMembers || !isRecordFormValid) return;
+
     const effectiveYear = recYear || String(new Date().getFullYear());
     const amountNum = parseFloat(recAmount) || 0;
     const selectedUser = users.find(u => u.id === recUserId);
@@ -1227,7 +1336,31 @@ export const Finances: React.FC = () => {
           });
         }
 
+        if (recItemType === 'Membership Fee' && recUserId) {
+          try {
+            const dItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
+            if (dItem) {
+              const current: string[] = JSON.parse(dItem);
+              const filtered = current.filter(id => id !== recUserId);
+              localStorage.setItem('bcc_deleted_membership_fee_user_ids', JSON.stringify(filtered));
+            }
+          } catch (e) {
+            console.error(e);
+          }
+        }
+
         if (editingRecord) {
+          try {
+            const dRecItem = localStorage.getItem('bcc_deleted_finance_record_ids');
+            if (dRecItem) {
+              const current: string[] = JSON.parse(dRecItem);
+              const filtered = current.filter(id => id !== editingRecord.id);
+              localStorage.setItem('bcc_deleted_finance_record_ids', JSON.stringify(filtered));
+            }
+          } catch (e) {
+            console.error(e);
+          }
+
           const updatedRecord: FinanceRecord = {
             ...editingRecord,
             userId: recUserId,
@@ -1585,6 +1718,41 @@ export const Finances: React.FC = () => {
           const targetRec = records.find(r => r.id === deleteTarget.id);
           let updated = records.filter(r => r.id !== deleteTarget.id);
           const syncDeletePromises: Promise<any>[] = [deleteRecordFromMongo(deleteTarget.id)];
+
+          // If the deleted record is a Membership Fee, track user ID in bcc_deleted_membership_fee_user_ids to prevent any automated recreation
+          if (
+            targetRec?.itemType === 'Membership Fee' ||
+            deleteTarget.title?.toLowerCase().includes('membership fee') ||
+            deleteTarget.subtitle?.toLowerCase().includes('membership fee') ||
+            targetRec?.id?.startsWith('rec_mf_') ||
+            deleteTarget.id.startsWith('rec_mf_')
+          ) {
+            const feeUserId = targetRec?.userId || deleteTarget.id.replace('rec_mf_', '');
+            if (feeUserId) {
+              try {
+                const currentDel: string[] = JSON.parse(localStorage.getItem('bcc_deleted_membership_fee_user_ids') || '[]');
+                if (!currentDel.includes(feeUserId)) {
+                  currentDel.push(feeUserId);
+                  localStorage.setItem('bcc_deleted_membership_fee_user_ids', JSON.stringify(currentDel));
+                }
+              } catch (e) {
+                console.error(e);
+              }
+              // Also ensure MongoDB doesn't keep rec_mf_ for this user
+              syncDeletePromises.push(deleteRecordFromMongo(`rec_mf_${feeUserId}`));
+            }
+          }
+
+          // Always record the deleted record ID so it cannot be resurrected
+          try {
+            const currentDelIds: string[] = JSON.parse(localStorage.getItem('bcc_deleted_finance_record_ids') || '[]');
+            if (!currentDelIds.includes(deleteTarget.id)) {
+              currentDelIds.push(deleteTarget.id);
+              localStorage.setItem('bcc_deleted_finance_record_ids', JSON.stringify(currentDelIds));
+            }
+          } catch (e) {
+            console.error(e);
+          }
 
           // If the deleted record is an Annual Upfront Promo, completely delete all satisfied/auto-generated records for that promo
           if (
@@ -3291,7 +3459,7 @@ export const Finances: React.FC = () => {
               </button>
             </div>
 
-            <form onSubmit={handleSaveRecord} className="flex flex-col min-h-0 flex-1 mt-4">
+            <form onSubmit={handleInitiateSaveRecord} className="flex flex-col min-h-0 flex-1 mt-4">
               <div className="flex-1 overflow-y-auto pr-1.5 space-y-4">
                 {/* No Members Warning Banner */}
                 {!hasMembers && (
@@ -3311,7 +3479,7 @@ export const Finances: React.FC = () => {
                   <CustomSelect
                     label="Select Club Member"
                     value={recUserId}
-                    onChange={setRecUserId}
+                    onChange={handleRecUserIdChange}
                     disabled={!hasMembers}
                     options={
                       !hasMembers
@@ -3339,32 +3507,64 @@ export const Finances: React.FC = () => {
 
                 {/* Covered Month if Monthly Due */}
                 {recItemType === 'Monthly Due' && (
-                  <div className="p-3 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] space-y-2">
-                    <label className="block text-xs font-bold text-[#1b4332]">
-                      Covered Month & Year
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <CustomSelect
-                        value={recMonth}
-                        onChange={handleRecMonthChange}
-                        options={recMonthOptions}
-                        disabled={!hasMembers}
-                      />
-
-                      <CustomSelect
-                        value={recYear}
-                        onChange={handleRecYearChange}
-                        options={YEARS_LIST}
-                        disabled={!hasMembers}
-                      />
-                    </div>
-                    {isSelectedMonthAlreadyPaid && (
-                      <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center gap-2">
-                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                        <span>
-                          <strong>{recMonth} {recYear}</strong> is already recorded as paid for this member. Please select an unpaid month.
+                  <div className="p-3.5 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <label className="block text-xs font-bold text-[#1b4332]">
+                        Covered Month & Year
+                      </label>
+                      {monthlyDuesList.length === 0 && (
+                        <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200">
+                          No Dues Created
                         </span>
+                      )}
+                    </div>
+
+                    {monthlyDuesList.length === 0 ? (
+                      <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-start gap-2.5 shadow-2xs">
+                        <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                        <div className="space-y-0.5">
+                          <p className="font-bold text-amber-950">No Monthly Dues Configured Yet</p>
+                          <p className="text-[11px] text-amber-800 leading-snug">
+                            There are currently no active monthly dues created in the system. To record monthly dues, please configure and create dues in <strong>Settings &gt; Finance &amp; Fee Settings</strong> first, or select a different payment type above.
+                          </p>
+                        </div>
                       </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-2 gap-2">
+                          <CustomSelect
+                            value={recMonth}
+                            onChange={handleRecMonthChange}
+                            options={recMonthOptions}
+                            disabled={!hasMembers}
+                          />
+
+                          <CustomSelect
+                            value={recYear}
+                            onChange={handleRecYearChange}
+                            options={YEARS_LIST}
+                            disabled={!hasMembers}
+                          />
+                        </div>
+
+                        {isSelectedMonthAlreadyPaid && (
+                          <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center gap-2 shadow-2xs">
+                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>
+                              <strong>{recMonth} {recYear}</strong> is already recorded as paid for this member. Please select an unpaid month.
+                            </span>
+                          </div>
+                        )}
+
+                        {!monthlyDuesList.some(d => String(d.year) === String(recYear)) && (
+                          <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 text-xs flex items-center gap-2 shadow-2xs">
+                            <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                            <span>
+                              No monthly dues have been created for {recYear}. Please select a different year or configure dues in Settings.
+                            </span>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
@@ -3496,24 +3696,143 @@ export const Finances: React.FC = () => {
                 )}
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-3 mt-4 border-t border-[#e2ece2] shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setShowAddRecordModal(false)}
-                  className="px-5 py-2.5 bg-[#f7f9f7] hover:bg-[#e2ece2] text-stone-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!hasMembers || (recItemType === 'Annual Upfront Promo' && !isPromoEnabled) || (recItemType === 'Monthly Due' && isSelectedMonthAlreadyPaid)}
-                  className="px-6 py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-2"
-                >
-                  <Check className="w-4 h-4 text-[#74c69d]" />
-                  <span>{editingRecord ? 'Save Changes' : 'Record Transaction'}</span>
-                </button>
+              <div className="flex flex-col gap-2 pt-3 mt-4 border-t border-[#e2ece2] shrink-0">
+                {recordFormInvalidReason && (
+                  <div className="text-[11px] font-medium text-amber-800 bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-200 flex items-center gap-1.5 shadow-2xs">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600" />
+                    <span>{recordFormInvalidReason}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-end gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddRecordModal(false)}
+                    className="px-5 py-2.5 bg-[#f7f9f7] hover:bg-[#e2ece2] text-stone-700 rounded-xl text-xs font-bold transition-all cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!isRecordFormValid}
+                    className="px-5 sm:px-6 py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-md active:scale-95 flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <Check className="w-4 h-4 text-[#74c69d]" />
+                    <span>{editingRecord ? 'Save Changes' : 'Record Payment'}</span>
+                  </button>
+                </div>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* CONFIRM RECORD TRANSACTION MODAL */}
+      {showConfirmRecordModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+          <div className="bg-white rounded-2xl sm:rounded-3xl max-w-sm sm:max-w-md w-full p-4 sm:p-6 shadow-2xl border border-[#e2ece2] space-y-3.5 sm:space-y-4 my-auto text-center animate-in zoom-in-95 duration-200">
+            <div className="w-11 h-11 sm:w-12 sm:h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto text-emerald-700 shadow-inner">
+              <CheckCircle2 className="w-5.5 h-5.5 sm:w-6 sm:h-6" />
+            </div>
+
+            <div className="space-y-1">
+              <h3 className="font-heading text-base sm:text-lg font-extrabold text-[#1b4332]">
+                {editingRecord ? 'Confirm Update?' : 'Confirm Payment?'}
+              </h3>
+              <p className="text-[11px] sm:text-xs text-[#52605d] leading-normal max-w-xs mx-auto">
+                {editingRecord
+                  ? 'Review updated details before saving changes.'
+                  : 'Review payment details before saving to ledger.'}
+              </p>
+            </div>
+
+            <div className="p-3 sm:p-4 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] text-left space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[9px] sm:text-[10px] font-bold uppercase tracking-wider text-[#52605d]">
+                  Member
+                </span>
+                <span className="text-[9px] sm:text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200 truncate max-w-[150px] sm:max-w-none">
+                  {recItemType}
+                </span>
+              </div>
+              <div>
+                <p className="text-xs sm:text-sm font-black text-[#1b4332] truncate">
+                  {users.find(u => u.id === recUserId)?.name || 'Club Member'}
+                </p>
+                <p className="text-[10px] sm:text-[11px] font-medium text-[#52605d] truncate">
+                  {users.find(u => u.id === recUserId)?.memberNumber || 'BRC Member'}
+                </p>
+              </div>
+
+              <div className="pt-2 border-t border-[#e2ece2] space-y-1 text-[11px] sm:text-xs">
+                {recItemType === 'Monthly Due' && (
+                  <div className="flex items-center justify-between text-[#52605d]">
+                    <span>Period:</span>
+                    <span className="font-bold text-[#1b4332]">{recMonth} {recYear}</span>
+                  </div>
+                )}
+                {recItemType === 'Annual Upfront Promo' && (
+                  <div className="flex items-center justify-between text-[#52605d]">
+                    <span>Coverage:</span>
+                    <span className="font-bold text-[#1b4332]">Full Year {recYear || '2026'}</span>
+                  </div>
+                )}
+                {(recItemType === 'Donation Collection' || recItemType === 'Other') && recCustomItemName && (
+                  <div className="flex items-center justify-between text-[#52605d]">
+                    <span>Item:</span>
+                    <span className="font-bold text-[#1b4332] truncate max-w-[180px] sm:max-w-[200px]">{recCustomItemName}</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-[#52605d]">
+                  <span>Method:</span>
+                  <span className="font-bold text-[#1b4332]">{recMethod}</span>
+                </div>
+                <div className="flex items-center justify-between text-[#52605d]">
+                  <span>Date:</span>
+                  <span className="font-bold text-[#1b4332]">{recDueDate || 'Today'}</span>
+                </div>
+                <div className="flex items-center justify-between text-[#52605d]">
+                  <span>Status:</span>
+                  <span className={`font-bold px-2 py-0.5 rounded-md text-[10px] ${
+                    ((recItemType === 'Monthly Due' || recItemType === 'Annual Upfront Promo') ? 'Paid' : recStatus) === 'Paid'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-amber-100 text-amber-800'
+                  }`}>
+                    {(recItemType === 'Monthly Due' || recItemType === 'Annual Upfront Promo') ? 'Paid' : recStatus}
+                  </span>
+                </div>
+                {recNotes && recNotes.trim() && (
+                  <div className="pt-1 text-[10px] sm:text-[11px] text-[#52605d]">
+                    <span className="font-semibold text-stone-700">Remarks: </span>
+                    <span className="italic">{recNotes.trim()}</span>
+                  </div>
+                )}
+              </div>
+
+              <div className="pt-2 border-t border-[#e2ece2] flex items-center justify-between">
+                <span className="text-xs font-bold text-[#52605d]">Total:</span>
+                <span className="text-sm sm:text-base font-black text-[#1b4332]">
+                  ₱{(parseFloat(recAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2.5 pt-2 border-t border-[#e2ece2]">
+              <button
+                type="button"
+                onClick={() => setShowConfirmRecordModal(false)}
+                className="w-full px-3 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer whitespace-nowrap text-center"
+              >
+                Back
+              </button>
+              <button
+                type="button"
+                onClick={handleProceedSaveRecord}
+                className="w-full px-3 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5 whitespace-nowrap text-center"
+              >
+                <Check className="w-3.5 h-3.5 text-[#74c69d] shrink-0" />
+                <span>{editingRecord ? 'Save Changes' : 'Confirm & Record'}</span>
+              </button>
+            </div>
           </div>
         </div>
       )}
