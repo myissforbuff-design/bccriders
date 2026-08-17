@@ -374,5 +374,193 @@ html, body, *, ::before, ::after, input, button, select, textarea, h1, h2, h3, h
   display: none !important;
 }
 
+/* ==========================================================================
+   OFFICIAL 6-DIGIT OTP FORM COMPONENT
+   ========================================================================== */
+.otp-Form {
+  width: 100%;
+  max-width: 380px;
+  background-color: #ffffff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 20px;
+  gap: 16px;
+  position: relative;
+  box-shadow: 0px 10px 30px rgba(27, 67, 50, 0.12);
+  border-radius: 20px;
+  border: 1px solid #e2ece2;
+}
+
+@media (min-width: 640px) {
+  .otp-Form {
+    padding: 28px 28px;
+    gap: 18px;
+  }
+}
+
+.mainHeading {
+  font-size: 1.25em;
+  color: #1b4332;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  text-align: center;
+}
+
+.otpSubheading {
+  font-size: 0.78em;
+  color: #52605d;
+  line-height: 18px;
+  text-align: center;
+  margin-top: -8px;
+}
+
+.inputContainer {
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (min-width: 640px) {
+  .inputContainer {
+    gap: 8px;
+  }
+}
+
+.otp-input {
+  background-color: #f1f5f1;
+  width: 40px;
+  height: 46px;
+  text-align: center;
+  border: 1.5px solid #d6e4d6;
+  border-radius: 10px;
+  caret-color: #1b4332;
+  color: #1b4332;
+  outline: none;
+  font-weight: 800;
+  font-size: 1.25rem;
+  font-family: monospace;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (min-width: 640px) {
+  .otp-input {
+    width: 46px;
+    height: 52px;
+    font-size: 1.4rem;
+    border-radius: 12px;
+  }
+}
+
+.otp-input:focus,
+.otp-input:valid:not(:placeholder-shown) {
+  background-color: rgba(116, 198, 157, 0.16);
+  border-color: #1b4332;
+  box-shadow: 0 0 0 3px rgba(116, 198, 157, 0.28);
+}
+
+.verifyButton {
+  width: 100%;
+  height: 42px;
+  border: none;
+  background-color: #1b4332;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 0.875rem;
+  cursor: pointer;
+  border-radius: 12px;
+  box-shadow: 0 4px 14px rgba(27, 67, 50, 0.2);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.verifyButton:hover:not(:disabled) {
+  background-color: #2d6a4f;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(27, 67, 50, 0.25);
+}
+
+.verifyButton:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.verifyButton:disabled {
+  background-color: #d6e4d6;
+  color: #8c9b8c;
+  cursor: not-allowed;
+  box-shadow: none;
+  opacity: 0.7;
+}
+
+.exitBtn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  box-shadow: 0px 2px 8px rgba(0, 0, 0, 0.08);
+  background-color: #ffffff;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #e2ece2;
+  color: #52605d;
+  font-size: 1.2em;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1;
+}
+
+.exitBtn:hover {
+  background-color: #f7f9f7;
+  color: #1b4332;
+  border-color: #cbd5e1;
+}
+
+.resendNote {
+  font-size: 0.78em;
+  color: #52605d;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.resendBtn {
+  background-color: transparent;
+  border: none;
+  color: #2d6a4f;
+  cursor: pointer;
+  font-size: 1em;
+  font-weight: 700;
+  transition: color 0.2s ease;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.resendBtn:hover:not(:disabled) {
+  color: #1b4332;
+  text-decoration: underline;
+}
+
+.resendBtn:disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+  text-decoration: none;
+}
+
 
 

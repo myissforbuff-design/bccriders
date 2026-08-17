@@ -240,11 +240,13 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
           onComplete: () => {
             setSyncStatusMsg({
               type: 'success',
-              text: 'Member is accepted',
+              text: target.email
+                ? `Member approved & notification email sent to ${target.email}`
+                : 'Member is accepted',
             });
             setTimeout(() => {
               setSyncStatusMsg(null);
-            }, 2000);
+            }, 3000);
           },
         }
       );
@@ -254,20 +256,27 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
   const handleRejectMember = async (memberId: string) => {
     const target = members.find((m) => m.id === memberId);
     const memberName = target?.name || 'Applicant';
+    const memberEmail = target?.email;
     await runWithLoader(
       async () => {
-        store.deleteUser(memberId);
+        if (target) {
+          store.rejectRegistration(target);
+        } else {
+          store.deleteUser(memberId);
+        }
         if (selectedMember?.id === memberId) setSelectedMember(null);
         if (reviewingPendingUser?.id === memberId) setReviewingPendingUser(null);
         setConfirmModal(null);
         refreshList();
       },
       {
-        message: 'Rejecting Application & Refreshing...',
+        message: 'Rejecting Application & Sending Notification...',
         onComplete: () => {
           setSyncStatusMsg({
             type: 'success',
-            text: `Application for "${memberName}" has been rejected and removed from pending requests.`,
+            text: memberEmail
+              ? `Application rejected & status email sent to ${memberEmail}`
+              : `Application for "${memberName}" has been rejected.`,
           });
           setTimeout(() => {
             setSyncStatusMsg(null);
@@ -1162,66 +1171,66 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
         )}
       </AnimatePresence>
 
-      {/* Action Confirmation Modal (Approve / Reject) */}
+      {/* Action Confirmation Modal (Approve / Reject / Delete) */}
       <AnimatePresence>
         {confirmModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md rounded-3xl bg-white border border-[#e2ece2] p-6 space-y-5 shadow-2xl text-[#2d3a3a]"
+              className="w-full max-w-sm sm:max-w-md rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] p-4 sm:p-6 space-y-3.5 sm:space-y-4 shadow-2xl text-[#2d3a3a]"
             >
-              <div className="flex items-center gap-3 pb-3 border-b border-[#e2ece2]">
+              <div className="flex items-center gap-2.5 sm:gap-3 pb-2.5 sm:pb-3 border-b border-[#e2ece2]">
                 <div
-                  className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                  className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 ${
                     confirmModal.type === 'approve'
                       ? 'bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7]'
                       : 'bg-rose-100 text-rose-700 border border-rose-200'
                   }`}
                 >
                   {confirmModal.type === 'approve' ? (
-                    <CheckCircle2 className="w-6 h-6 text-[#2d6a4f]" />
+                    <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-[#2d6a4f]" />
                   ) : (
-                    <AlertCircle className="w-6 h-6 text-rose-600" />
+                    <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-rose-600" />
                   )}
                 </div>
                 <div>
-                  <h3 className="font-heading font-extrabold text-[#1b4332] text-lg">
+                  <h3 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg leading-tight">
                     {confirmModal.type === 'approve'
                       ? 'Confirm Approval'
                       : confirmModal.type === 'delete'
-                      ? 'Confirm Member Deletion'
-                      : 'Confirm Rejection'}
+                      ? 'Delete Member'
+                      : 'Reject Application'}
                   </h3>
-                  <p className="text-xs text-[#52605d]">
+                  <p className="text-[11px] sm:text-xs text-[#52605d]">
                     {confirmModal.type === 'approve'
-                      ? 'Approve application & activate membership'
+                      ? 'Approve & activate membership'
                       : confirmModal.type === 'delete'
-                      ? 'Permanently delete member record from database'
-                      : 'Reject & remove registration request'}
+                      ? 'Permanently remove record'
+                      : 'Reject pending application'}
                   </p>
                 </div>
               </div>
 
               {/* Member Summary Card */}
-              <div className="p-3.5 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] flex items-center gap-3">
+              <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] flex items-center gap-2.5 sm:gap-3">
                 <img
                   src={confirmModal.member.avatar || DEFAULT_AVATAR}
                   alt={confirmModal.member.name}
                   onError={(e) => {
                     (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
                   }}
-                  className="w-11 h-11 rounded-full object-cover border-2 border-[#2d6a4f]"
+                  className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-[#2d6a4f] shrink-0"
                 />
                 <div className="min-w-0 flex-1">
-                  <h4 className="font-bold text-[#1b4332] text-xs truncate">
+                  <h4 className="font-bold text-[#1b4332] text-xs sm:text-sm truncate">
                     {confirmModal.member.name}
                   </h4>
-                  <p className="text-[11px] text-[#52605d] truncate">
+                  <p className="text-[10px] sm:text-[11px] text-[#52605d] truncate">
                     {confirmModal.member.email} • {confirmModal.member.phone || 'No phone'}
                   </p>
-                  <p className="text-[10px] text-[#2d6a4f] font-semibold mt-0.5">
+                  <p className="text-[10px] text-[#2d6a4f] font-semibold mt-0.5 truncate">
                     Bike: {confirmModal.member.bikeInfo?.make || 'Yamaha'} {confirmModal.member.bikeInfo?.model || ''}
                   </p>
                 </div>
@@ -1230,28 +1239,26 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
               <p className="text-xs text-[#52605d] leading-relaxed">
                 {confirmModal.type === 'approve' ? (
                   <>
-                    Are you sure you want to approve <strong>{confirmModal.member.name}</strong>?
-                    Upon confirmation, their application will be approved and they will be moved to the{' '}
-                    <strong className="text-[#1b4332]">Active Members</strong> roster.
+                    Approve <strong>{confirmModal.member.name}</strong>? Member will be activated and an approval email sent to{' '}
+                    <strong className="text-[#1b4332]">{confirmModal.member.email || 'member'}</strong>.
                   </>
                 ) : confirmModal.type === 'delete' ? (
                   <>
-                    Are you sure you want to delete <strong>{confirmModal.member.name}</strong> from the club directory?
-                    This will permanently remove their profile and database record.
+                    Permanently delete <strong>{confirmModal.member.name}</strong> from the club directory?
                   </>
                 ) : (
                   <>
-                    Are you sure you want to reject <strong>{confirmModal.member.name}</strong>'s
-                    application? This will permanently delete their pending request.
+                    Reject application for <strong>{confirmModal.member.name}</strong>? A status notification email will be sent to{' '}
+                    <strong className="text-rose-700">{confirmModal.member.email || 'applicant'}</strong>.
                   </>
                 )}
               </p>
 
-              <div className="flex items-center justify-end gap-3 pt-2">
+              <div className="flex items-center justify-end gap-2.5 pt-1">
                 <button
                   type="button"
                   onClick={() => setConfirmModal(null)}
-                  className="py-2.5 px-4 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-gray-100 font-bold text-xs cursor-pointer transition-colors"
+                  className="py-2 sm:py-2.5 px-3.5 sm:px-4 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-gray-100 font-bold text-xs cursor-pointer transition-colors whitespace-nowrap"
                 >
                   Cancel
                 </button>
@@ -1267,10 +1274,10 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         setReviewingPendingUser(null);
                       }
                     }}
-                    className="py-2.5 px-5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors"
+                    className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   >
                     <CheckCircle2 className="w-4 h-4 text-[#74c69d]" />
-                    <span>Confirm & Move to Active</span>
+                    <span>Approve</span>
                   </button>
                 ) : confirmModal.type === 'delete' ? (
                   <button
@@ -1294,7 +1301,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                           onComplete: () => {
                             setSyncStatusMsg({
                               type: 'success',
-                              text: 'Member record has been deleted.',
+                              text: 'Member record deleted.',
                             });
                             setTimeout(() => {
                               setSyncStatusMsg(null);
@@ -1303,10 +1310,10 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         }
                       );
                     }}
-                    className="py-2.5 px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors"
+                    className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   >
                     <Trash2 className="w-4 h-4 text-rose-200" />
-                    <span>Yes, Delete Member</span>
+                    <span>Delete</span>
                   </button>
                 ) : (
                   <button
@@ -1319,10 +1326,10 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         setReviewingPendingUser(null);
                       }
                     }}
-                    className="py-2.5 px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors"
+                    className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   >
                     <Trash2 className="w-4 h-4 text-rose-200" />
-                    <span>Yes, Reject Application</span>
+                    <span>Reject</span>
                   </button>
                 )}
               </div>

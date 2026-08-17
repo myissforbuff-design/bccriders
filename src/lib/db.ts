@@ -706,16 +706,70 @@ export class DataStoreService {
     this.users = this.users.map((u) => (u.id === sanitized.id ? sanitized : u));
     saveToStorage(STORAGE_KEYS.USERS, this.users);
 
-    // Call MongoDB transfer endpoint
+    // Call MongoDB transfer endpoint and dispatch approval email from info@bccriders.cc
     fetch(`/api/mongodb/registration/accept/${sanitized.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sanitized),
-    }).catch((err) => console.warn('MongoDB approveRegistration transfer error:', err));
+    })
+      .then((res) => {
+        if (!res.ok) {
+          // Fallback to standalone approval email endpoint if MongoDB accept fails or is offline
+          fetch('/api/members/send-approval-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(sanitized),
+          }).catch((err) => console.warn('Fallback approval email error:', err));
+        }
+      })
+      .catch((err) => {
+        console.warn('MongoDB approveRegistration transfer error:', err);
+        // Fallback standalone dispatch
+        fetch('/api/members/send-approval-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(sanitized),
+        }).catch((e) => console.warn('Approval email standalone error:', e));
+      });
 
     this.recordMembershipFeePayment(sanitized);
 
     return sanitized;
+  }
+
+  // Reject a pending registration form, removing from registration table and sending rejection email from info@bccriders.cc
+  rejectRegistration(rejectedUser: User): void {
+    const userId = rejectedUser.id;
+    this.users = this.users.filter((u) => u.id !== userId);
+    saveToStorage(STORAGE_KEYS.USERS, this.users);
+
+    // Call MongoDB reject endpoint with applicant data so rejection email is dispatched
+    fetch(`/api/mongodb/registration/reject/${userId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(rejectedUser),
+    })
+      .then((res) => {
+        if (!res.ok) {
+          // Fallback to standalone rejection email endpoint if needed
+          fetch('/api/members/send-rejection-email', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(rejectedUser),
+          }).catch((err) => console.warn('Fallback rejection email error:', err));
+        }
+      })
+      .catch((err) => {
+        console.warn('MongoDB rejectRegistration error:', err);
+        fetch('/api/members/send-rejection-email', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(rejectedUser),
+        }).catch((e) => console.warn('Rejection email standalone error:', e));
+      });
+
+    // Also ensure deleted from MongoDB members if present
+    fetch(`/api/mongodb/members/${userId}`, { method: 'DELETE' }).catch(() => {});
   }
 
   deleteUser(userId: string): void {

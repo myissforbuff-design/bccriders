@@ -1162,6 +1162,320 @@ app.delete('/api/mongodb/registration/:id', async (req, res) => {
   }
 });
 
+// Helper to send membership application approval notification email via info@bccriders.cc (No-Reply)
+async function sendMemberApprovalEmail(member: {
+  name?: string;
+  email?: string;
+  username?: string;
+  memberNumber?: string;
+  joinDate?: string;
+  phone?: string;
+}) {
+  const memberEmail = (member.email || '').trim().toLowerCase();
+  if (!memberEmail || !memberEmail.includes('@')) {
+    console.log('[Approval Email] Skipped: No valid email address provided for member:', member.name);
+    return { success: false, message: 'No valid email address provided' };
+  }
+
+  const memberName = member.name || 'Valued Member';
+  const memberNo = member.memberNumber || 'BRC-MEMBER';
+  const username = member.username || memberEmail.split('@')[0];
+  const joinDate = member.joinDate || new Date().toISOString().split('T')[0];
+
+  const emailHtml = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Membership Application Approved - BCC Riders Club</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f7f4; margin: 0; padding: 24px; color: #2d3a3a; }
+        .container { max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 24px; overflow: hidden; border: 1px solid #e2ece2; box-shadow: 0 10px 32px rgba(27, 67, 50, 0.08); }
+        .header { background: #1b4332; padding: 32px 24px; text-align: center; color: #ffffff; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 0.5px; }
+        .header p { margin: 6px 0 0; font-size: 13px; color: #74c69d; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+        .content { padding: 32px 28px; }
+        .greeting { font-size: 17px; font-weight: 800; color: #1b4332; margin-bottom: 12px; }
+        .badge-approved { display: inline-block; background-color: #d8f3dc; color: #1b4332; font-weight: 800; font-size: 12px; padding: 6px 14px; border-radius: 20px; border: 1px solid #b7e4c7; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .text { font-size: 14px; line-height: 1.65; color: #40514e; margin-bottom: 18px; }
+        .card { background: #f7faf8; border: 1px solid #d6e4d6; border-radius: 18px; padding: 20px; margin: 20px 0; }
+        .card-title { font-size: 11px; text-transform: uppercase; font-weight: 800; color: #2d6a4f; letter-spacing: 1px; margin-bottom: 12px; border-bottom: 1px solid #e2ece2; padding-bottom: 8px; }
+        .no-reply-notice { background: #fff8f0; border: 1px solid #ffe8cc; border-radius: 14px; padding: 14px 16px; font-size: 11px; color: #9a6324; line-height: 1.5; margin-top: 22px; }
+        .footer { background: #fafcfa; padding: 20px 24px; text-align: center; font-size: 11px; color: #747d7c; border-top: 1px solid #e2ece2; line-height: 1.6; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>BCC RIDERS CLUB</h1>
+          <p>Love &bull; Peace &bull; Joy &bull; Official Notification</p>
+        </div>
+        <div class="content">
+          <div class="badge-approved">&#10003; Application Approved</div>
+          <div class="greeting">Congratulations, ${memberName}!</div>
+          <div class="text">
+            We are pleased to inform you that your membership application for <strong>BCC Riders Club</strong> has been officially reviewed and <strong>approved by the Club Administrator</strong>.
+          </div>
+          <div class="text">
+            Your membership is now active. You are officially recognized as a registered club member!
+          </div>
+
+          <div class="card">
+            <div class="card-title">Membership Profile Summary</div>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Member Name:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #1b4332; font-weight: 800; text-align: right;">${memberName}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Member ID:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #1b4332; font-weight: 800; text-align: right; font-family: monospace;">${memberNo}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Username:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #1b4332; font-weight: 800; text-align: right;">${username}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Registered Email:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #1b4332; font-weight: 800; text-align: right;">${memberEmail}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Status:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #2d6a4f; font-weight: 800; text-align: right;">Active Member</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Approved Date:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #1b4332; font-weight: 800; text-align: right;">${joinDate}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="text">
+            You can now sign in to the <strong>BCC Riders Club Portal</strong> using your username and password to access your rider profile, log rides, view official announcements, and participate in club activities.
+          </div>
+
+          <div class="no-reply-notice">
+            <strong>Automated Notification (No-Reply):</strong><br>
+            This is an automated no-reply email sent from <strong>info@bccriders.cc</strong> to notify you of your application approval. Please do not reply directly to this email address. If you need any assistance, please contact the club administrators through official club channels.
+          </div>
+        </div>
+        <div class="footer">
+          &copy; 2026 BCC Riders Club &bull; All Rights Reserved<br>
+          Sent from <strong>info@bccriders.cc</strong> (Automated No-Reply)
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const resend = getResendClient();
+  if (resend) {
+    try {
+      const response = await resend.emails.send({
+        from: 'BCC Riders Club <info@bccriders.cc>',
+        to: [memberEmail],
+        replyTo: 'noreply@bccriders.cc',
+        subject: 'Membership Application Approved – Welcome to BCC Riders Club!',
+        html: emailHtml,
+      });
+      console.log(`[Resend] Membership approval email sent to ${memberEmail} from info@bccriders.cc. Resend ID:`, response.data?.id);
+      return { success: true, resendId: response.data?.id };
+    } catch (err: any) {
+      console.error('[Resend Error] Failed to send approval email to', memberEmail, ':', err);
+      return { success: false, error: err.message };
+    }
+  } else {
+    console.log(`[Approval Email] (Resend API key not set) Simulation: Approval email sent to ${memberEmail} from info@bccriders.cc`);
+    return { success: true, simulated: true };
+  }
+}
+
+// Helper to send membership application rejection notification email via info@bccriders.cc (No-Reply)
+async function sendMemberRejectionEmail(member: {
+  name?: string;
+  email?: string;
+  username?: string;
+  reason?: string;
+  rejectionDate?: string;
+}) {
+  const memberEmail = (member.email || '').trim().toLowerCase();
+  if (!memberEmail || !memberEmail.includes('@')) {
+    console.log('[Rejection Email] Skipped: No valid email address provided for applicant:', member.name);
+    return { success: false, message: 'No valid email address provided' };
+  }
+
+  const memberName = member.name || 'Applicant';
+  const rejectDate = member.rejectionDate || new Date().toISOString().split('T')[0];
+
+  const emailHtml = `
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Membership Application Status - BCC Riders Club</title>
+      <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f7f9f7; margin: 0; padding: 24px; color: #2d3a3a; }
+        .container { max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 24px; overflow: hidden; border: 1px solid #e2ece2; box-shadow: 0 10px 32px rgba(27, 67, 50, 0.08); }
+        .header { background: #1b4332; padding: 32px 24px; text-align: center; color: #ffffff; }
+        .header h1 { margin: 0; font-size: 24px; font-weight: 900; letter-spacing: 0.5px; }
+        .header p { margin: 6px 0 0; font-size: 13px; color: #74c69d; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; }
+        .content { padding: 32px 28px; }
+        .greeting { font-size: 17px; font-weight: 800; color: #1b4332; margin-bottom: 12px; }
+        .badge-declined { display: inline-block; background-color: #fee2e2; color: #991b1b; font-weight: 800; font-size: 12px; padding: 6px 14px; border-radius: 20px; border: 1px solid #fecaca; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .text { font-size: 14px; line-height: 1.65; color: #40514e; margin-bottom: 18px; }
+        .card { background: #fdfaf9; border: 1px solid #f2e3e3; border-radius: 18px; padding: 20px; margin: 20px 0; }
+        .card-title { font-size: 11px; text-transform: uppercase; font-weight: 800; color: #991b1b; letter-spacing: 1px; margin-bottom: 12px; border-bottom: 1px solid #fae1e1; padding-bottom: 8px; }
+        .no-reply-notice { background: #fff8f0; border: 1px solid #ffe8cc; border-radius: 14px; padding: 14px 16px; font-size: 11px; color: #9a6324; line-height: 1.5; margin-top: 22px; }
+        .footer { background: #fafcfa; padding: 20px 24px; text-align: center; font-size: 11px; color: #747d7c; border-top: 1px solid #e2ece2; line-height: 1.6; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>BCC RIDERS CLUB</h1>
+          <p>Love &bull; Peace &bull; Joy &bull; Official Notification</p>
+        </div>
+        <div class="content">
+          <div class="badge-declined">&#10007; Application Status: Declined</div>
+          <div class="greeting">Dear ${memberName},</div>
+          <div class="text">
+            Thank you for your interest in joining <strong>BCC Riders Club</strong> and taking the time to submit your membership registration application.
+          </div>
+          <div class="text">
+            After review by the Club Administrators, we regret to inform you that your membership application has <strong>not been approved</strong> at this time.
+          </div>
+
+          <div class="card">
+            <div class="card-title">Application Status Summary</div>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Applicant Name:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #1b4332; font-weight: 800; text-align: right;">${memberName}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Submitted Email:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #1b4332; font-weight: 800; text-align: right;">${memberEmail}</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Status:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #991b1b; font-weight: 800; text-align: right;">Application Declined</td>
+              </tr>
+              <tr>
+                <td style="padding: 6px 0; font-size: 13px; color: #52605d; font-weight: 600;">Date Reviewed:</td>
+                <td style="padding: 6px 0; font-size: 13px; color: #1b4332; font-weight: 800; text-align: right;">${rejectDate}</td>
+              </tr>
+            </table>
+          </div>
+
+          <div class="text">
+            This decision may be due to incomplete application details, motorcycle verification requirements, roster capacity, or club criteria. You are welcome to inquire with club administrators or re-apply during future membership periods.
+          </div>
+
+          <div class="no-reply-notice">
+            <strong>Automated Notification (No-Reply):</strong><br>
+            This is an automated notification sent from <strong>info@bccriders.cc</strong>. Please do not reply directly to this email address. If you believe this decision was made in error or wish to request clarification, please reach out through official club channels.
+          </div>
+        </div>
+        <div class="footer">
+          &copy; 2026 BCC Riders Club &bull; All Rights Reserved<br>
+          Sent from <strong>info@bccriders.cc</strong> (Automated No-Reply)
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const resend = getResendClient();
+  if (resend) {
+    try {
+      const response = await resend.emails.send({
+        from: 'BCC Riders Club <info@bccriders.cc>',
+        to: [memberEmail],
+        replyTo: 'noreply@bccriders.cc',
+        subject: 'Membership Application Status – BCC Riders Club',
+        html: emailHtml,
+      });
+      console.log(`[Resend] Membership rejection email sent to ${memberEmail} from info@bccriders.cc. Resend ID:`, response.data?.id);
+      return { success: true, resendId: response.data?.id };
+    } catch (err: any) {
+      console.error('[Resend Error] Failed to send rejection email to', memberEmail, ':', err);
+      return { success: false, error: err.message };
+    }
+  } else {
+    console.log(`[Rejection Email] (Resend API key not set) Simulation: Rejection email sent to ${memberEmail} from info@bccriders.cc`);
+    return { success: true, simulated: true };
+  }
+}
+
+// Dedicated API endpoint to trigger membership approval notification email
+app.post('/api/members/send-approval-email', async (req, res) => {
+  const member = req.body || {};
+  if (!member.email) {
+    return res.status(400).json({ error: 'Member email is required.' });
+  }
+
+  try {
+    const result = await sendMemberApprovalEmail(member);
+    res.json({
+      success: true,
+      message: `Approval email processed for ${member.email} from info@bccriders.cc`,
+      ...result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to dispatch approval email.' });
+  }
+});
+
+// Dedicated API endpoint to trigger membership rejection notification email
+app.post('/api/members/send-rejection-email', async (req, res) => {
+  const member = req.body || {};
+  if (!member.email) {
+    return res.status(400).json({ error: 'Member email is required.' });
+  }
+
+  try {
+    const result = await sendMemberRejectionEmail(member);
+    res.json({
+      success: true,
+      message: `Rejection notification email processed for ${member.email} from info@bccriders.cc`,
+      ...result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'Failed to dispatch rejection email.' });
+  }
+});
+
+// Reject registration and dispatch rejection email
+app.post('/api/mongodb/registration/reject/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  const payload = req.body || {};
+
+  try {
+    let applicantDoc: any = payload;
+    if (database) {
+      const regDoc = await database.collection('registration').findOne({ id });
+      if (regDoc) {
+        applicantDoc = { ...regDoc, ...payload };
+      }
+      await database.collection('registration').deleteOne({ id });
+    }
+
+    sendMemberRejectionEmail(applicantDoc).catch((e) =>
+      console.error('[Rejection Email Error] Failed to send rejection email:', e)
+    );
+
+    res.json({
+      success: true,
+      message: `Registration ${id} rejected and removed. Notification email sent to ${applicantDoc.email || 'applicant'}.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Transfer accepted item from "registration" table to "members" table in MongoDB
 app.post('/api/mongodb/registration/accept/:id', async (req, res) => {
   const database = await getMongoDb();
@@ -1169,6 +1483,8 @@ app.post('/api/mongodb/registration/accept/:id', async (req, res) => {
   const payload = req.body || {};
 
   if (!database) {
+    // Even if MongoDB is unavailable, attempt to send the approval email
+    sendMemberApprovalEmail(payload).catch((e) => console.error('Approval email dispatch failed:', e));
     return res.status(503).json({ error: 'MongoDB not connected' });
   }
 
@@ -1201,9 +1517,14 @@ app.post('/api/mongodb/registration/accept/:id', async (req, res) => {
     // 3. Remove item from "registration" collection in MongoDB
     await database.collection('registration').deleteOne({ id });
 
+    // 4. Send official approval email to the registered email address from info@bccriders.cc (No-Reply)
+    sendMemberApprovalEmail(memberDoc).catch((e) =>
+      console.error('[Approval Email Error] Could not send approval email:', e)
+    );
+
     res.json({
       success: true,
-      message: `Form item "${id}" accepted, removed from "registration" table and transferred to "members" table in MongoDB.`,
+      message: `Form item "${id}" accepted, removed from "registration" table and transferred to "members" table in MongoDB. Approval notification email sent to ${memberDoc.email || 'member'}.`,
       member: memberDoc,
     });
   } catch (err: any) {
