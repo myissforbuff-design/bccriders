@@ -429,3 +429,30 @@ export interface ArchivePackageData {
   }[];
 }
 
+// Treasurer Security & Anti-Tampering Admin Authorization
+export type TreasurerActionType = 'edit' | 'delete';
+export type TreasurerTargetType = 'fund' | 'expense' | 'collection' | 'record';
+export type TreasurerRequestStatus = 'Pending' | 'Granted' | 'Denied' | 'Completed' | 'Cancelled';
+
+export interface TreasurerActionRequest {
+  id: string;
+  requesterId: string;
+  requesterName: string;
+  requesterRole: string;
+  actionType: TreasurerActionType;
+  targetType: TreasurerTargetType;
+  targetId: string;
+  targetTitle: string;
+  targetSubtitle?: string;
+  targetAmount?: number;
+  targetDate?: string;
+  targetRef?: string;
+  reason: string;
+  status: TreasurerRequestStatus;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedBy?: string;
+  adminNotes?: string;
+}
+
+

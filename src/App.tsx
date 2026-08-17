@@ -57,7 +57,6 @@ function MainAppContent() {
 
   const isMember = !currentUser?.role || currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
   const isTreasurer = currentUser?.role === 'Treasurer' || currentUser?.role?.toLowerCase() === 'treasurer';
-  const canAccessFinances = isAdmin || isTreasurer;
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -69,14 +68,13 @@ function MainAppContent() {
         if (
           activeTab === 'dashboard' ||
           activeTab === 'members' ||
-          (isMember && activeTab === 'qr') ||
-          (!canAccessFinances && activeTab === 'finances')
+          (isMember && activeTab === 'qr')
         ) {
           setActiveTab('profile');
         }
       }
     }
-  }, [isAuthenticated, isAdmin, isMember, canAccessFinances, activeTab]);
+  }, [isAuthenticated, isAdmin, isMember, activeTab]);
 
   useEffect(() => {
     window.scrollTo(0, 0);

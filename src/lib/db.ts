@@ -26,6 +26,9 @@ import {
   DynamicCollection,
   SecuritySettings,
   FinanceYearArchive,
+  TreasurerActionRequest,
+  TreasurerActionType,
+  TreasurerRequestStatus,
 } from '../types';
 
 // Storage Keys for local state persistence
@@ -43,6 +46,7 @@ const STORAGE_KEYS = {
   DYNAMIC_COLLECTIONS: 'bcc_dynamic_collections_v2',
   SECURITY_SETTINGS: 'bcc_security_settings_v1',
   FINANCE_ARCHIVES: 'bcc_finance_yearly_archives_v1',
+  TREASURER_REQUESTS: 'bcc_treasurer_requests_v1',
   CURRENT_USER: 'bcc_current_user_id_v2',
 };
 
@@ -238,6 +242,7 @@ export class DataStoreService {
   private dynamicCollections: DynamicCollection[];
   private securitySettings: SecuritySettings;
   private financeArchives: FinanceYearArchive[];
+  private treasurerRequests: TreasurerActionRequest[];
   private currentUserId: string;
 
   constructor() {
@@ -273,6 +278,10 @@ export class DataStoreService {
     );
     this.financeArchives = loadFromStorage(
       STORAGE_KEYS.FINANCE_ARCHIVES,
+      []
+    );
+    this.treasurerRequests = loadFromStorage(
+      STORAGE_KEYS.TREASURER_REQUESTS,
       []
     );
     this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
@@ -1204,6 +1213,138 @@ export class DataStoreService {
   getTotalCarriedOverTreasury(): number {
     const archives = this.getFinanceArchives();
     return archives.reduce((sum, a) => sum + (Number(a.carriedOverTreasury) || 0), 0);
+  }
+
+  // Treasurer Security & Anti-Tampering Authorization Requests
+  getTreasurerRequests(): TreasurerActionRequest[] {
+    try {
+      const item = localStorage.getItem(STORAGE_KEYS.TREASURER_REQUESTS);
+      if (item) {
+        const parsed = JSON.parse(item);
+        if (Array.isArray(parsed)) {
+          this.treasurerRequests = parsed;
+        }
+      }
+    } catch {}
+    return this.treasurerRequests;
+  }
+
+  createTreasurerRequest(
+    data: Omit<TreasurerActionRequest, 'id' | 'createdAt' | 'status'>
+  ): TreasurerActionRequest {
+    const newReq: TreasurerActionRequest = {
+      ...data,
+      id: `treq_${Date.now()}`,
+      status: 'Pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    this.treasurerRequests.unshift(newReq);
+    saveToStorage(STORAGE_KEYS.TREASURER_REQUESTS, this.treasurerRequests);
+
+    // Create immediate notification for the Admin
+    const actionLabel = newReq.actionType === 'edit' ? 'edit/modify' : 'permanently delete';
+    this.addNotification({
+      title: '🛡️ Treasurer Authorization Request',
+      message: `${newReq.requesterName} (Treasurer) requested admin approval to ${actionLabel} "${newReq.targetTitle}". Reason: ${newReq.reason || 'Not specified'}`,
+      type: 'system',
+      read: false,
+    });
+
+    fetch('/api/mongodb/treasurerRequests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newReq),
+    }).catch((err) => console.warn('MongoDB treasurerRequests sync error:', err));
+
+    return newReq;
+  }
+
+  updateTreasurerRequestStatus(
+    id: string,
+    status: TreasurerRequestStatus,
+    adminName: string,
+    adminNotes?: string
+  ): TreasurerActionRequest | null {
+    const req = this.treasurerRequests.find((r) => r.id === id);
+    if (!req) return null;
+
+    req.status = status;
+    req.resolvedAt = new Date().toISOString();
+    req.resolvedBy = adminName;
+    if (adminNotes !== undefined) {
+      req.adminNotes = adminNotes;
+    }
+
+    saveToStorage(STORAGE_KEYS.TREASURER_REQUESTS, this.treasurerRequests);
+
+    // Notify the Treasurer of the Admin's decision
+    const statusText = status === 'Granted' ? 'GRANTED access' : status === 'Denied' ? 'DENIED access' : status;
+    this.addNotification({
+      title: status === 'Granted' ? '✅ Treasurer Access Granted' : '❌ Treasurer Access Denied',
+      message: `Admin ${adminName} has ${statusText} for your request to ${req.actionType} "${req.targetTitle}".${adminNotes ? ` Note: "${adminNotes}"` : ''}`,
+      type: 'system',
+      read: false,
+      userId: req.requesterId,
+    });
+
+    fetch('/api/mongodb/treasurerRequests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    }).catch((err) => console.warn('MongoDB treasurerRequests update error:', err));
+
+    return req;
+  }
+
+  hasGrantedTreasurerAccess(
+    requesterId: string,
+    targetId: string,
+    actionType: TreasurerActionType
+  ): TreasurerActionRequest | null {
+    const requests = this.getTreasurerRequests();
+    const match = requests.find(
+      (r) =>
+        r.targetId === targetId &&
+        r.actionType === actionType &&
+        r.status === 'Granted'
+    );
+    return match || null;
+  }
+
+  completeTreasurerRequest(targetId: string, actionType: TreasurerActionType): void {
+    const requests = this.getTreasurerRequests();
+    let modified = false;
+    requests.forEach((r) => {
+      if (r.targetId === targetId && r.actionType === actionType && r.status === 'Granted') {
+        r.status = 'Completed';
+        modified = true;
+      }
+    });
+
+    if (modified) {
+      this.treasurerRequests = requests;
+      saveToStorage(STORAGE_KEYS.TREASURER_REQUESTS, this.treasurerRequests);
+
+      // Sync completed status to backend
+      const completed = requests.filter((r) => r.targetId === targetId && r.actionType === actionType);
+      completed.forEach((r) => {
+        fetch('/api/mongodb/treasurerRequests', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(r),
+        }).catch((err) => console.warn('MongoDB treasurerRequests completion sync error:', err));
+      });
+    }
+  }
+
+  deleteTreasurerRequest(id: string): void {
+    this.treasurerRequests = this.treasurerRequests.filter((r) => r.id !== id);
+    saveToStorage(STORAGE_KEYS.TREASURER_REQUESTS, this.treasurerRequests);
+
+    fetch(`/api/mongodb/treasurerRequests/${id}`, {
+      method: 'DELETE',
+    }).catch((err) => console.warn('MongoDB treasurerRequests delete error:', err));
   }
 }
 

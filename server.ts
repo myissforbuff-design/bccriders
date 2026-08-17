@@ -1710,6 +1710,55 @@ app.delete('/api/mongodb/financeArchives/:idOrYear', async (req, res) => {
   }
 });
 
+// TREASURER AUTHORIZATION REQUESTS API
+app.get('/api/mongodb/treasurerRequests', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    const docs = await database.collection('treasurerRequests').find({}).sort({ createdAt: -1 }).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+app.post('/api/mongodb/treasurerRequests', async (req, res) => {
+  const database = await getMongoDb();
+  const treq = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    if (!treq.id) {
+      treq.id = `treq_${Date.now()}`;
+    }
+    const result = await database.collection('treasurerRequests').updateOne(
+      { id: treq.id },
+      { $set: treq },
+      { upsert: true }
+    );
+    res.json({
+      success: true,
+      message: 'Treasurer request saved successfully',
+      data: treq,
+      result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/treasurerRequests/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('treasurerRequests').deleteOne({ id });
+    res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PAYMENTS API
 app.get('/api/mongodb/payments', async (req, res) => {
   const database = await getMongoDb();

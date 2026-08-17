@@ -3,11 +3,13 @@ import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store, safeFetchJson } from '../lib/db';
-import { User, FinanceYearArchive, ArchivePackageData } from '../types';
+import { User, FinanceYearArchive, ArchivePackageData, TreasurerActionRequest } from '../types';
 import { CustomSelect } from './CustomSelect';
 import { OfficialLoader } from './OfficialLoader';
 import { YearlyArchiveModal } from './YearlyArchiveModal';
 import { ArchiveExportModal } from './ArchiveExportModal';
+import { TreasurerAuthModal } from './TreasurerAuthModal';
+import { TreasurerRequestsManagerModal } from './TreasurerRequestsManagerModal';
 import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import {
   Wallet,
@@ -17,6 +19,8 @@ import {
   Clock,
   AlertCircle,
   ShieldAlert,
+  ShieldCheck,
+  Lock,
   Search,
   User as UserIcon,
   CreditCard,
@@ -126,6 +130,8 @@ const INITIAL_EXPENSES: ExpenseRecord[] = [];
 export const Finances: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
   const { runWithLoader, refreshTick } = useLoader();
+  const isMember = !currentUser?.role || currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
+  const isOfficer = !isMember;
   const isTreasurer = currentUser?.role === 'Treasurer' || currentUser?.role?.toLowerCase() === 'treasurer';
   const canManageFinances = isAdmin || isTreasurer;
 
@@ -145,15 +151,15 @@ export const Finances: React.FC = () => {
 
   // Filters & Search for Accounts
   const [accountSearchQuery, setAccountSearchQuery] = useState('');
-  const [accountMemberId, setAccountMemberId] = useState<string>(() => (isAdmin || currentUser?.role === 'admin') ? 'all_members' : 'my_account');
+  const [accountMemberId, setAccountMemberId] = useState<string>(() => (isAdmin || currentUser?.role === 'admin' || isOfficer) ? 'all_members' : 'my_account');
   const [accountMembersCurrentPage, setAccountMembersCurrentPage] = useState(1);
   const [accountTxCurrentPage, setAccountTxCurrentPage] = useState(1);
 
   useEffect(() => {
-    if ((isAdmin || currentUser?.role === 'admin') && accountMemberId === 'my_account') {
+    if ((isAdmin || currentUser?.role === 'admin' || isOfficer) && accountMemberId === 'my_account') {
       setAccountMemberId('all_members');
     }
-  }, [isAdmin, currentUser, accountMemberId]);
+  }, [isAdmin, currentUser, isOfficer, accountMemberId]);
 
   // Filters & Search for Funds
   const [searchQuery, setSearchQuery] = useState('');
@@ -245,6 +251,20 @@ export const Finances: React.FC = () => {
     amount: number;
   } | null>(null);
 
+  // Treasurer Access Control & Security State
+  const [showTreasurerRequestsModal, setShowTreasurerRequestsModal] = useState(false);
+  const [treasurerAuthTarget, setTreasurerAuthTarget] = useState<{
+    actionType: 'edit' | 'delete';
+    targetType: 'fund' | 'expense';
+    targetId: string;
+    targetTitle: string;
+    targetSubtitle?: string;
+    targetAmount?: number;
+    targetDate?: string;
+    targetRef?: string;
+    onGrant: () => void;
+  } | null>(null);
+
   // Official Loader Processing State
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingMsg, setProcessingMsg] = useState('');
@@ -260,6 +280,8 @@ export const Finances: React.FC = () => {
   useModalDismiss(Boolean(deleteTarget), () => setDeleteTarget(null));
   useModalDismiss(showYearlyArchiveModal, () => setShowYearlyArchiveModal(false));
   useModalDismiss(showArchiveExportModal, () => setShowArchiveExportModal(false));
+  useModalDismiss(showTreasurerRequestsModal, () => setShowTreasurerRequestsModal(false));
+  useModalDismiss(Boolean(treasurerAuthTarget), () => setTreasurerAuthTarget(null));
 
   // Load Users, Funds, and Expenses
   useEffect(() => {
@@ -655,7 +677,9 @@ export const Finances: React.FC = () => {
           })
           .catch(err => console.warn('MongoDB expense/liquidation fetch error:', err));
       });
-  }, []);
+
+    setFinanceArchives(store.getFinanceArchives());
+  }, [refreshTick]);
 
   // Save Funds Records
   const saveRecordsToStorage = (updatedRecs: FinanceRecord[]) => {
@@ -977,9 +1001,8 @@ export const Finances: React.FC = () => {
     }
   };
 
-  // Open Funds Modal
-  const handleOpenLogRecord = (presetRecord?: FinanceRecord) => {
-    if (!canManageFinances) return;
+  // Open Funds Modal Directly (internal helper)
+  const openLogRecordDirectly = (presetRecord?: FinanceRecord) => {
     const settings = store.getFinanceSettings();
     const mDues = store.getMonthlyDues();
     const dCols = store.getDynamicCollections();
@@ -1060,6 +1083,40 @@ export const Finances: React.FC = () => {
       setRecCustomItemName('');
     }
     setShowAddRecordModal(true);
+  };
+
+  // Open Funds Modal with Security Check for Treasurer Role
+  const handleOpenLogRecord = (presetRecord?: FinanceRecord) => {
+    if (!canManageFinances) return;
+    const isTreasurerUser = isTreasurer && !isAdmin;
+
+    if (presetRecord && isTreasurerUser) {
+      const hasGrantedAccess = store.hasGrantedTreasurerAccess(
+        currentUser?.id || '',
+        presetRecord.id,
+        'edit'
+      );
+
+      if (!hasGrantedAccess) {
+        setTreasurerAuthTarget({
+          actionType: 'edit',
+          targetType: 'fund',
+          targetId: presetRecord.id,
+          targetTitle: getItemTitle(presetRecord),
+          targetSubtitle: presetRecord.userName,
+          targetAmount: presetRecord.amount,
+          targetDate: presetRecord.paidDate || presetRecord.dueDate,
+          targetRef: presetRecord.referenceNo,
+          onGrant: () => {
+            setTreasurerAuthTarget(null);
+            openLogRecordDirectly(presetRecord);
+          },
+        });
+        return;
+      }
+    }
+
+    openLogRecordDirectly(presetRecord);
   };
 
   // Save Payment Record
@@ -1262,6 +1319,10 @@ export const Finances: React.FC = () => {
           }
         }
 
+        if (editingRecord) {
+          store.completeTreasurerRequest(editingRecord.id, 'edit');
+        }
+
         setShowAddRecordModal(false);
         await Promise.all(syncPromises);
       },
@@ -1271,9 +1332,8 @@ export const Finances: React.FC = () => {
     );
   };
 
-  // Request Delete Funds Record
-  const handleRequestDeleteRecord = (rec: FinanceRecord) => {
-    if (!canManageFinances) return;
+  // Request Delete Funds Record Directly (internal helper)
+  const requestDeleteRecordDirectly = (rec: FinanceRecord) => {
     setDeleteTarget({
       type: 'fund',
       id: rec.id,
@@ -1283,9 +1343,42 @@ export const Finances: React.FC = () => {
     });
   };
 
-  // Open Expense Modal
-  const handleOpenExpenseModal = (presetExpense?: ExpenseRecord) => {
+  // Request Delete Funds Record with Treasurer Security Check
+  const handleRequestDeleteRecord = (rec: FinanceRecord) => {
     if (!canManageFinances) return;
+    const isTreasurerUser = isTreasurer && !isAdmin;
+
+    if (isTreasurerUser) {
+      const hasGrantedAccess = store.hasGrantedTreasurerAccess(
+        currentUser?.id || '',
+        rec.id,
+        'delete'
+      );
+
+      if (!hasGrantedAccess) {
+        setTreasurerAuthTarget({
+          actionType: 'delete',
+          targetType: 'fund',
+          targetId: rec.id,
+          targetTitle: getItemTitle(rec),
+          targetSubtitle: rec.userName,
+          targetAmount: rec.amount,
+          targetDate: rec.paidDate || rec.dueDate,
+          targetRef: rec.referenceNo,
+          onGrant: () => {
+            setTreasurerAuthTarget(null);
+            requestDeleteRecordDirectly(rec);
+          },
+        });
+        return;
+      }
+    }
+
+    requestDeleteRecordDirectly(rec);
+  };
+
+  // Open Expense Modal Directly (internal helper)
+  const openExpenseModalDirectly = (presetExpense?: ExpenseRecord) => {
     if (presetExpense) {
       setEditingExpense(presetExpense);
       setExpTitle(presetExpense.title);
@@ -1317,6 +1410,40 @@ export const Finances: React.FC = () => {
     setShowExpenseModal(true);
   };
 
+  // Open Expense Modal with Security Check for Treasurer Role
+  const handleOpenExpenseModal = (presetExpense?: ExpenseRecord) => {
+    if (!canManageFinances) return;
+    const isTreasurerUser = isTreasurer && !isAdmin;
+
+    if (presetExpense && isTreasurerUser) {
+      const hasGrantedAccess = store.hasGrantedTreasurerAccess(
+        currentUser?.id || '',
+        presetExpense.id,
+        'edit'
+      );
+
+      if (!hasGrantedAccess) {
+        setTreasurerAuthTarget({
+          actionType: 'edit',
+          targetType: 'expense',
+          targetId: presetExpense.id,
+          targetTitle: presetExpense.title,
+          targetSubtitle: presetExpense.category,
+          targetAmount: presetExpense.amount,
+          targetDate: presetExpense.date,
+          targetRef: presetExpense.receiptRef,
+          onGrant: () => {
+            setTreasurerAuthTarget(null);
+            openExpenseModalDirectly(presetExpense);
+          },
+        });
+        return;
+      }
+    }
+
+    openExpenseModalDirectly(presetExpense);
+  };
+
   // Save Expense Handler
   const handleSaveExpense = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1343,6 +1470,9 @@ export const Finances: React.FC = () => {
           const updated = expenses.map(x => (x.id === editingExpense.id ? updatedExpense : x));
           saveExpensesToStorage(updated);
           await syncExpenseToMongo(updatedExpense);
+
+          // Complete any active treasurer edit authorization
+          store.completeTreasurerRequest(editingExpense.id, 'edit');
         } else {
           const newExpense: ExpenseRecord = {
             id: `exp_${Date.now()}`,
@@ -1368,9 +1498,8 @@ export const Finances: React.FC = () => {
     );
   };
 
-  // Request Delete Expense Handler
-  const handleRequestDeleteExpense = (exp: ExpenseRecord) => {
-    if (!canManageFinances) return;
+  // Request Delete Expense Directly (internal helper)
+  const requestDeleteExpenseDirectly = (exp: ExpenseRecord) => {
     setDeleteTarget({
       type: 'expense',
       id: exp.id,
@@ -1378,6 +1507,40 @@ export const Finances: React.FC = () => {
       subtitle: `${exp.category}${exp.receiptRef ? ` • Ref: ${exp.receiptRef}` : ''}`,
       amount: exp.amount,
     });
+  };
+
+  // Request Delete Expense Handler with Treasurer Security Check
+  const handleRequestDeleteExpense = (exp: ExpenseRecord) => {
+    if (!canManageFinances) return;
+    const isTreasurerUser = isTreasurer && !isAdmin;
+
+    if (isTreasurerUser) {
+      const hasGrantedAccess = store.hasGrantedTreasurerAccess(
+        currentUser?.id || '',
+        exp.id,
+        'delete'
+      );
+
+      if (!hasGrantedAccess) {
+        setTreasurerAuthTarget({
+          actionType: 'delete',
+          targetType: 'expense',
+          targetId: exp.id,
+          targetTitle: exp.title,
+          targetSubtitle: `${exp.category}${exp.receiptRef ? ` • Ref: ${exp.receiptRef}` : ''}`,
+          targetAmount: exp.amount,
+          targetDate: exp.date,
+          targetRef: exp.receiptRef,
+          onGrant: () => {
+            setTreasurerAuthTarget(null);
+            requestDeleteExpenseDirectly(exp);
+          },
+        });
+        return;
+      }
+    }
+
+    requestDeleteExpenseDirectly(exp);
   };
 
   // Confirm Delete Action Handler
@@ -1395,6 +1558,9 @@ export const Finances: React.FC = () => {
           saveExpensesToStorage(updated);
           await deleteExpenseFromMongo(deleteTarget.id);
         }
+
+        // Complete any active treasurer delete authorization
+        store.completeTreasurerRequest(deleteTarget.id, 'delete');
         setDeleteTarget(null);
       },
       {
@@ -1555,24 +1721,12 @@ export const Finances: React.FC = () => {
     }
   };
 
-  if (!canManageFinances) {
-    return (
-      <div className="bg-white rounded-3xl p-8 sm:p-12 shadow-sm border border-[#e2ece2] text-center max-w-lg mx-auto my-8 animate-fadeIn">
-        <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center mx-auto mb-4 shadow-sm">
-          <ShieldAlert className="w-8 h-8" />
-        </div>
-        <h3 className="font-heading text-xl font-black text-[#1b4332] mb-2">
-          Treasurer Access Only
-        </h3>
-        <p className="text-stone-800 font-bold text-sm mb-2">
-          Finances & Treasury Management is restricted to the Club Treasurer.
-        </p>
-        <p className="text-[#52605d] text-xs leading-relaxed">
-          Only the designated Club Treasurer and System Administrator are authorized to manage payments, log expenditures, and configure dues.
-        </p>
-      </div>
-    );
-  }
+  const isTreasurerUser = isTreasurer && !isAdmin;
+  const allTreasurerRequests = store.getTreasurerRequests();
+  const pendingTreasurerRequests = allTreasurerRequests.filter(r => r.status === 'Pending');
+  const myGrantedRequests = allTreasurerRequests.filter(
+    r => r.status === 'Granted' && (r.requesterId === currentUser?.id || isTreasurerUser)
+  );
 
   return (
     <div className="space-y-6 pb-12 font-sans">
@@ -1607,6 +1761,38 @@ export const Finances: React.FC = () => {
             className="p-1.5 text-emerald-700 hover:bg-emerald-100 rounded-lg cursor-pointer"
           >
             <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Admin Alert Banner for Pending Treasurer Authorizations */}
+      {isAdmin && pendingTreasurerRequests.length > 0 && (
+        <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-amber-50 border border-amber-300 text-amber-950 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 shadow-xs animate-fadeIn">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg sm:rounded-xl bg-amber-500 text-stone-900 flex items-center justify-center shrink-0 font-black shadow-xs">
+              <ShieldAlert className="w-4 h-4 sm:w-4.5 sm:h-4.5 animate-pulse" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h4 className="font-heading font-black text-xs sm:text-sm text-[#1b4332] truncate">
+                  {pendingTreasurerRequests.length} Pending Authorization{pendingTreasurerRequests.length === 1 ? '' : 's'}
+                </h4>
+                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-black bg-rose-600 text-white uppercase tracking-wider shrink-0">
+                  Action Needed
+                </span>
+              </div>
+              <p className="text-[11px] sm:text-xs text-amber-900 font-medium truncate sm:whitespace-normal mt-0.5">
+                Treasurer requested edit or delete approval.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowTreasurerRequestsModal(true)}
+            className="w-full sm:w-auto px-3.5 py-1.5 sm:py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-lg sm:rounded-xl text-xs font-extrabold shadow-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap active:scale-95 shrink-0"
+          >
+            <ShieldCheck className="w-3.5 h-3.5 text-amber-300" />
+            <span>Review & Authorize</span>
           </button>
         </div>
       )}
@@ -2428,8 +2614,8 @@ export const Finances: React.FC = () => {
               </p>
             </div>
 
-            {/* Admin Member Selector */}
-            {canManageFinances && (
+            {/* Officer & Admin Member Selector */}
+            {(canManageFinances || isOfficer) && (
               <div className="flex flex-wrap items-center gap-2 min-w-[240px]">
                 <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                   <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Member Account:</span>
@@ -2456,8 +2642,8 @@ export const Finances: React.FC = () => {
             )}
           </div>
 
-          {/* MODE A: ALL MEMBERS OVERVIEW (When Admin selects 'all_members') */}
-          {canManageFinances && accountMemberId === 'all_members' ? (
+          {/* MODE A: ALL MEMBERS OVERVIEW (When Admin/Officer selects 'all_members') */}
+          {(canManageFinances || isOfficer) && accountMemberId === 'all_members' ? (
             <div className="space-y-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="relative w-full sm:w-80">
@@ -2638,7 +2824,7 @@ export const Finances: React.FC = () => {
             /* MODE B: INDIVIDUAL MEMBER ACCOUNT STATEMENT (For logged in member or selected member) */
             (() => {
               const targetMemberId =
-                accountMemberId === 'my_account' || !canManageFinances
+                accountMemberId === 'my_account' || (!canManageFinances && !isOfficer)
                   ? currentUser?.id || ''
                   : accountMemberId;
 
@@ -2702,7 +2888,7 @@ export const Finances: React.FC = () => {
               return (
                 <div className="space-y-4">
                   {/* BACK TO ALL MEMBERS BUTTON */}
-                  {canManageFinances && accountMemberId !== 'all_members' && (
+                  {(canManageFinances || isOfficer) && accountMemberId !== 'all_members' && (
                     <div>
                       <button
                         type="button"
@@ -3500,6 +3686,57 @@ export const Finances: React.FC = () => {
           setImportedArchiveData(null);
         }}
         data={importedArchiveData}
+      />
+
+      {/* Treasurer Authorization Request & Instant Override Modal */}
+      {treasurerAuthTarget && (
+        <TreasurerAuthModal
+          isOpen={Boolean(treasurerAuthTarget)}
+          onClose={() => setTreasurerAuthTarget(null)}
+          actionType={treasurerAuthTarget.actionType}
+          targetType={treasurerAuthTarget.targetType}
+          targetId={treasurerAuthTarget.targetId}
+          targetTitle={treasurerAuthTarget.targetTitle}
+          targetSubtitle={treasurerAuthTarget.targetSubtitle}
+          targetAmount={treasurerAuthTarget.targetAmount}
+          targetDate={treasurerAuthTarget.targetDate}
+          targetRef={treasurerAuthTarget.targetRef}
+          onSuccess={() => {
+            const onGrant = treasurerAuthTarget.onGrant;
+            setTreasurerAuthTarget(null);
+            if (onGrant) {
+              onGrant();
+            }
+          }}
+        />
+      )}
+
+      {/* Treasurer Requests Management & Review Modal (For Admins & Treasurers) */}
+      <TreasurerRequestsManagerModal
+        isOpen={showTreasurerRequestsModal}
+        onClose={() => setShowTreasurerRequestsModal(false)}
+        onSelectAction={(req) => {
+          setShowTreasurerRequestsModal(false);
+          if (req.targetType === 'fund') {
+            const rec = records.find(r => r.id === req.targetId);
+            if (rec) {
+              if (req.actionType === 'edit') {
+                openLogRecordDirectly(rec);
+              } else {
+                requestDeleteRecordDirectly(rec);
+              }
+            }
+          } else {
+            const exp = expenses.find(x => x.id === req.targetId);
+            if (exp) {
+              if (req.actionType === 'edit') {
+                openExpenseModalDirectly(exp);
+              } else {
+                requestDeleteExpenseDirectly(exp);
+              }
+            }
+          }
+        }}
       />
 
       {/* Official Processing Loader */}

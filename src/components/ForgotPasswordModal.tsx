@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Mail,
@@ -28,7 +28,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 }) => {
   const [step, setStep] = useState<'request' | 'verify' | 'success'>('request');
   const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
+  const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -38,20 +38,93 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   const [error, setError] = useState('');
   const [infoMessage, setInfoMessage] = useState('');
   const [countdown, setCountdown] = useState(0);
+  const [expiryCountdown, setExpiryCountdown] = useState(300);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  const otp = digits.join('');
+
+  const formatExpiryTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
 
   // Reset state when opening
   useEffect(() => {
     if (isOpen) {
       setStep('request');
-      setOtp('');
+      setDigits(['', '', '', '', '', '']);
       setNewPassword('');
       setConfirmPassword('');
       setError('');
       setInfoMessage('');
       setLoading(false);
       setResending(false);
+      setExpiryCountdown(300);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (step === 'verify') {
+      setExpiryCountdown(300);
+      setTimeout(() => {
+        inputRefs.current[0]?.focus();
+      }, 100);
+    }
+  }, [step]);
+
+  const handleDigitChange = (index: number, value: string) => {
+    const numericChar = value.replace(/\D/g, '');
+    if (!numericChar) {
+      const newDigits = [...digits];
+      newDigits[index] = '';
+      setDigits(newDigits);
+      return;
+    }
+
+    const singleDigit = numericChar.slice(-1);
+    const newDigits = [...digits];
+    newDigits[index] = singleDigit;
+    setDigits(newDigits);
+
+    if (index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (!digits[index] && index > 0) {
+        const newDigits = [...digits];
+        newDigits[index - 1] = '';
+        setDigits(newDigits);
+        inputRefs.current[index - 1]?.focus();
+      } else {
+        const newDigits = [...digits];
+        newDigits[index] = '';
+        setDigits(newDigits);
+      }
+    } else if (e.key === 'ArrowLeft' && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pastedData) return;
+
+    const newDigits = [...digits];
+    for (let i = 0; i < 6; i++) {
+      newDigits[i] = pastedData[i] || '';
+    }
+    setDigits(newDigits);
+
+    const nextFocusIndex = Math.min(pastedData.length, 5);
+    inputRefs.current[nextFocusIndex]?.focus();
+  };
 
   // Resend countdown timer
   useEffect(() => {
@@ -61,6 +134,15 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     }, 1000);
     return () => clearInterval(timer);
   }, [countdown]);
+
+  // Expiry countdown timer (5 minutes = 300s)
+  useEffect(() => {
+    if (expiryCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setExpiryCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [expiryCountdown]);
 
   if (!isOpen) return null;
 
@@ -121,6 +203,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
       setInfoMessage(`A fresh verification code was sent to ${cleanEmail}`);
       setCountdown(60);
+      setExpiryCountdown(300);
     } catch (err: any) {
       setError(err.message || 'Failed to resend verification code.');
     } finally {
@@ -324,23 +407,44 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
 
               {/* 6-Digit OTP Input */}
               <div>
-                <label className="text-[#2d3a3a] font-bold mb-1.5 block">
+                <label className="text-[#2d3a3a] font-bold mb-2 block text-xs">
                   6-Digit OTP Verification Code <span className="text-rose-600">*</span>
                 </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    maxLength={6}
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="123456"
-                    className="w-full text-center py-3 rounded-xl bg-[#f7f9f7] border-2 border-[#74c69d] text-lg font-black text-[#1b4332] tracking-[8px] font-mono focus:outline-none focus:border-[#1b4332]"
-                    autoFocus
-                  />
+                <div className="grid grid-cols-6 gap-1.5 sm:gap-2.5 max-w-[320px] sm:max-w-sm mx-auto">
+                  {digits.map((digit, index) => (
+                    <input
+                      key={index}
+                      ref={(el) => {
+                        inputRefs.current[index] = el;
+                      }}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={1}
+                      value={digit}
+                      onChange={(e) => handleDigitChange(index, e.target.value)}
+                      onKeyDown={(e) => handleKeyDown(index, e)}
+                      onPaste={handlePaste}
+                      aria-label={`Digit ${index + 1}`}
+                      className={`w-full h-11 sm:h-13 text-center font-mono text-lg sm:text-2xl font-black rounded-xl sm:rounded-2xl border-2 transition-all outline-none ${
+                        digit
+                          ? 'border-[#1b4332] bg-white text-[#1b4332] shadow-sm'
+                          : 'border-[#d6e4d6] bg-[#f7f9f7] text-[#1b4332]'
+                      } focus:border-[#1b4332] focus:bg-white focus:ring-4 focus:ring-[#74c69d]/25`}
+                    />
+                  ))}
                 </div>
-                <div className="mt-1 flex items-center justify-between text-[11px] text-[#52605d]">
-                  <span>Code expires in 5 minutes</span>
+                <div className="mt-2 flex items-center justify-between text-[11px] text-[#52605d]">
+                  {expiryCountdown > 0 ? (
+                    <span>
+                      Code expires in{' '}
+                      <span className="font-mono font-bold text-[#1b4332]">
+                        {formatExpiryTime(expiryCountdown)}
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-rose-600 font-semibold">Code has expired</span>
+                  )}
                   {countdown > 0 ? (
                     <span className="text-[#52605d] font-semibold">Resend in {countdown}s</span>
                   ) : (

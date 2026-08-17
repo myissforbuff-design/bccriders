@@ -218,6 +218,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
         if (success) {
           setLoading(false);
           onLoginSuccess();
+          window.location.reload();
           return;
         }
       }
@@ -250,6 +251,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
         }
         setLoading(false);
         onLoginSuccess();
+        window.location.reload();
         return;
       }
 
@@ -277,10 +279,12 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
     if (targetId) {
       loginWithUserId(targetId);
       onLoginSuccess();
+      window.location.reload();
     } else {
       const success = login(username, password);
       if (success) {
         onLoginSuccess();
+        window.location.reload();
       }
     }
   };

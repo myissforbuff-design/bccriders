@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import * as XLSX from 'xlsx';
 import { store } from '../lib/db';
 import {
   FileText,
@@ -33,22 +34,21 @@ export const Reports: React.FC = () => {
 
   const totalMiles = members.reduce((sum, m) => sum + (m.totalMiles || 0), 0);
 
-  const handleExportCSV = () => {
-    let csvContent = 'data:text/csv;charset=utf-8,';
-    csvContent += 'Member ID,Name,Email,Role,Approval Status,Total Miles\n';
+  const handleExportXLSX = () => {
+    const wb = XLSX.utils.book_new();
+    const headers = ['Member ID', 'Name', 'Email', 'Role', 'Approval Status', 'Total Miles'];
+    const rows = members.map((m) => [
+      m.memberNumber || '',
+      m.name,
+      m.email,
+      m.role === 'admin' ? 'Admin' : 'Member',
+      m.approvalStatus || 'Approved',
+      m.totalMiles || 0,
+    ]);
 
-    members.forEach((m) => {
-      const roleText = m.role === 'admin' ? 'Admin' : 'Member';
-      csvContent += `"${m.memberNumber || ''}","${m.name}","${m.email}","${roleText}","${m.approvalStatus || 'Approved'}",${m.totalMiles || 0}\n`;
-    });
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `bcc_riders_club_report_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+    XLSX.utils.book_append_sheet(wb, ws, 'Riders Report');
+    XLSX.writeFile(wb, `bcc_riders_club_report_${new Date().toISOString().split('T')[0]}.xlsx`);
 
     setDownloadSuccess(true);
     setTimeout(() => setDownloadSuccess(false), 3000);
@@ -75,11 +75,11 @@ export const Reports: React.FC = () => {
 
         <div className="flex flex-wrap items-center gap-3">
           <button
-            onClick={handleExportCSV}
+            onClick={handleExportXLSX}
             className="py-2.5 px-4 rounded-xl bg-[#74c69d] hover:bg-[#52b788] text-[#081c15] font-extrabold text-xs transition-colors cursor-pointer flex items-center gap-2 shadow-xs"
           >
             <Download className="w-4 h-4" />
-            Export CSV Report
+            Export Excel (.xlsx)
           </button>
           <button
             onClick={handlePrint}
@@ -95,7 +95,7 @@ export const Reports: React.FC = () => {
         <div className="p-4 rounded-2xl bg-[#d8f3dc] border border-[#b7e4c7] text-[#1b4332] text-xs font-semibold flex items-center justify-between">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-[#2d6a4f]" />
-            <span>CSV Report generated and downloaded successfully!</span>
+            <span>Excel (.xlsx) Report generated and downloaded successfully!</span>
           </div>
           <button onClick={() => setDownloadSuccess(false)} className="text-xs font-bold hover:underline">
             Dismiss

@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { jsPDF } from 'jspdf';
+import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
@@ -81,9 +82,9 @@ const MONTH_OPTIONS = [
 const YEAR_OPTIONS = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 
 const SUB_TAB_OPTIONS = [
-  { id: 'finance', label: 'Finance & Fee Settings', icon: Wallet, description: 'Manage club fees, dues, & custom collections' },
-  { id: 'reports', label: 'Reports & Export Center', icon: FileSpreadsheet, description: 'Export CSV data for members, transactions, and financial statements' },
-  { id: 'security', label: 'System & Security', icon: Shield, description: 'Executive permissions and security controls' },
+  { id: 'finance', label: 'Finances & Fees', icon: Wallet, description: 'Fees, monthly dues & drives' },
+  { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet, description: 'Export member & financial ledgers' },
+  { id: 'security', label: 'System Security', icon: Shield, description: 'Admin 2FA & session policies' },
 ] as const;
 
 export const Settings: React.FC = () => {
@@ -202,9 +203,28 @@ export const Settings: React.FC = () => {
   } | null>(null);
 
   // Reports & Export Center State
+  const REPORT_MONTH_OPTIONS = [
+    { value: 'All', label: 'All Months', short: 'All' },
+    { value: '01', label: 'January', short: 'Jan' },
+    { value: '02', label: 'February', short: 'Feb' },
+    { value: '03', label: 'March', short: 'Mar' },
+    { value: '04', label: 'April', short: 'Apr' },
+    { value: '05', label: 'May', short: 'May' },
+    { value: '06', label: 'June', short: 'Jun' },
+    { value: '07', label: 'July', short: 'Jul' },
+    { value: '08', label: 'August', short: 'Aug' },
+    { value: '09', label: 'September', short: 'Sep' },
+    { value: '10', label: 'October', short: 'Oct' },
+    { value: '11', label: 'November', short: 'Nov' },
+    { value: '12', label: 'December', short: 'Dec' },
+  ];
+
   const [reportYearFilter, setReportYearFilter] = useState<string>('All');
+  const [reportMonthFilter, setReportMonthFilter] = useState<string>('All');
   const [isYearDropdownOpen, setIsYearDropdownOpen] = useState(false);
+  const [isMonthDropdownOpen, setIsMonthDropdownOpen] = useState(false);
   const yearDropdownRef = useRef<HTMLDivElement>(null);
+  const monthDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -213,6 +233,12 @@ export const Settings: React.FC = () => {
         !yearDropdownRef.current.contains(event.target as Node)
       ) {
         setIsYearDropdownOpen(false);
+      }
+      if (
+        monthDropdownRef.current &&
+        !monthDropdownRef.current.contains(event.target as Node)
+      ) {
+        setIsMonthDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -270,6 +296,13 @@ export const Settings: React.FC = () => {
   const [isImportingZip, setIsImportingZip] = useState(false);
   const zipInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Delete a Year's Transaction States & Countdown
+  const [deleteYearInput, setDeleteYearInput] = useState<string>('');
+  const [showDeleteYearModal, setShowDeleteYearModal] = useState<boolean>(false);
+  const [deleteCountdown, setDeleteCountdown] = useState<number>(10);
+  const [isDeletingYear, setIsDeletingYear] = useState<boolean>(false);
+  const [deleteYearToast, setDeleteYearToast] = useState<string | null>(null);
+
   const modalScrollRef = useRef<HTMLDivElement | null>(null);
   const [isDraggingModal, setIsDraggingModal] = useState(false);
   const [modalStartX, setModalStartX] = useState(0);
@@ -304,26 +337,66 @@ export const Settings: React.FC = () => {
     setShowArchiveExportModal(false);
     setImportedArchiveData(null);
   });
+  useModalDismiss(showDeleteYearModal, () => setShowDeleteYearModal(false));
+
+  // Helper matching functions for a specific year
+  const isRecordInYear = (r: any, targetYear: string | number) => {
+    const yStr = String(targetYear);
+    const pDate = r.paidDate || r.dueDate || r.updatedAt || r.createdAt || '';
+    const covMonth = r.coveredMonth || '';
+    const custName = r.customItemName || '';
+    return pDate.includes(yStr) || covMonth.includes(yStr) || custName.includes(yStr);
+  };
+
+  const isExpenseInYear = (e: any, targetYear: string | number) => {
+    const yStr = String(targetYear);
+    const eDate = e.date || e.updatedAt || e.createdAt || '';
+    return eDate.includes(yStr);
+  };
+
+  // Matched records for inputted year
+  const matchedYearRecords = useMemo(() => {
+    if (!deleteYearInput || deleteYearInput.length !== 4) return [];
+    return reportPayments.filter(r => isRecordInYear(r, deleteYearInput));
+  }, [deleteYearInput, reportPayments]);
+
+  const matchedYearExpenses = useMemo(() => {
+    if (!deleteYearInput || deleteYearInput.length !== 4) return [];
+    return reportExpenses.filter(e => isExpenseInYear(e, deleteYearInput));
+  }, [deleteYearInput, reportExpenses]);
+
+  const isYearMatched = useMemo(() => {
+    return Boolean(deleteYearInput && deleteYearInput.length === 4 && (matchedYearRecords.length > 0 || matchedYearExpenses.length > 0));
+  }, [deleteYearInput, matchedYearRecords, matchedYearExpenses]);
+
+  const isNoYearMatched = useMemo(() => {
+    return Boolean(deleteYearInput && deleteYearInput.length === 4 && matchedYearRecords.length === 0 && matchedYearExpenses.length === 0);
+  }, [deleteYearInput, matchedYearRecords, matchedYearExpenses]);
+
+  // 10-second countdown timer for deletion modal
+  useEffect(() => {
+    if (!showDeleteYearModal) return;
+    if (deleteCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setDeleteCountdown((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [showDeleteYearModal, deleteCountdown]);
+
+  const handleOpenDeleteYearModal = () => {
+    if (!deleteYearInput || deleteYearInput.length !== 4) return;
+    if (!isYearMatched) return;
+    setDeleteCountdown(10);
+    setShowDeleteYearModal(true);
+  };
 
   const deleteRecordsForYear = async (targetYear: number) => {
     const yearStr = targetYear.toString();
-    const recordsToDelete = reportPayments.filter(r => {
-      const recYear = (r.createdAt || r.paidDate || r.coveredMonth || '').slice(0, 4);
-      return recYear === yearStr;
-    });
-    const expensesToDelete = reportExpenses.filter(e => {
-      const expYear = (e.date || e.createdAt || '').slice(0, 4);
-      return expYear === yearStr;
-    });
+    const recordsToDelete = reportPayments.filter(r => isRecordInYear(r, yearStr));
+    const expensesToDelete = reportExpenses.filter(e => isExpenseInYear(e, yearStr));
 
-    const updatedRecords = reportPayments.filter(r => {
-      const recYear = (r.createdAt || r.paidDate || r.coveredMonth || '').slice(0, 4);
-      return recYear !== yearStr;
-    });
-    const updatedExpenses = reportExpenses.filter(e => {
-      const expYear = (e.date || e.createdAt || '').slice(0, 4);
-      return expYear !== yearStr;
-    });
+    const updatedRecords = reportPayments.filter(r => !isRecordInYear(r, yearStr));
+    const updatedExpenses = reportExpenses.filter(e => !isExpenseInYear(e, yearStr));
 
     setReportPayments(updatedRecords);
     setReportExpenses(updatedExpenses);
@@ -348,6 +421,23 @@ export const Settings: React.FC = () => {
           console.error(`Failed to delete liquidation log ${exp.id}:`, err);
         }
       }
+    }
+  };
+
+  const handleConfirmDeleteYear = async () => {
+    if (!deleteYearInput || deleteYearInput.length !== 4 || deleteCountdown > 0) return;
+    const yr = Number(deleteYearInput);
+    setIsDeletingYear(true);
+    try {
+      await deleteRecordsForYear(yr);
+      setShowDeleteYearModal(false);
+      setDeleteYearToast(`Successfully deleted all transactions for FY ${deleteYearInput}.`);
+      setDeleteYearInput('');
+      setTimeout(() => setDeleteYearToast(null), 4000);
+    } catch (err) {
+      console.error('Error deleting year transactions:', err);
+    } finally {
+      setIsDeletingYear(false);
     }
   };
 
@@ -490,148 +580,13 @@ export const Settings: React.FC = () => {
     loadReportsData();
   }, []);
 
-  const escapeCSVCell = (val: any): string => {
-    if (val === null || val === undefined) return '""';
-    const str = String(val).replace(/"/g, '""');
-    return `"${str}"`;
-  };
-
-  const downloadCSVFile = (filename: string, headers: string[], rows: (string | number)[][]) => {
-    const allLines = [
-      headers.map(escapeCSVCell).join(','),
-      ...rows.map((r) => r.map(escapeCSVCell).join(',')),
-    ];
-    const csvContent = allLines.join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const downloadXLSFile = (filename: string, headers: string[], rows: (string | number)[][]) => {
-    let tableRowsHtml = '';
-
-    rows.forEach((row) => {
-      const cell1 = String(row[0] || '').trim();
-      const rawCell2 = row[1] !== undefined && row[1] !== '' ? String(row[1]) : '';
-
-      const isBorderLine = cell1.startsWith('---') || cell1.startsWith('===');
-      if (isBorderLine) {
-        return;
-      }
-
-      const isMainTitle = cell1 === 'BCC RIDERS CLUB - FINANCIAL STATEMENT';
-      const isSectionHeader = ['FUNDS', 'EXPENSES', 'SUPPLEMENTARY ACCOUNTS'].includes(cell1);
-      const isTotalRow = cell1.startsWith('Total');
-      const isNetRow = cell1.startsWith('NET INCOME');
-
-      if (isMainTitle) {
-        tableRowsHtml += `
-          <tr>
-            <td colspan="2" style="font-weight: bold; font-size: 11pt; text-align: center; background-color: #1b4332; color: #ffffff; padding: 8px; border: 1px solid #1b4332;">
-              ${cell1} ${rawCell2 ? `(${rawCell2})` : ''}
-            </td>
-          </tr>
-        `;
-      } else if (isSectionHeader) {
-        tableRowsHtml += `
-          <tr>
-            <td style="font-weight: bold; font-size: 10pt; background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 6px 10px;">${cell1}</td>
-            <td style="border: 1px solid #cbd5e1; background-color: #f8fafc;"></td>
-          </tr>
-        `;
-      } else if (isTotalRow) {
-        const numVal = Number(rawCell2);
-        const formattedAmount = !isNaN(numVal) ? `₱${numVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : rawCell2;
-        tableRowsHtml += `
-          <tr>
-            <td style="font-weight: bold; border: 1px solid #cbd5e1; padding: 6px 10px; background-color: #ffffff;">${cell1}</td>
-            <td style="font-weight: bold; border: 1px solid #cbd5e1; padding: 6px 10px; text-align: right; background-color: #ffffff;">${formattedAmount}</td>
-          </tr>
-        `;
-      } else if (isNetRow) {
-        const numVal = Number(rawCell2);
-        const formattedAmount = !isNaN(numVal) ? `₱${numVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : rawCell2;
-        tableRowsHtml += `
-          <tr>
-            <td style="font-weight: bold; font-size: 11pt; border: 1px solid #cbd5e1; padding: 8px 10px; background-color: #f0fdf4; color: #166534;">${cell1}</td>
-            <td style="font-weight: bold; font-size: 11pt; border: 1px solid #cbd5e1; padding: 8px 10px; text-align: right; background-color: #f0fdf4; color: #166534;">${formattedAmount}</td>
-          </tr>
-        `;
-      } else if (cell1 === '' && rawCell2 === '') {
-        tableRowsHtml += `
-          <tr>
-            <td style="height: 12px; border: none;"></td>
-            <td style="height: 12px; border: none;"></td>
-          </tr>
-        `;
-      } else {
-        const isIndented = String(row[0] || '').startsWith('  ');
-        const numVal = Number(rawCell2);
-        const formattedAmount = rawCell2 !== '' && !isNaN(numVal) ? `₱${numVal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : rawCell2;
-        tableRowsHtml += `
-          <tr>
-            <td style="border: 1px solid #cbd5e1; padding: 5px 10px ${isIndented ? '; padding-left: 24px' : ''};">${cell1}</td>
-            <td style="border: 1px solid #cbd5e1; padding: 5px 10px; text-align: right;">${formattedAmount}</td>
-          </tr>
-        `;
-      }
-    });
-
-    const excelHtml = `
-      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
-      <head>
-        <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
-        <!--[if gte mso 9]>
-        <xml>
-          <x:ExcelWorkbook>
-            <x:ExcelWorksheets>
-              <x:ExcelWorksheet>
-                <x:Name>Sheet1</x:Name>
-                <x:WorksheetOptions>
-                  <x:DisplayGridlines/>
-                </x:WorksheetOptions>
-              </x:ExcelWorksheet>
-            </x:ExcelWorksheets>
-          </x:ExcelWorkbook>
-        </xml>
-        <![endif]-->
-        <style>
-          table { border-collapse: collapse; font-family: Calibri, Arial, sans-serif; font-size: 11pt; }
-          th { font-weight: bold; background-color: #f1f5f9; border: 1px solid #cbd5e1; padding: 6px 12px; }
-          td { border: 1px solid #cbd5e1; padding: 6px 12px; }
-        </style>
-      </head>
-      <body>
-        <table>
-          <thead>
-            <tr>
-              <th style="width: 320px; text-align: left; border: 1px solid #cbd5e1;">${headers[0] || 'Account / Line Item'}</th>
-              <th style="width: 180px; text-align: right; border: 1px solid #cbd5e1;">${headers[1] || 'Amount (PHP)'}</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${tableRowsHtml}
-          </tbody>
-        </table>
-      </body>
-      </html>
-    `;
-
-    const blob = new Blob([excelHtml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', filename.replace(/\.csv$/, '.xls'));
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const downloadXLSXFile = (filename: string, headers: string[], rows: (string | number)[][], sheetName = 'Sheet1') => {
+    const wb = XLSX.utils.book_new();
+    const aoa = [headers, ...rows];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    XLSX.utils.book_append_sheet(wb, ws, sheetName.slice(0, 31));
+    const cleanFilename = filename.replace(/\.(csv|xls|xlsx)$/i, '') + '.xlsx';
+    XLSX.writeFile(wb, cleanFilename);
   };
 
   const getMembersReportData = () => {
@@ -681,6 +636,93 @@ export const Settings: React.FC = () => {
     return { headers, rows };
   };
 
+  const isRecordInPeriod = (
+    dateCandidates: (string | undefined)[],
+    targetYear: string,
+    targetMonth: string
+  ): boolean => {
+    if (targetYear === 'All' && targetMonth === 'All') return true;
+
+    const validStrings = dateCandidates.filter(
+      (s): s is string => typeof s === 'string' && s.trim().length > 0
+    );
+    if (validStrings.length === 0) return false;
+
+    const targetMonthNum = targetMonth === 'All' ? null : parseInt(targetMonth, 10);
+    const targetMonthObj = targetMonth === 'All' ? null : REPORT_MONTH_OPTIONS.find((m) => m.value === targetMonth);
+    const monthFullName = targetMonthObj?.label.toLowerCase() || '';
+    const monthShortName = targetMonthObj?.short.toLowerCase() || '';
+
+    for (const raw of validStrings) {
+      const s = raw.trim();
+      const lower = s.toLowerCase();
+
+      // 1. Year match
+      let matchesYear = targetYear === 'All';
+      if (!matchesYear) {
+        if (s.includes(targetYear)) {
+          matchesYear = true;
+        } else {
+          const d = new Date(s);
+          if (!isNaN(d.getTime()) && d.getFullYear().toString() === targetYear) {
+            matchesYear = true;
+          }
+        }
+      }
+
+      if (!matchesYear) continue;
+
+      // 2. Month match
+      let matchesMonth = targetMonth === 'All';
+      if (!matchesMonth && targetMonthNum !== null) {
+        if (monthFullName && lower.includes(monthFullName)) {
+          matchesMonth = true;
+        } else if (monthShortName && lower.includes(monthShortName)) {
+          matchesMonth = true;
+        } else if (
+          s.includes(`-${targetMonth}-`) ||
+          s.includes(`-${targetMonth}`) ||
+          s.includes(`/${targetMonth}/`) ||
+          s.includes(`/${targetMonthNum}/`) ||
+          new RegExp(`[-/.]0?${targetMonthNum}[-/.]`).test(s)
+        ) {
+          matchesMonth = true;
+        } else {
+          const d = new Date(s);
+          if (!isNaN(d.getTime()) && d.getMonth() + 1 === targetMonthNum) {
+            matchesMonth = true;
+          }
+        }
+      }
+
+      if (matchesYear && matchesMonth) {
+        return true;
+      }
+    }
+
+    return false;
+  };
+
+  const getReportPeriodSlug = () => {
+    const mObj = REPORT_MONTH_OPTIONS.find((m) => m.value === reportMonthFilter);
+    const monthSlug = reportMonthFilter === 'All' ? '' : (mObj?.short || reportMonthFilter);
+
+    if (reportYearFilter === 'All' && reportMonthFilter === 'All') return 'All_Time';
+    if (reportYearFilter !== 'All' && reportMonthFilter === 'All') return `FY_${reportYearFilter}`;
+    if (reportYearFilter === 'All' && reportMonthFilter !== 'All') return `All_Years_${monthSlug}`;
+    return `${reportYearFilter}_${monthSlug}`;
+  };
+
+  const getReportPeriodDisplay = () => {
+    const mObj = REPORT_MONTH_OPTIONS.find((m) => m.value === reportMonthFilter);
+    const monthName = mObj && reportMonthFilter !== 'All' ? mObj.label : '';
+
+    if (reportYearFilter === 'All' && reportMonthFilter === 'All') return 'All Time';
+    if (reportYearFilter !== 'All' && reportMonthFilter === 'All') return `FY ${reportYearFilter}`;
+    if (reportYearFilter === 'All' && reportMonthFilter !== 'All') return `${monthName} (All Years)`;
+    return `${monthName} ${reportYearFilter}`;
+  };
+
   const getTransactionsReportData = () => {
     const headers = [
       'Transaction ID',
@@ -697,16 +739,13 @@ export const Settings: React.FC = () => {
       'Updated At',
     ];
 
-    const filtered =
-      reportYearFilter !== 'All'
-        ? reportPayments.filter(
-            (p) =>
-              p.paidDate?.includes(reportYearFilter) ||
-              p.createdAt?.includes(reportYearFilter) ||
-              p.coveredMonth?.includes(reportYearFilter) ||
-              p.dueDate?.includes(reportYearFilter)
-          )
-        : reportPayments;
+    const filtered = reportPayments.filter((p) =>
+      isRecordInPeriod(
+        [p.paidDate, p.createdAt, p.coveredMonth, p.dueDate],
+        reportYearFilter,
+        reportMonthFilter
+      )
+    );
 
     const userMap = new Map(reportUsers.map((u) => [u.id, u.name]));
 
@@ -742,14 +781,13 @@ export const Settings: React.FC = () => {
       'Notes',
     ];
 
-    const filtered =
-      reportYearFilter !== 'All'
-        ? reportExpenses.filter(
-            (e) =>
-              e.date?.includes(reportYearFilter) ||
-              e.createdAt?.includes(reportYearFilter)
-          )
-        : reportExpenses;
+    const filtered = reportExpenses.filter((e) =>
+      isRecordInPeriod(
+        [e.date, e.createdAt],
+        reportYearFilter,
+        reportMonthFilter
+      )
+    );
 
     const rows = filtered.map((e) => [
       e.id,
@@ -768,25 +806,21 @@ export const Settings: React.FC = () => {
   };
 
   const getFinancialStatementReportData = () => {
-    const pFiltered =
-      reportYearFilter !== 'All'
-        ? reportPayments.filter(
-            (p) =>
-              p.paidDate?.includes(reportYearFilter) ||
-              p.createdAt?.includes(reportYearFilter) ||
-              p.coveredMonth?.includes(reportYearFilter) ||
-              p.dueDate?.includes(reportYearFilter)
-          )
-        : reportPayments;
+    const pFiltered = reportPayments.filter((p) =>
+      isRecordInPeriod(
+        [p.paidDate, p.createdAt, p.coveredMonth, p.dueDate],
+        reportYearFilter,
+        reportMonthFilter
+      )
+    );
 
-    const eFiltered =
-      reportYearFilter !== 'All'
-        ? reportExpenses.filter(
-            (e) =>
-              e.date?.includes(reportYearFilter) ||
-              e.createdAt?.includes(reportYearFilter)
-          )
-        : reportExpenses;
+    const eFiltered = reportExpenses.filter((e) =>
+      isRecordInPeriod(
+        [e.date, e.createdAt],
+        reportYearFilter,
+        reportMonthFilter
+      )
+    );
 
     const paidPayments = pFiltered.filter((p) => p.status === 'Paid');
     const pendingPayments = pFiltered.filter(
@@ -824,15 +858,23 @@ export const Settings: React.FC = () => {
     const headers = ['Account / Line Item', 'Amount (PHP)'];
 
     const rows: (string | number)[][] = [
-      ['BCC RIDERS CLUB - FINANCIAL STATEMENT', reportYearFilter === 'All' ? 'All Time' : `FY ${reportYearFilter}`],
+      ['BCC RIDERS CLUB - FINANCIAL STATEMENT', getReportPeriodDisplay()],
       ['', ''],
       ['FUNDS', ''],
+      ['Accounts Receivable (Pending Dues)', totalReceivables.toFixed(2)],
     ];
 
     if (Object.keys(incomeByType).length === 0) {
       rows.push(['  No funds items recorded', '0.00']);
     } else {
-      Object.entries(incomeByType).forEach(([cat, amt]) => {
+      const sortedIncome = Object.entries(incomeByType).sort(([a], [b]) => {
+        if (a === 'Membership Fee') return -1;
+        if (b === 'Membership Fee') return 1;
+        if (a === 'Monthly Due') return -1;
+        if (b === 'Monthly Due') return 1;
+        return a.localeCompare(b);
+      });
+      sortedIncome.forEach(([cat, amt]) => {
         rows.push([`  ${cat}`, amt.toFixed(2)]);
       });
     }
@@ -853,33 +895,26 @@ export const Settings: React.FC = () => {
     rows.push(['Total Expenses', totalExpenses.toFixed(2)]);
     rows.push(['', '']);
     rows.push(['NET INCOME (OPERATING SURPLUS)', netSurplus.toFixed(2)]);
-    rows.push(['', '']);
-    rows.push(['SUPPLEMENTARY ACCOUNTS', '']);
-    rows.push(['Accounts Receivable (Pending Dues)', totalReceivables.toFixed(2)]);
 
     return { headers, rows };
   };
 
   const exportFinancialStatementPDF = () => {
-    const pFiltered =
-      reportYearFilter !== 'All'
-        ? reportPayments.filter(
-            (p) =>
-              p.paidDate?.includes(reportYearFilter) ||
-              p.createdAt?.includes(reportYearFilter) ||
-              p.coveredMonth?.includes(reportYearFilter) ||
-              p.dueDate?.includes(reportYearFilter)
-          )
-        : reportPayments;
+    const pFiltered = reportPayments.filter((p) =>
+      isRecordInPeriod(
+        [p.paidDate, p.createdAt, p.coveredMonth, p.dueDate],
+        reportYearFilter,
+        reportMonthFilter
+      )
+    );
 
-    const eFiltered =
-      reportYearFilter !== 'All'
-        ? reportExpenses.filter(
-            (e) =>
-              e.date?.includes(reportYearFilter) ||
-              e.createdAt?.includes(reportYearFilter)
-          )
-        : reportExpenses;
+    const eFiltered = reportExpenses.filter((e) =>
+      isRecordInPeriod(
+        [e.date, e.createdAt],
+        reportYearFilter,
+        reportMonthFilter
+      )
+    );
 
     const paidPayments = pFiltered.filter((p) => p.status === 'Paid');
     const pendingPayments = pFiltered.filter(
@@ -940,9 +975,11 @@ export const Settings: React.FC = () => {
     doc.setFontSize(9);
     doc.setTextColor(82, 96, 93);
     const periodText =
-      reportYearFilter === 'All'
+      reportYearFilter === 'All' && reportMonthFilter === 'All'
         ? 'For All Recorded Fiscal Periods'
-        : `For the Year Ended December 31, ${reportYearFilter}`;
+        : reportYearFilter !== 'All' && reportMonthFilter === 'All'
+        ? `For the Year Ended December 31, ${reportYearFilter}`
+        : `For the Period: ${getReportPeriodDisplay()}`;
     doc.text(periodText, pageWidth - margin, y, { align: 'right' });
     doc.text(
       `Generated: ${new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}`,
@@ -971,7 +1008,29 @@ export const Settings: React.FC = () => {
 
     y += 7;
 
-    const incomeEntries = Object.entries(incomeByType);
+    // Accounts Receivable (Pending Dues) Row
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.setTextColor(31, 41, 55);
+    doc.text('Accounts Receivable (Pending Dues)', margin + 8, y + 5);
+    doc.text(
+      totalReceivables.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      pageWidth - margin - 4,
+      y + 5,
+      { align: 'right' }
+    );
+    doc.setDrawColor(243, 244, 246);
+    doc.line(margin + 4, y + 6.5, pageWidth - margin - 4, y + 6.5);
+    y += 6.5;
+
+    const incomeEntries = Object.entries(incomeByType).sort(([a], [b]) => {
+      if (a === 'Membership Fee') return -1;
+      if (b === 'Membership Fee') return 1;
+      if (a === 'Monthly Due') return -1;
+      if (b === 'Monthly Due') return 1;
+      return a.localeCompare(b);
+    });
+
     if (incomeEntries.length === 0) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
@@ -1127,26 +1186,6 @@ export const Settings: React.FC = () => {
       y + 7.5
     );
 
-    y += 15;
-
-    // Supplementary Info: Accounts Receivable
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(82, 96, 93);
-    doc.text('SUPPLEMENTARY ACCOUNTS:', margin, y);
-
-    y += 5;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.setTextColor(55, 65, 81);
-    doc.text('Accounts Receivable (Pending / Uncollected Dues)', margin + 4, y);
-    doc.text(
-      totalReceivables.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-      pageWidth - margin - 4,
-      y,
-      { align: 'right' }
-    );
-
     // Footer
     const totalPages = (doc as any).internal.getNumberOfPages();
     for (let i = 1; i <= totalPages; i++) {
@@ -1162,7 +1201,7 @@ export const Settings: React.FC = () => {
       doc.text(`Page ${i} of ${totalPages}`, pageWidth - margin, pageHeight - 8, { align: 'right' });
     }
 
-    doc.save(`BRC_Income_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    doc.save(`BRC_Income_Statement_${getReportPeriodSlug()}_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const getMemberComplianceReportData = () => {
@@ -1937,93 +1976,186 @@ export const Settings: React.FC = () => {
 
       {/* SUB TAB 1: FINANCE SETTINGS */}
       {activeSubTab === 'finance' && (
-        <div className="space-y-6 sm:space-y-8">
+        <div className="space-y-4 sm:space-y-6">
           {/* Section: Yearly Financial Archiving & Audit */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 sm:pb-4 border-b border-[#e2ece2]">
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#e2ece2]">
               <div>
-                <h2 className="font-heading text-sm sm:text-base md:text-lg font-black text-[#1b4332] flex items-center gap-2">
-                  <Archive className="w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0" />
-                  <span>Annual Financial Archiving & Audit</span>
+                <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
+                  <Archive className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                  <span>Yearly Archiving</span>
                 </h2>
-                <p className="text-[11px] sm:text-xs text-[#52605d] mt-1 leading-snug">
-                  Audit and archive whole year finances (January to December), carry forward Net Treasury into active funds, or import compressed (.zip) archive packages.
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 leading-snug">
+                  Audit and archive annual finances into .zip packages, or import previous archives.
                 </p>
               </div>
 
               <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center shrink-0">
-                {/* Yearly Archiving Action Button - Official Forest Dark Scheme */}
                 <button
                   type="button"
                   onClick={() => setShowYearlyArchiveModal(true)}
-                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
-                  title="Audit & Archive Financial Year (January - December)"
+                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
+                  title="Audit & Archive Financial Year"
                 >
-                  <Archive className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#74c69d] shrink-0" />
-                  <span className="truncate">Yearly Archiving</span>
+                  <Archive className="w-3.5 h-3.5 text-[#74c69d] shrink-0" />
+                  <span className="truncate">Archive Year</span>
                 </button>
 
-                {/* Import Compressed (.zip) Archive Button - Official Mint Light Scheme */}
                 <button
                   type="button"
                   onClick={() => zipInputRef.current?.click()}
-                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#d8f3dc] hover:bg-[#b7e4c7] text-[#1b4332] border border-[#b7e4c7] rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
-                  title="Import .zip Archive Package & Export Multi-Tab Excel or Income Statement PDF"
+                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 bg-[#d8f3dc] hover:bg-[#b7e4c7] text-[#1b4332] border border-[#b7e4c7] rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5"
+                  title="Import .zip Archive Package"
                 >
-                  <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#1b4332] shrink-0" />
-                  <span className="truncate">Import (.zip)</span>
+                  <Upload className="w-3.5 h-3.5 text-[#1b4332] shrink-0" />
+                  <span className="truncate">Import .zip</span>
                 </button>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 sm:gap-3 text-xs">
-              <div className="bg-[#f7f9f7] p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-[#e2ece2] space-y-0.5 sm:space-y-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 text-xs">
+              <div className="bg-[#f7f9f7] p-2.5 sm:p-3.5 rounded-xl border border-[#e2ece2] space-y-0.5">
                 <span className="font-bold text-[#1b4332] text-xs flex items-center gap-1.5">
-                  <ShieldCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f] shrink-0" />
-                  Year-End Audit & Treasury Carryover
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  Remaining Funds Handling
                 </span>
                 <p className="text-[#52605d] text-[10.5px] sm:text-[11px] leading-relaxed">
-                  Calculates annual surplus, locks books, automatically adds remaining Net Treasury to active total funds, and purges outgoing year data.
+                  Record remaining funds manually as a payment note (e.g. 2021 Year-End Carryover).
                 </p>
               </div>
 
-              <div className="bg-[#f7f9f7] p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-[#e2ece2] space-y-0.5 sm:space-y-1">
+              <div className="bg-[#f7f9f7] p-2.5 sm:p-3.5 rounded-xl border border-[#e2ece2] space-y-0.5">
                 <span className="font-bold text-[#1b4332] text-xs flex items-center gap-1.5">
-                  <FileSpreadsheet className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f] shrink-0" />
-                  Archive Import & Export Center
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  Archive Import & Export
                 </span>
                 <p className="text-[#52605d] text-[10.5px] sm:text-[11px] leading-relaxed">
-                  Import compressed <code>.zip</code> packages to inspect historic records and choose between 7-tab Excel workbooks or Income Statement PDFs.
+                  Import .zip packages to inspect records and export Excel / PDF statements.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* Section 1: Standard Fee Configuration */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-4 sm:space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#e2ece2]">
+          {/* Section: Delete a Year's Transactions */}
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-rose-200/80 shadow-xs space-y-3">
+            <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-rose-100">
               <div>
-                <h2 className="font-heading text-base sm:text-lg font-black text-[#1b4332] flex items-center gap-2">
-                  <Coins className="w-5 h-5 text-[#2d6a4f]" />
-                  Standard Fee Rates
+                <h2 className="font-heading text-sm sm:text-base font-black text-rose-900 flex items-center gap-2">
+                  <Trash2 className="w-4 h-4 text-rose-600 shrink-0" />
+                  <span>Delete Year Transactions</span>
                 </h2>
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 leading-snug">
+                  Permanently purge records for a fiscal year.
+                </p>
+              </div>
+
+              {deleteYearToast && (
+                <motion.div
+                  initial={{ opacity: 0, x: 10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="px-2.5 py-1 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-[11px] font-bold flex items-center gap-1 shrink-0"
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                  <span>{deleteYearToast}</span>
+                </motion.div>
+              )}
+            </div>
+
+            <div className="bg-rose-50/50 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-rose-200/60 space-y-2.5">
+              <div className="space-y-1">
+                <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] block">
+                  Fiscal Year
+                </label>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      maxLength={4}
+                      value={deleteYearInput}
+                      onChange={(e) => {
+                        const numericOnly = e.target.value.replace(/\D/g, '').slice(0, 4);
+                        setDeleteYearInput(numericOnly);
+                      }}
+                      placeholder="e.g. 2024"
+                      className={`w-full pl-8.5 pr-2.5 py-2 rounded-xl bg-white border text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-hidden placeholder:font-normal placeholder:text-stone-400 transition-colors ${
+                        isNoYearMatched
+                          ? 'border-rose-300 ring-1 ring-rose-200'
+                          : isYearMatched
+                          ? 'border-emerald-400 ring-1 ring-emerald-200'
+                          : 'border-[#e2ece2] focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
+                      }`}
+                    />
+                    <Calendar className={`w-3.5 h-3.5 absolute left-2.5 top-3 pointer-events-none ${
+                      isNoYearMatched ? 'text-rose-500' : isYearMatched ? 'text-emerald-600' : 'text-stone-400'
+                    }`} />
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleOpenDeleteYearModal}
+                    disabled={!isYearMatched || isDeletingYear}
+                    className={`px-3.5 sm:px-4 py-2 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-1.5 shrink-0 whitespace-nowrap ${
+                      isYearMatched && !isDeletingYear
+                        ? 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer shadow-xs active:scale-95'
+                        : 'bg-stone-100 text-stone-400 cursor-not-allowed border border-stone-200/80 opacity-70 select-none'
+                    }`}
+                  >
+                    <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                    <span>{isYearMatched ? `Delete FY ${deleteYearInput}` : 'Delete Year'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {deleteYearInput.length === 4 && isYearMatched && (
+                <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-emerald-100/70 border border-emerald-200 text-emerald-900 text-[11px] font-bold">
+                  <span className="flex items-center gap-1.5 truncate">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                    <span>FY {deleteYearInput} Matched</span>
+                  </span>
+                  <span className="text-[10px] text-emerald-800 font-semibold shrink-0">
+                    {matchedYearRecords.length} recs, {matchedYearExpenses.length} exp
+                  </span>
+                </div>
+              )}
+
+              {deleteYearInput.length === 4 && isNoYearMatched && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-rose-100/80 border border-rose-200 text-rose-800 text-[11px] font-bold">
+                  <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span>No Year is matched</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Section 1: Standard Fee Configuration */}
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
+              <div>
+                <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
+                  <Coins className="w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0" />
+                  <span>Fee Rates</span>
+                </h2>
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5">
+                  Set baseline member registration fee
+                </p>
               </div>
 
               {feeSavedToast && (
                 <motion.div
                   initial={{ opacity: 0, x: 10 }}
                   animate={{ opacity: 1, x: 0 }}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold flex items-center gap-1.5"
+                  className="px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold flex items-center gap-1.5 self-start sm:self-auto"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-700" />
-                  <span>Fee Rates Saved Successfully!</span>
+                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>Fee saved!</span>
                 </motion.div>
               )}
             </div>
 
-            <form onSubmit={handleSaveFees} className="space-y-4 max-w-md w-full">
-              {/* Membership Fee */}
-              <div className="space-y-1.5 bg-[#f7f9f7] p-3.5 sm:p-4 rounded-2xl border border-[#e2ece2]">
+            <form onSubmit={handleSaveFees} className="space-y-3 max-w-md w-full">
+              <div className="space-y-1.5 bg-[#f7f9f7] p-3 sm:p-4 rounded-2xl border border-[#e2ece2]">
                 <label className="text-xs font-bold text-[#1b4332] block">
                   Membership Fee (₱)
                 </label>
@@ -2036,31 +2168,34 @@ export const Settings: React.FC = () => {
                     onChange={(e) => setMembershipFeeInput(Number(e.target.value))}
                     className="w-full pl-8 pr-3 py-2 rounded-xl bg-white border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                   />
-                  <span className="absolute left-3 top-2.5 text-xs font-bold text-[#52605d]">₱</span>
+                  <span className="absolute left-3 top-2 text-xs font-bold text-[#52605d]">₱</span>
                 </div>
-                <span className="text-[10px] text-[#52605d]">Base membership joining fee</span>
+                <span className="text-[10.5px] text-[#52605d] block">One-time registration fee for new members</span>
               </div>
 
-              <div className="flex justify-end pt-2">
+              <div className="flex justify-end pt-1">
                 <button
                   type="submit"
-                  className="w-full sm:w-auto px-5 sm:px-6 py-2.5 sm:py-3 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02]"
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02]"
                 >
                   <Save className="w-4 h-4" />
-                  <span>Update & Save Fee Rates</span>
+                  <span>Save Fee</span>
                 </button>
               </div>
             </form>
           </div>
 
           {/* Section 2: Monthly Dues Management */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-4 sm:space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#e2ece2]">
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
               <div>
-                <h2 className="font-heading text-base sm:text-lg font-black text-[#1b4332] flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-[#2d6a4f]" />
-                  Monthly Dues Management
+                <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
+                  <Calendar className="w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0" />
+                  <span>Monthly Dues</span>
                 </h2>
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5">
+                  Configure monthly due schedules and amounts
+                </p>
               </div>
 
               <button
@@ -2068,44 +2203,44 @@ export const Settings: React.FC = () => {
                 onClick={handleOpenCreateDue}
                 disabled={approvedMemberCount === 0}
                 title={approvedMemberCount === 0 ? "Requires at least 1 registered active member" : "Create a new monthly due"}
-                className={`w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shrink-0 ${
+                className={`w-full sm:w-auto px-4 py-2.5 rounded-xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shrink-0 ${
                   approvedMemberCount === 0
                     ? 'bg-[#e8efe8] text-[#86998d] border border-[#d2ddd2] cursor-not-allowed select-none shadow-none'
                     : 'bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-md cursor-pointer hover:scale-[1.02]'
                 }`}
               >
                 <Plus className={`w-4 h-4 ${approvedMemberCount === 0 ? 'text-[#86998d]' : 'text-[#74c69d]'}`} />
-                <span>Create Monthly Due</span>
+                <span>+ Add Due</span>
               </button>
             </div>
 
             {/* Monthly Dues Grid / List */}
-            <div className="space-y-4">
+            <div className="space-y-3">
               {monthlyDues.length === 0 ? (
-                <div className="p-6 sm:p-8 text-center bg-[#f7f9f7] rounded-2xl border border-dashed border-[#e2ece2] space-y-2">
-                  <Receipt className="w-8 h-8 text-[#52605d] mx-auto" />
+                <div className="p-6 text-center bg-[#f7f9f7] rounded-2xl border border-dashed border-[#e2ece2] space-y-1.5">
+                  <Receipt className="w-7 h-7 text-[#52605d] mx-auto" />
                   <p className="text-xs text-[#52605d] font-bold">No Monthly Dues Configured</p>
                   <p className="text-[11px] text-[#52605d]">
-                    Click "Create Monthly Due" to set up a monthly due amount for a specific month and year.
+                    Click "+ Add Due" to configure a due amount for a specific month and year.
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {monthlyDues.map((due) => {
                     const totalPendingCollection = approvedMemberCount * due.amount;
                     return (
                       <div
                         key={due.id}
-                        className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2ece2] shadow-xs hover:border-[#2d6a4f] transition-all space-y-3 sm:space-y-4 relative overflow-hidden"
+                        className="bg-white rounded-2xl p-3.5 sm:p-4 border border-[#e2ece2] shadow-xs hover:border-[#2d6a4f] transition-all space-y-3 relative overflow-hidden"
                       >
                         {/* Header: Period & Actions */}
                         <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#d8f3dc] text-[#1b4332] text-[10px] font-extrabold mb-1">
+                          <div className="min-w-0">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#d8f3dc] text-[#1b4332] text-[10px] font-extrabold mb-1">
                               <Calendar className="w-3 h-3 text-[#2d6a4f]" />
                               {due.month} {due.year}
                             </span>
-                            <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base leading-tight">
+                            <h3 className="font-heading font-extrabold text-[#1b4332] text-sm leading-tight truncate">
                               {due.title}
                             </h3>
                           </div>
@@ -2127,6 +2262,7 @@ export const Settings: React.FC = () => {
                                   type: 'monthly_due',
                                   id: due.id,
                                   name: due.title,
+                                厚: 'monthly_due',
                                 })
                               }
                               className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
@@ -2138,31 +2274,28 @@ export const Settings: React.FC = () => {
                         </div>
 
                         {/* Calculated Stats Grid */}
-                        <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-3 border-t border-[#e2ece2] text-xs">
-                          <div className="bg-[#f7f9f7] p-2.5 sm:p-3 rounded-xl border border-[#e2ece2] min-w-0">
-                            <span className="text-[9px] sm:text-[10px] text-[#52605d] font-bold block truncate">
-                              Due Amount Per Member
+                        <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-[#e2ece2] text-xs">
+                          <div className="bg-[#f7f9f7] p-2 sm:p-2.5 rounded-xl border border-[#e2ece2] min-w-0">
+                            <span className="text-[9.5px] sm:text-[10px] text-[#52605d] font-bold block truncate">
+                              Due Amount
                             </span>
                             <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
                               ₱{(Number(due.amount) || 0).toLocaleString()}
                             </span>
                           </div>
 
-                          <div className="bg-[#e8f5e9] p-2.5 sm:p-3 rounded-xl border border-[#c8e6c9] min-w-0">
-                            <span className="text-[9px] sm:text-[10px] text-[#2d6a4f] font-extrabold block truncate">
-                              Total Pending Collection
+                          <div className="bg-[#e8f5e9] p-2 sm:p-2.5 rounded-xl border border-[#c8e6c9] min-w-0">
+                            <span className="text-[9.5px] sm:text-[10px] text-[#2d6a4f] font-extrabold block truncate">
+                              Target Total
                             </span>
                             <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
                               ₱{(Number(totalPendingCollection) || 0).toLocaleString()}
-                            </span>
-                            <span className="text-[9px] text-[#2d6a4f] block mt-0.5 truncate">
-                              ({approvedMemberCount} members × ₱{due.amount})
                             </span>
                           </div>
                         </div>
 
                         {due.notes && (
-                          <p className="text-[11px] text-[#52605d] italic bg-[#f7f9f7] p-2 rounded-lg border border-[#e2ece2]">
+                          <p className="text-[10.5px] text-[#52605d] italic bg-[#f7f9f7] p-2 rounded-lg border border-[#e2ece2] truncate">
                             "{due.notes}"
                           </p>
                         )}
@@ -2175,26 +2308,23 @@ export const Settings: React.FC = () => {
           </div>
 
           {/* Promotional Campaigns & Special Packages Section */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-3.5 sm:space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3 pb-3 border-b border-[#e2ece2]">
-              <div>
-                <h3 className="font-heading text-base sm:text-lg font-black text-[#1b4332] flex items-center gap-2">
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+            <div className="flex items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
+              <div className="min-w-0 flex-1">
+                <h3 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-1.5 sm:gap-2 truncate">
                   <Sparkles className="w-4 h-4 sm:w-5 sm:h-5 text-amber-500 shrink-0" />
-                  <span>Promotional Campaigns & Packages</span>
+                  <span className="truncate">Annual Promo</span>
                 </h3>
-                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 sm:mt-1">
-                  Configure upfront annual discounts and promotional package availability for members
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 truncate sm:whitespace-normal">
+                  12-mo upfront dues discount
                 </p>
               </div>
 
               {/* Annual Promo Global Toggle Switch */}
-              <div className="flex items-center gap-2.5 self-start sm:self-center bg-[#f7f9f7] px-3.5 py-2 rounded-2xl border border-[#e2ece2]">
-                <div className="text-right">
-                  <span className="text-xs font-extrabold text-[#1b4332] block leading-none">
-                    Annual Promo
-                  </span>
-                  <span className={`text-[10px] font-bold ${financeSettings.annualPromoEnabled !== false ? 'text-emerald-700' : 'text-stone-500'}`}>
-                    {financeSettings.annualPromoEnabled !== false ? 'Enabled' : 'Disabled'}
+              <div className="flex items-center gap-2 shrink-0 bg-[#f7f9f7] px-2.5 py-1.5 rounded-xl sm:rounded-2xl border border-[#e2ece2]">
+                <div className="text-right hidden xs:block sm:block">
+                  <span className={`text-[10px] sm:text-xs font-extrabold block leading-none ${financeSettings.annualPromoEnabled !== false ? 'text-emerald-700' : 'text-stone-500'}`}>
+                    {financeSettings.annualPromoEnabled !== false ? 'Active' : 'Disabled'}
                   </span>
                 </div>
                 <button
@@ -2202,15 +2332,15 @@ export const Settings: React.FC = () => {
                   onClick={handleToggleAnnualPromo}
                   role="switch"
                   aria-checked={financeSettings.annualPromoEnabled !== false}
-                  className={`w-12 h-6.5 flex items-center rounded-full p-1 transition-colors duration-200 cursor-pointer ${
+                  className={`w-10 sm:w-11 h-5.5 sm:h-6 flex items-center rounded-full p-0.5 sm:p-1 transition-colors duration-200 cursor-pointer ${
                     financeSettings.annualPromoEnabled !== false ? 'bg-[#1b4332]' : 'bg-stone-300'
                   }`}
-                  title={financeSettings.annualPromoEnabled !== false ? 'Click to disable Annual Promo' : 'Click to enable Annual Promo'}
+                  title={financeSettings.annualPromoEnabled !== false ? 'Disable Annual Promo' : 'Enable Annual Promo'}
                 >
                   <motion.div
                     layout
                     transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                    className={`bg-white w-4.5 h-4.5 rounded-full shadow-md ${
+                    className={`bg-white w-4.5 h-4.5 sm:w-4 sm:h-4 rounded-full shadow-md ${
                       financeSettings.annualPromoEnabled !== false ? 'ml-auto' : 'mr-auto'
                     }`}
                   />
@@ -2218,80 +2348,80 @@ export const Settings: React.FC = () => {
               </div>
             </div>
 
-            <div className={`p-3 sm:p-5 rounded-2xl border space-y-3 transition-colors ${
+            <div className={`p-3 sm:p-4 rounded-2xl border space-y-2.5 transition-colors ${
               financeSettings.annualPromoEnabled !== false
                 ? 'bg-gradient-to-br from-[#f7f9f7] via-emerald-50/60 to-[#f7f9f7] border-emerald-200/80'
                 : 'bg-stone-50 border-stone-200 opacity-75'
             }`}>
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                  <span className={`px-2.5 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider whitespace-nowrap ${
+                  <span className={`px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider whitespace-nowrap ${
                     financeSettings.annualPromoEnabled !== false
                       ? 'bg-amber-400 text-slate-950 shadow-2xs'
                       : 'bg-stone-200 text-stone-600'
                   }`}>
-                    Annual Upfront Promo
+                    Upfront Package
                   </span>
-                  <span className="text-xs font-bold text-[#1b4332]">Full Year Monthly Dues Package</span>
+                  <span className="text-xs font-bold text-[#1b4332] hidden sm:inline">12-Month Dues</span>
                 </div>
-                <span className={`text-[9px] sm:text-[10px] font-black px-2.5 py-0.5 rounded-full border self-start sm:self-auto shrink-0 ${
+                <span className={`text-[9px] sm:text-[10px] font-black px-2 py-0.5 rounded-full border shrink-0 ${
                   financeSettings.annualPromoEnabled !== false
                     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                     : 'bg-stone-200 text-stone-700 border-stone-300'
                 }`}>
-                  {financeSettings.annualPromoEnabled !== false ? '🟢 Promo Active / Available' : '⚪ Promo Disabled'}
+                  {financeSettings.annualPromoEnabled !== false ? '🟢 Active' : '⚪ Disabled'}
                 </span>
               </div>
 
-              <p className="text-xs text-[#52605d] leading-relaxed">
+              <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
                 {financeSettings.annualPromoEnabled !== false ? (
                   <>
-                    Members who pay upfront for a full year receive a discounted flat rate of <strong>₱1,000</strong> for all 12 monthly dues (regular value: ₱1,200/year at ₱100/month). Member saves <strong>₱200</strong>!
+                    Members pay <strong>₱1,000</strong> for 12 mos (save <strong>₱200 / 16.7%</strong>).
                   </>
                 ) : (
                   <>
-                    The Annual Upfront Promo is currently <strong>disabled</strong> in settings. When disabled, the promo package is muted and unavailable for selection in member payment records. Toggle on to activate.
+                    Annual promo is currently <strong>disabled</strong>. Switch toggle to activate.
                   </>
                 )}
               </p>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 pt-1">
-                <div className="bg-white p-3 rounded-xl border border-[#e2ece2] flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-[#52605d] font-bold block uppercase tracking-wider">Promo Price</span>
-                  <div className="flex items-baseline gap-1 mt-0.5">
-                    <span className={`text-base sm:text-lg font-black ${financeSettings.annualPromoEnabled !== false ? 'text-[#1b4332]' : 'text-stone-500'}`}>
-                      ₱1,000.00
+              <div className="grid grid-cols-3 gap-1.5 sm:gap-2 pt-1">
+                <div className="bg-white p-2 sm:p-3 rounded-xl border border-[#e2ece2] flex flex-col justify-center min-w-0">
+                  <span className="text-[9px] sm:text-[10px] text-[#52605d] font-bold block uppercase tracking-wider truncate">Promo</span>
+                  <div className="flex items-baseline gap-0.5 sm:gap-1 mt-0.5 truncate">
+                    <span className={`text-xs sm:text-base font-black truncate ${financeSettings.annualPromoEnabled !== false ? 'text-[#1b4332]' : 'text-stone-500'}`}>
+                      ₱1,000
                     </span>
-                    <span className="text-xs text-[#52605d] font-semibold">/ yr</span>
+                    <span className="text-[9px] sm:text-[10px] text-[#52605d] font-semibold">/yr</span>
                   </div>
                 </div>
-                <div className="bg-white p-3 rounded-xl border border-[#e2ece2] flex flex-col justify-center min-w-0">
-                  <span className="text-[10px] text-[#52605d] font-bold block uppercase tracking-wider">Regular Value</span>
-                  <div className="flex items-baseline gap-1 mt-0.5">
-                    <span className="text-base sm:text-lg font-black text-slate-400 line-through">₱1,200.00</span>
-                    <span className="text-xs text-slate-400 font-semibold">/ yr</span>
+                <div className="bg-white p-2 sm:p-3 rounded-xl border border-[#e2ece2] flex flex-col justify-center min-w-0">
+                  <span className="text-[9px] sm:text-[10px] text-[#52605d] font-bold block uppercase tracking-wider truncate">Regular</span>
+                  <div className="flex items-baseline gap-0.5 sm:gap-1 mt-0.5 truncate">
+                    <span className="text-xs sm:text-base font-black text-slate-400 line-through truncate">₱1,200</span>
+                    <span className="text-[9px] sm:text-[10px] text-slate-400 font-semibold">/yr</span>
                   </div>
                 </div>
-                <div className={`p-3 rounded-xl border flex flex-col justify-center min-w-0 ${
+                <div className={`p-2 sm:p-3 rounded-xl border flex flex-col justify-center min-w-0 ${
                   financeSettings.annualPromoEnabled !== false
                     ? 'bg-emerald-100/80 border-emerald-200'
                     : 'bg-stone-100 border-stone-200'
                 }`}>
-                  <span className={`text-[10px] font-extrabold block uppercase tracking-wider ${
+                  <span className={`text-[9px] sm:text-[10px] font-extrabold block uppercase tracking-wider truncate ${
                     financeSettings.annualPromoEnabled !== false ? 'text-emerald-800' : 'text-stone-600'
                   }`}>
-                    Member Savings
+                    Savings
                   </span>
-                  <div className="flex items-baseline gap-1.5 mt-0.5 flex-wrap">
-                    <span className={`text-base sm:text-lg font-black ${
+                  <div className="flex items-baseline gap-0.5 sm:gap-1 mt-0.5 truncate">
+                    <span className={`text-xs sm:text-base font-black truncate ${
                       financeSettings.annualPromoEnabled !== false ? 'text-emerald-900' : 'text-stone-700'
                     }`}>
-                      ₱200.00
+                      ₱200
                     </span>
-                    <span className={`text-xs font-extrabold ${
+                    <span className={`text-[8.5px] sm:text-[10px] font-extrabold hidden sm:inline ${
                       financeSettings.annualPromoEnabled !== false ? 'text-emerald-700' : 'text-stone-500'
                     }`}>
-                      (16.7% OFF)
+                      (16.7%)
                     </span>
                   </div>
                 </div>
@@ -2300,26 +2430,26 @@ export const Settings: React.FC = () => {
           </div>
 
           {/* Section 3: Dynamic Collections & Donations Management */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-4 sm:space-y-6">
-            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 pb-4 border-b border-[#e2ece2]">
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
               <div>
-                <h2 className="font-heading text-base sm:text-lg font-black text-[#1b4332] flex items-center gap-2">
-                  <PiggyBank className="w-5 h-5 text-[#2d6a4f]" />
-                  Dynamic Collections & Donations
+                <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
+                  <PiggyBank className="w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0" />
+                  <span>Collections & Donations</span>
                 </h2>
-                <p className="text-xs text-[#52605d] mt-1">
-                  Create custom payment drives, uniform/merchandise collections, or record direct donation collections.
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5">
+                  Manage custom drives, merchandise fees, or voluntary donations
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="grid grid-cols-2 gap-2 w-full sm:w-auto sm:flex sm:items-center">
                 <button
                   type="button"
                   onClick={handleOpenCreateDonation}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white shadow-md cursor-pointer hover:scale-[1.02]"
+                  className="w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-extrabold text-[11px] sm:text-xs transition-all flex items-center justify-center gap-1.5 shrink-0 bg-emerald-700 hover:bg-emerald-800 text-white shadow-md cursor-pointer hover:scale-[1.02]"
                 >
-                  <HeartHandshake className="w-4 h-4 text-emerald-200" />
-                  <span>+ Add Donation Collection</span>
+                  <HeartHandshake className="w-3.5 h-3.5 text-emerald-200 shrink-0" />
+                  <span className="truncate">+ Donation</span>
                 </button>
 
                 <button
@@ -2327,30 +2457,30 @@ export const Settings: React.FC = () => {
                   onClick={handleOpenCreateCollection}
                   disabled={approvedMemberCount === 0}
                   title={approvedMemberCount === 0 ? "Requires at least 1 registered active member" : "Create a new custom assessment collection"}
-                  className={`w-full sm:w-auto px-4 py-2.5 rounded-xl sm:rounded-2xl font-extrabold text-xs transition-all flex items-center justify-center gap-2 shrink-0 ${
+                  className={`w-full sm:w-auto px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl font-extrabold text-[11px] sm:text-xs transition-all flex items-center justify-center gap-1.5 shrink-0 ${
                     approvedMemberCount === 0
                       ? 'bg-[#e8efe8] text-[#86998d] border border-[#d2ddd2] cursor-not-allowed select-none shadow-none'
                       : 'bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-md cursor-pointer hover:scale-[1.02]'
                   }`}
                 >
-                  <Plus className={`w-4 h-4 ${approvedMemberCount === 0 ? 'text-[#86998d]' : 'text-[#74c69d]'}`} />
-                  <span>Create Collection</span>
+                  <Plus className={`w-3.5 h-3.5 ${approvedMemberCount === 0 ? 'text-[#86998d]' : 'text-[#74c69d]'}`} />
+                  <span className="truncate">+ Collection</span>
                 </button>
               </div>
             </div>
 
             {/* Collections Grid */}
-            <div className="space-y-4">
+            <div className="space-y-3">
               {dynamicCollections.length === 0 ? (
-                <div className="p-6 sm:p-8 text-center bg-[#f7f9f7] rounded-2xl border border-dashed border-[#e2ece2] space-y-2">
-                  <Layers className="w-8 h-8 text-[#52605d] mx-auto" />
-                  <p className="text-xs text-[#52605d] font-bold">No Custom Collections or Donations Created</p>
+                <div className="p-6 text-center bg-[#f7f9f7] rounded-2xl border border-dashed border-[#e2ece2] space-y-1.5">
+                  <Layers className="w-7 h-7 text-[#52605d] mx-auto" />
+                  <p className="text-xs text-[#52605d] font-bold">No Collections or Donations Created</p>
                   <p className="text-[11px] text-[#52605d]">
-                    Add dynamic collections for merchandise, fellowship tours, or direct voluntary donation funds.
+                    Add dynamic collections for merchandise, tours, or direct donation funds.
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {dynamicCollections.map((col) => {
                     const isDonation = col.collectionType === 'Donation' || col.name?.toLowerCase().includes('donation');
                     const totalTargetCollection =
@@ -2360,29 +2490,29 @@ export const Settings: React.FC = () => {
                     return (
                       <div
                         key={col.id}
-                        className={`bg-white rounded-2xl p-4 sm:p-5 border shadow-xs hover:border-[#2d6a4f] transition-all space-y-3 sm:space-y-4 relative overflow-hidden ${
+                        className={`bg-white rounded-2xl p-3.5 sm:p-4 border shadow-xs hover:border-[#2d6a4f] transition-all space-y-3 relative overflow-hidden ${
                           isDonation ? 'border-emerald-300 ring-1 ring-emerald-100' : 'border-[#e2ece2]'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <div>
+                          <div className="min-w-0">
                             {isDonation ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-extrabold mb-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-900 border border-emerald-300 text-[10px] font-extrabold mb-1">
                                 <HeartHandshake className="w-3 h-3 text-emerald-700" />
-                                Donation Collection
+                                Donation
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold mb-1">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold mb-1">
                                 <Receipt className="w-3 h-3 text-amber-700" />
-                                Custom Collection
+                                Custom Drive
                               </span>
                             )}
-                            <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base leading-tight">
+                            <h3 className="font-heading font-extrabold text-[#1b4332] text-sm leading-tight truncate">
                               {col.name}
                             </h3>
                             {isDonation && col.donorName && (
-                              <p className="text-[11px] text-emerald-800 font-semibold mt-0.5">
-                                Contributor: {col.donorName}
+                              <p className="text-[11px] text-emerald-800 font-semibold mt-0.5 truncate">
+                                Donor: {col.donorName}
                               </p>
                             )}
                           </div>
@@ -2415,51 +2545,48 @@ export const Settings: React.FC = () => {
                         </div>
 
                         {col.description && (
-                          <p className="text-xs text-[#52605d] leading-relaxed">
+                          <p className="text-xs text-[#52605d] leading-relaxed line-clamp-2">
                             {col.description}
                           </p>
                         )}
 
                         {isDonation ? (
-                          <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-3 border-t border-emerald-100 text-xs">
-                            <div className="bg-emerald-50/70 p-2.5 sm:p-3 rounded-xl border border-emerald-200 min-w-0">
-                              <span className="text-[9px] sm:text-[10px] text-emerald-800 font-bold block truncate">
-                                Total Donation Amount
+                          <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-emerald-100 text-xs">
+                            <div className="bg-emerald-50/70 p-2 sm:p-2.5 rounded-xl border border-emerald-200 min-w-0">
+                              <span className="text-[9.5px] sm:text-[10px] text-emerald-800 font-bold block truncate">
+                                Donation Amount
                               </span>
                               <span className="text-sm sm:text-base font-black text-emerald-900 truncate block">
                                 ₱{(Number(col.amount) || 0).toLocaleString()}
                               </span>
                             </div>
 
-                            <div className="bg-white p-2.5 sm:p-3 rounded-xl border border-emerald-200 min-w-0 flex flex-col justify-center">
-                              <span className="text-[9px] sm:text-[10px] text-emerald-800 font-extrabold block truncate">
-                                Treasury Status
+                            <div className="bg-white p-2 sm:p-2.5 rounded-xl border border-emerald-200 min-w-0 flex flex-col justify-center">
+                              <span className="text-[9.5px] sm:text-[10px] text-emerald-800 font-extrabold block truncate">
+                                Status
                               </span>
-                              <span className="text-[11px] font-bold text-emerald-700 truncate block mt-0.5">
-                                Included in Total Funds & Net Treasury
+                              <span className="text-[10.5px] font-bold text-emerald-700 truncate block mt-0.5">
+                                In Net Treasury
                               </span>
                             </div>
                           </div>
                         ) : (
-                          <div className="grid grid-cols-2 gap-2 sm:gap-3 pt-3 border-t border-[#e2ece2] text-xs">
-                            <div className="bg-[#f7f9f7] p-2.5 sm:p-3 rounded-xl border border-[#e2ece2] min-w-0">
-                              <span className="text-[9px] sm:text-[10px] text-[#52605d] font-bold block truncate">
-                                Set Collection Amount
+                          <div className="grid grid-cols-2 gap-2 pt-2.5 border-t border-[#e2ece2] text-xs">
+                            <div className="bg-[#f7f9f7] p-2 sm:p-2.5 rounded-xl border border-[#e2ece2] min-w-0">
+                              <span className="text-[9.5px] sm:text-[10px] text-[#52605d] font-bold block truncate">
+                                Per-Member Fee
                               </span>
                               <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
                                 ₱{(Number(col.amount) || 0).toLocaleString()}
                               </span>
                             </div>
 
-                            <div className="bg-amber-50 p-2.5 sm:p-3 rounded-xl border border-amber-200 min-w-0">
-                              <span className="text-[9px] sm:text-[10px] text-amber-800 font-extrabold block truncate">
-                                Expected Target Collection
+                            <div className="bg-amber-50 p-2 sm:p-2.5 rounded-xl border border-amber-200 min-w-0">
+                              <span className="text-[9.5px] sm:text-[10px] text-amber-800 font-extrabold block truncate">
+                                Target Goal
                               </span>
                               <span className="text-sm sm:text-base font-black text-[#1b4332] truncate block">
                                 ₱{(Number(totalTargetCollection) || 0).toLocaleString()}
-                                {approvedMemberCount === 0 && col.targetAmount === undefined && (
-                                  <span className="text-[10px] text-amber-700 font-medium ml-1">(Muted)</span>
-                                )}
                               </span>
                             </div>
                           </div>
@@ -2476,44 +2603,53 @@ export const Settings: React.FC = () => {
 
       {/* SUB TAB 2: REPORTS & EXPORT CENTER */}
       {activeSubTab === 'reports' && (
-        <div className="space-y-6 sm:space-y-8">
+        <div className="space-y-4 sm:space-y-6">
           {/* Header & Controls Card */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-4 sm:space-y-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-[#e2ece2]">
+          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#e2ece2]">
               <div>
-                <h2 className="font-heading text-base sm:text-lg md:text-xl font-black text-[#1b4332] flex items-center gap-2">
-                  <FileSpreadsheet className="w-6 h-6 text-[#2d6a4f]" />
-                  Reports & Export Center
+                <h2 className="font-heading text-sm sm:text-base md:text-lg font-black text-[#1b4332] flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-[#2d6a4f]" />
+                  <span>Reports & Export</span>
                 </h2>
-                <p className="text-xs text-[#52605d] mt-1">
-                  Export audit-ready CSV ledgers, active member directories, transaction history, and accounting financial statements
+                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5">
+                  Export member directories, transaction ledgers, and financial reports
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="grid grid-cols-4 sm:flex sm:flex-wrap items-center gap-1.5 sm:gap-2">
                 <button
                   type="button"
                   onClick={loadReportsData}
-                  className="px-3 py-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                  className="px-2 sm:px-3 py-1.5 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
                   title="Refresh Data"
                 >
-                  <RefreshCw className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                  <span>Refresh</span>
+                  <RefreshCw className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  <span className="truncate">Sync</span>
                 </button>
 
+                {/* Year Filter Dropdown */}
                 <div className="relative" ref={yearDropdownRef}>
                   <button
                     type="button"
-                    onClick={() => setIsYearDropdownOpen(!isYearDropdownOpen)}
-                    className="flex items-center gap-1.5 bg-[#f7f9f7] hover:bg-[#e8f5e9] px-3 py-1.5 rounded-xl border border-[#e2ece2] text-xs font-bold transition-all cursor-pointer"
+                    onClick={() => {
+                      setIsYearDropdownOpen(!isYearDropdownOpen);
+                      setIsMonthDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between gap-1 bg-[#f7f9f7] hover:bg-[#e8f5e9] px-2 sm:px-3 py-1.5 rounded-xl border border-[#e2ece2] text-[11px] sm:text-xs font-bold transition-all cursor-pointer"
                   >
-                    <Filter className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                    <span className="text-[11px] font-bold text-[#52605d]">Year:</span>
-                    <span className="font-extrabold text-[#1b4332]">
-                      {reportYearFilter === 'All' ? 'All Time' : reportYearFilter}
-                    </span>
+                    <div className="flex items-center gap-1 truncate">
+                      <Filter className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                      <span className="text-[10px] sm:text-[11px] font-bold text-[#52605d]">
+                        <span className="sm:hidden">Yr:</span>
+                        <span className="hidden sm:inline">Year:</span>
+                      </span>
+                      <span className="font-extrabold text-[#1b4332] truncate">
+                        {reportYearFilter === 'All' ? 'All' : reportYearFilter}
+                      </span>
+                    </div>
                     <ChevronDown
-                      className={`w-3.5 h-3.5 text-[#2d6a4f] transition-transform duration-200 ${
+                      className={`w-3 h-3 text-[#2d6a4f] shrink-0 transition-transform duration-200 ${
                         isYearDropdownOpen ? 'rotate-180' : ''
                       }`}
                     />
@@ -2526,7 +2662,7 @@ export const Settings: React.FC = () => {
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: -6, scale: 0.95 }}
                         transition={{ duration: 0.15 }}
-                        className="absolute right-0 sm:left-0 mt-1.5 w-36 bg-white border border-[#e2ece2] rounded-2xl shadow-xl z-50 overflow-hidden py-1"
+                        className="absolute left-0 mt-1.5 w-32 bg-white border border-[#e2ece2] rounded-2xl shadow-xl z-50 overflow-hidden py-1"
                       >
                         {[
                           { value: 'All', label: 'All Time' },
@@ -2541,7 +2677,71 @@ export const Settings: React.FC = () => {
                                 setReportYearFilter(opt.value);
                                 setIsYearDropdownOpen(false);
                               }}
-                              className={`w-full text-left px-3.5 py-2 text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                              className={`w-full text-left px-3 py-1.5 text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
+                                isSelected
+                                  ? 'bg-[#e8f5e9] text-[#1b4332] font-black'
+                                  : 'text-[#52605d] hover:bg-[#f7f9f7] hover:text-[#1b4332]'
+                              }`}
+                            >
+                              <span>{opt.label}</span>
+                              {isSelected && (
+                                <Check className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Month Filter Dropdown */}
+                <div className="relative" ref={monthDropdownRef}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsMonthDropdownOpen(!isMonthDropdownOpen);
+                      setIsYearDropdownOpen(false);
+                    }}
+                    className="w-full flex items-center justify-between gap-1 bg-[#f7f9f7] hover:bg-[#e8f5e9] px-2 sm:px-3 py-1.5 rounded-xl border border-[#e2ece2] text-[11px] sm:text-xs font-bold transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-1 truncate">
+                      <Calendar className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                      <span className="text-[10px] sm:text-[11px] font-bold text-[#52605d]">
+                        <span className="sm:hidden">Mo:</span>
+                        <span className="hidden sm:inline">Month:</span>
+                      </span>
+                      <span className="font-extrabold text-[#1b4332] truncate">
+                        {REPORT_MONTH_OPTIONS.find((m) => m.value === reportMonthFilter)?.short || 'All'}
+                      </span>
+                    </div>
+                    <ChevronDown
+                      className={`w-3 h-3 text-[#2d6a4f] shrink-0 transition-transform duration-200 ${
+                        isMonthDropdownOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+
+                  <AnimatePresence>
+                    {isMonthDropdownOpen && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -6, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: -6, scale: 0.95 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute right-0 sm:left-0 mt-1.5 w-36 max-h-56 overflow-y-auto bg-white border border-[#e2ece2] rounded-2xl shadow-xl z-50 py-1"
+                      >
+                        {REPORT_MONTH_OPTIONS.map((opt) => {
+                          const isSelected = reportMonthFilter === opt.value;
+                          return (
+                            <button
+                              key={opt.value}
+                              type="button"
+                              onClick={() => {
+                                setReportMonthFilter(opt.value);
+                                setIsMonthDropdownOpen(false);
+                              }}
+                              className={`w-full text-left px-3 py-1.5 text-xs font-bold flex items-center justify-between transition-colors cursor-pointer ${
                                 isSelected
                                   ? 'bg-[#e8f5e9] text-[#1b4332] font-black'
                                   : 'text-[#52605d] hover:bg-[#f7f9f7] hover:text-[#1b4332]'
@@ -2563,167 +2763,137 @@ export const Settings: React.FC = () => {
                   type="button"
                   onClick={() => {
                     const stmtData = getFinancialStatementReportData();
-                    downloadCSVFile(
-                      `BRC_Master_Executive_Financial_Report_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`,
+                    downloadXLSXFile(
+                      `BRC_Financial_Report_${getReportPeriodSlug()}_${new Date().toISOString().slice(0, 10)}.xlsx`,
                       stmtData.headers,
-                      stmtData.rows
+                      stmtData.rows,
+                      'Financial Statement'
                     );
                   }}
-                  className="px-4 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-extrabold shadow-sm transition-all flex items-center gap-1.5 cursor-pointer hover:scale-[1.02]"
+                  className="px-2.5 sm:px-3.5 py-1.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-[11px] sm:text-xs font-extrabold shadow-sm transition-all flex items-center justify-center gap-1 cursor-pointer hover:scale-[1.02]"
+                  title="Export Financial Statement (.xlsx)"
                 >
-                  <Download className="w-3.5 h-3.5 text-amber-300" />
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                  <span className="sm:hidden">XLSX</span>
+                  <span className="hidden sm:inline">Statement (.xlsx)</span>
                 </button>
               </div>
             </div>
 
             {/* Quick Accounting Metrics Bar */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
-              <div className="bg-[#f7f9f7] p-3.5 sm:p-4 rounded-2xl border border-[#e2ece2]">
-                <div className="flex items-center gap-2 mb-1">
-                  <Users className="w-4 h-4 text-[#2d6a4f]" />
-                  <span className="text-[10px] font-bold uppercase text-[#52605d]">Active Members</span>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3">
+              <div className="bg-[#f7f9f7] p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-[#e2ece2] min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5 truncate">
+                  <Users className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  <span className="text-[9.5px] sm:text-[10px] font-bold uppercase text-[#52605d] truncate">Members</span>
                 </div>
-                <span className="text-base sm:text-lg font-black text-[#1b4332]">
+                <span className="text-xs sm:text-base font-black text-[#1b4332] block truncate">
                   {reportUsers.filter((u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')).length}
                 </span>
-                <span className="text-[10px] text-[#52605d] block">Approved Membership Roster</span>
+                <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block truncate">Active roster</span>
               </div>
 
-              <div className="bg-emerald-50/70 p-3.5 sm:p-4 rounded-2xl border border-emerald-200">
-                <div className="flex items-center gap-2 mb-1">
-                  <Wallet className="w-4 h-4 text-emerald-700" />
-                  <span className="text-[10px] font-extrabold uppercase text-emerald-900">Total Income</span>
+              <div className="bg-emerald-50/70 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-emerald-200 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5 truncate">
+                  <Wallet className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                  <span className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-emerald-900 truncate">Income</span>
                 </div>
-                <span className="text-base sm:text-lg font-black text-emerald-950">
+                <span className="text-xs sm:text-base font-black text-emerald-950 block truncate">
                   ₱
                   {reportPayments
-                    .filter((p) => p.status === 'Paid')
+                    .filter((p) =>
+                      p.status === 'Paid' &&
+                      isRecordInPeriod([p.paidDate, p.createdAt, p.coveredMonth, p.dueDate], reportYearFilter, reportMonthFilter)
+                    )
                     .reduce((acc, p) => acc + (Number(p.amount) || 0), 0)
                     .toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
-                <span className="text-[10px] text-emerald-800 block">Total Collections</span>
+                <span className="text-[9.5px] sm:text-[10px] text-emerald-800 block truncate">
+                  {reportMonthFilter === 'All' && reportYearFilter === 'All' ? 'Collections' : 'Period Inflow'}
+                </span>
               </div>
 
-              <div className="bg-rose-50/70 p-3.5 sm:p-4 rounded-2xl border border-rose-200">
-                <div className="flex items-center gap-2 mb-1">
-                  <TrendingUp className="w-4 h-4 text-rose-700" />
-                  <span className="text-[10px] font-extrabold uppercase text-rose-900">Disbursements</span>
+              <div className="bg-rose-50/70 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-rose-200 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5 truncate">
+                  <TrendingUp className="w-3.5 h-3.5 text-rose-700 shrink-0" />
+                  <span className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-rose-900 truncate">Expenses</span>
                 </div>
-                <span className="text-base sm:text-lg font-black text-rose-950">
+                <span className="text-xs sm:text-base font-black text-rose-950 block truncate">
                   ₱
                   {reportExpenses
+                    .filter((e) => isRecordInPeriod([e.date, e.createdAt], reportYearFilter, reportMonthFilter))
                     .reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
                     .toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
-                <span className="text-[10px] text-rose-800 block">Total Liquidation Expenses</span>
+                <span className="text-[9.5px] sm:text-[10px] text-rose-800 block truncate">
+                  {reportMonthFilter === 'All' && reportYearFilter === 'All' ? 'Disbursed' : 'Period Outflow'}
+                </span>
               </div>
 
-              <div className="bg-amber-50/70 p-3.5 sm:p-4 rounded-2xl border border-amber-200">
-                <div className="flex items-center gap-2 mb-1">
-                  <BarChart3 className="w-4 h-4 text-amber-700" />
-                  <span className="text-[10px] font-extrabold uppercase text-amber-900">Net Surplus</span>
+              <div className="bg-amber-50/70 p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl border border-amber-200 min-w-0">
+                <div className="flex items-center gap-1.5 mb-0.5 truncate">
+                  <BarChart3 className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                  <span className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-amber-900 truncate">Net Balance</span>
                 </div>
-                <span className="text-base sm:text-lg font-black text-amber-950">
+                <span className="text-xs sm:text-base font-black text-amber-950 block truncate">
                   ₱
                   {(
                     reportPayments
-                      .filter((p) => p.status === 'Paid')
+                      .filter((p) =>
+                        p.status === 'Paid' &&
+                        isRecordInPeriod([p.paidDate, p.createdAt, p.coveredMonth, p.dueDate], reportYearFilter, reportMonthFilter)
+                      )
                       .reduce((acc, p) => acc + (Number(p.amount) || 0), 0) -
-                    reportExpenses.reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
+                    reportExpenses
+                      .filter((e) => isRecordInPeriod([e.date, e.createdAt], reportYearFilter, reportMonthFilter))
+                      .reduce((acc, e) => acc + (Number(e.amount) || 0), 0)
                   ).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                 </span>
-                <span className="text-[10px] text-amber-800 block">Net Operating Cash Flow</span>
+                <span className="text-[9.5px] sm:text-[10px] text-amber-800 block truncate">Net Flow</span>
               </div>
             </div>
           </div>
 
-          {/* Yearly Financial Archiving & Compressed Zip Import Hub */}
-          <div className="bg-gradient-to-br from-[#1b4332] via-[#245340] to-[#123023] rounded-2xl sm:rounded-3xl p-5 sm:p-7 text-white shadow-xl relative overflow-hidden">
-            <div className="absolute -right-10 -bottom-10 w-44 h-44 rounded-full bg-white/5 pointer-events-none blur-xl" />
-            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-5">
-              <div className="space-y-1.5 max-w-xl">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-emerald-300 text-[10px] font-extrabold border border-white/10 uppercase tracking-wider">
-                  <Archive className="w-3 h-3 text-emerald-400" />
-                  Fiscal Year Auditing & Data Archiving
-                </div>
-                <h3 className="font-heading text-lg sm:text-xl font-black text-white">
-                  Yearly Financial Archiving & Zip Import
-                </h3>
-                <p className="text-xs text-emerald-100/80 leading-relaxed">
-                  Archive audited annual finances (Jan–Dec) to lock books, carry forward remaining Net Treasury into active funds, and safely purge the outgoing year's operational logs. You can also import any previous <code className="text-emerald-300 font-mono">.zip</code> archive to view, verify, and export multi-sheet XLSX or Income Statement PDF reports.
-                </p>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-                <input
-                  type="file"
-                  ref={zipInputRef}
-                  onChange={handleImportZipFile}
-                  accept=".zip,application/zip,application/x-zip-compressed"
-                  className="hidden"
-                  id="settings-zip-import-input"
-                />
-                <button
-                  type="button"
-                  onClick={() => zipInputRef.current?.click()}
-                  disabled={isImportingZip}
-                  className="px-4 py-2.5 rounded-xl bg-white/10 hover:bg-white/20 text-white font-extrabold text-xs transition-all border border-white/20 flex items-center gap-2 shadow-xs cursor-pointer hover:scale-[1.02]"
-                >
-                  <Upload className="w-4 h-4 text-emerald-300" />
-                  <span>{isImportingZip ? 'Reading Zip...' : 'Import Archive (.zip)'}</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setShowYearlyArchiveModal(true)}
-                  className="px-4 py-2.5 rounded-xl bg-emerald-400 hover:bg-emerald-300 text-[#0f281e] font-black text-xs transition-all shadow-md flex items-center gap-2 cursor-pointer hover:scale-[1.02]"
-                >
-                  <FolderArchive className="w-4 h-4 text-[#0f281e]" />
-                  <span>Yearly Archiving</span>
-                </button>
-              </div>
-            </div>
-          </div>
 
           {/* Export Report Options Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 sm:gap-6">
-            {/* Card 1: Members Directory CSV */}
-            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
-              <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+            {/* Card 1: Members Directory XLSX */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2ece2] shadow-xs space-y-3 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
-                    <Users className="w-5 h-5 text-emerald-700" />
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center font-bold">
+                    <Users className="w-4 h-4 text-emerald-700" />
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-100 text-emerald-900 uppercase">
-                    Member Records
+                  <span className="px-2 py-0.5 rounded-full text-[9.5px] sm:text-[10px] font-black bg-emerald-100 text-emerald-900 uppercase">
+                    Members
                   </span>
                 </div>
-                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
-                  Active Members Data Directory
+                <h3 className="font-heading font-extrabold text-sm sm:text-base text-[#1b4332]">
+                  Members Directory
                 </h3>
                 <p className="text-xs text-[#52605d] leading-relaxed">
-                  Export full profile records of active and approved members, including contact numbers, chapters, designations, motorcycle details, and church network affiliations.
+                  Export approved member profiles, contact numbers, chapters, and motorcycle details.
                 </p>
               </div>
 
-              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+              <div className="pt-2.5 border-t border-[#e2ece2] flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-[#1b4332]">
-                  {reportUsers.filter((u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')).length} Member Profiles
+                  {reportUsers.filter((u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')).length} Members
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
                       const data = getMembersReportData();
                       setPreviewModal({
-                        title: 'Active Members Directory Preview',
-                        subtitle: 'Sample view of member directory CSV records',
+                        title: 'Members Directory Preview',
+                        subtitle: 'Active member records',
                         headers: data.headers,
                         rows: data.rows,
-                        onDownload: () => downloadCSVFile(`BRC_Active_Members_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                        onDownload: () => downloadXLSXFile(`BRC_Active_Members_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Members Directory'),
                       });
                     }}
-                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    className="p-1.5 sm:p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
                     title="Preview Data"
                   >
                     <Eye className="w-4 h-4 text-[#2d6a4f]" />
@@ -2732,53 +2902,59 @@ export const Settings: React.FC = () => {
                     type="button"
                     onClick={() => {
                       const data = getMembersReportData();
-                      downloadCSVFile(`BRC_Active_Members_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                      downloadXLSXFile(`BRC_Active_Members_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Members Directory');
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 sm:py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Export Excel (.xlsx)"
                   >
                     <Download className="w-3.5 h-3.5" />
+                    <span>.xlsx</span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Card 2: Transaction Data & Collections Register CSV */}
-            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
-              <div className="space-y-2">
+            {/* Card 2: Transaction Data & Collections Register XLSX */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2ece2] shadow-xs space-y-3 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
-                    <Wallet className="w-5 h-5 text-blue-700" />
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-blue-100 text-blue-800 flex items-center justify-center font-bold">
+                    <Wallet className="w-4 h-4 text-blue-700" />
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-blue-100 text-blue-900 uppercase">
-                    Collections Register
+                  <span className="px-2 py-0.5 rounded-full text-[9.5px] sm:text-[10px] font-black bg-blue-100 text-blue-900 uppercase">
+                    Transactions
                   </span>
                 </div>
-                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
-                  Transaction Data & Revenue Ledger
+                <h3 className="font-heading font-extrabold text-sm sm:text-base text-[#1b4332]">
+                  Transaction Ledger
                 </h3>
                 <p className="text-xs text-[#52605d] leading-relaxed">
-                  Export complete itemized receipt logs for membership fees, monthly dues, upfront annual promos, and custom project collections with payment methods and reference numbers.
+                  Export receipt records for dues, annual promos, and custom project collections.
                 </p>
               </div>
 
-              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+              <div className="pt-2.5 border-t border-[#e2ece2] flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-[#1b4332]">
-                  {reportPayments.length} Transaction Records
+                  {
+                    reportPayments.filter((p) =>
+                      isRecordInPeriod([p.paidDate, p.createdAt, p.coveredMonth, p.dueDate], reportYearFilter, reportMonthFilter)
+                    ).length
+                  } Transactions
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
                       const data = getTransactionsReportData();
                       setPreviewModal({
-                        title: 'Transaction Data Ledger Preview',
-                        subtitle: 'Sample view of collections & dues receipt transactions',
+                        title: 'Transaction Ledger Preview',
+                        subtitle: 'Collections and receipts log',
                         headers: data.headers,
                         rows: data.rows,
-                        onDownload: () => downloadCSVFile(`BRC_Transactions_Register_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                        onDownload: () => downloadXLSXFile(`BRC_Transactions_${getReportPeriodSlug()}_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Transactions'),
                       });
                     }}
-                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    className="p-1.5 sm:p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
                     title="Preview Data"
                   >
                     <Eye className="w-4 h-4 text-[#2d6a4f]" />
@@ -2787,53 +2963,59 @@ export const Settings: React.FC = () => {
                     type="button"
                     onClick={() => {
                       const data = getTransactionsReportData();
-                      downloadCSVFile(`BRC_Transactions_Register_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                      downloadXLSXFile(`BRC_Transactions_${getReportPeriodSlug()}_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Transactions');
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 sm:py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Export Excel (.xlsx)"
                   >
                     <Download className="w-3.5 h-3.5" />
+                    <span>.xlsx</span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Card 3: Disbursements & Expenses Register CSV */}
-            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
-              <div className="space-y-2">
+            {/* Card 3: Disbursements & Expenses Register XLSX */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2ece2] shadow-xs space-y-3 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-800 flex items-center justify-center font-bold">
-                    <TrendingUp className="w-5 h-5 text-rose-700" />
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-rose-100 text-rose-800 flex items-center justify-center font-bold">
+                    <TrendingUp className="w-4 h-4 text-rose-700" />
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-rose-100 text-rose-900 uppercase">
-                    Disbursements Log
+                  <span className="px-2 py-0.5 rounded-full text-[9.5px] sm:text-[10px] font-black bg-rose-100 text-rose-900 uppercase">
+                    Expenses
                   </span>
                 </div>
-                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
-                  Disbursements & Expense Register
+                <h3 className="font-heading font-extrabold text-sm sm:text-base text-[#1b4332]">
+                  Disbursements Register
                 </h3>
                 <p className="text-xs text-[#52605d] leading-relaxed">
-                  Export liquidation records of all club disbursements, event expenses, CSR outreach, ride logistics, emergency assistance funds, and operational costs.
+                  Export liquidation records of all disbursements, rides, outreach, and operational costs.
                 </p>
               </div>
 
-              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+              <div className="pt-2.5 border-t border-[#e2ece2] flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-[#1b4332]">
-                  {reportExpenses.length} Expense Logs
+                  {
+                    reportExpenses.filter((e) =>
+                      isRecordInPeriod([e.date, e.createdAt], reportYearFilter, reportMonthFilter)
+                    ).length
+                  } Expenses
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
                       const data = getExpensesReportData();
                       setPreviewModal({
-                        title: 'Disbursements & Expense Register Preview',
-                        subtitle: 'Sample view of liquidation and expense records',
+                        title: 'Disbursements Register Preview',
+                        subtitle: 'Liquidation and expense records',
                         headers: data.headers,
                         rows: data.rows,
-                        onDownload: () => downloadCSVFile(`BRC_Expenses_Disbursements_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                        onDownload: () => downloadXLSXFile(`BRC_Expenses_${getReportPeriodSlug()}_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Disbursements'),
                       });
                     }}
-                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    className="p-1.5 sm:p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
                     title="Preview Data"
                   >
                     <Eye className="w-4 h-4 text-[#2d6a4f]" />
@@ -2842,55 +3024,56 @@ export const Settings: React.FC = () => {
                     type="button"
                     onClick={() => {
                       const data = getExpensesReportData();
-                      downloadCSVFile(`BRC_Expenses_Disbursements_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                      downloadXLSXFile(`BRC_Expenses_${getReportPeriodSlug()}_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Disbursements');
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 sm:py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Export Excel (.xlsx)"
                   >
                     <Download className="w-3.5 h-3.5" />
+                    <span>.xlsx</span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Card 4: Accounting Financial Statement CSV */}
-            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
-              <div className="space-y-2">
+            {/* Card 4: Accounting Financial Statement XLSX & PDF */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2ece2] shadow-xs space-y-3 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold">
-                    <BarChart3 className="w-5 h-5 text-purple-700" />
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-purple-100 text-purple-800 flex items-center justify-center font-bold">
+                    <BarChart3 className="w-4 h-4 text-purple-700" />
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-purple-100 text-purple-900 uppercase">
-                    Financial Statement
+                  <span className="px-2 py-0.5 rounded-full text-[9.5px] sm:text-[10px] font-black bg-purple-100 text-purple-900 uppercase">
+                    Accounting
                   </span>
                 </div>
-                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
-                  Executive Financial Report & Cash Flow
+                <h3 className="font-heading font-extrabold text-sm sm:text-base text-[#1b4332]">
+                  Financial Statement
                 </h3>
                 <p className="text-xs text-[#52605d] leading-relaxed">
-                  Export executive financial statements with Executive Revenue vs Disbursement summaries, Category-by-category Inflow breakdowns, and Net Operating Surplus margins.
+                  Export complete accounting statements with revenue, category breakdowns, and net surplus.
                 </p>
               </div>
 
-              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+              <div className="pt-2.5 border-t border-[#e2ece2] flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-[#1b4332]">
-                  Accounting Summary
+                  Accounting Report
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
                       const data = getFinancialStatementReportData();
                       setPreviewModal({
-                        title: 'Executive Financial Statement Preview',
-                        subtitle: 'Overview of revenue, expenses, and net surplus',
+                        title: 'Financial Statement Preview',
+                        subtitle: 'Revenue, expenses, and net surplus summary',
                         headers: data.headers,
                         rows: data.rows,
-                        onDownload: () => downloadCSVFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
-                        onXlsDownload: () => downloadXLSFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.xls`, data.headers, data.rows),
+                        onDownload: () => downloadXLSXFile(`BRC_Financial_Statement_${getReportPeriodSlug()}_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Financial Statement'),
                         onPdfDownload: exportFinancialStatementPDF,
                       });
                     }}
-                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    className="p-1.5 sm:p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
                     title="Preview Data"
                   >
                     <Eye className="w-4 h-4 text-[#2d6a4f]" />
@@ -2899,28 +3082,18 @@ export const Settings: React.FC = () => {
                     type="button"
                     onClick={() => {
                       const data = getFinancialStatementReportData();
-                      downloadCSVFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                      downloadXLSXFile(`BRC_Financial_Statement_${getReportPeriodSlug()}_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Financial Statement');
                     }}
-                    className="px-3 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
-                    title="Export CSV"
+                    className="px-3 py-1.5 sm:py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Export Excel (.xlsx)"
                   >
                     <Download className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const data = getFinancialStatementReportData();
-                      downloadXLSFile(`BRC_Financial_Statement_${reportYearFilter}_${new Date().toISOString().slice(0, 10)}.xls`, data.headers, data.rows);
-                    }}
-                    className="px-3 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
-                    title="Export Formatted Excel (.xls)"
-                  >
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
+                    <span>.xlsx</span>
                   </button>
                   <button
                     type="button"
                     onClick={exportFinancialStatementPDF}
-                    className="px-3.5 py-2 rounded-xl bg-purple-900 hover:bg-purple-950 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    className="p-1.5 sm:p-2 rounded-xl bg-purple-900 hover:bg-purple-950 text-white text-xs font-black shadow-xs cursor-pointer"
                     title="Export PDF"
                   >
                     <FileText className="w-3.5 h-3.5" />
@@ -2929,43 +3102,43 @@ export const Settings: React.FC = () => {
               </div>
             </div>
 
-            {/* Card 5: Member Dues Compliance & Aging Ledger CSV */}
-            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
-              <div className="space-y-2">
+            {/* Card 5: Member Dues Compliance & Aging Ledger XLSX */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2ece2] shadow-xs space-y-3 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">
-                    <FileSpreadsheet className="w-5 h-5 text-teal-700" />
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-teal-100 text-teal-800 flex items-center justify-center font-bold">
+                    <FileSpreadsheet className="w-4 h-4 text-teal-700" />
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-teal-100 text-teal-900 uppercase">
-                    Aging & Compliance
+                  <span className="px-2 py-0.5 rounded-full text-[9.5px] sm:text-[10px] font-black bg-teal-100 text-teal-900 uppercase">
+                    Compliance
                   </span>
                 </div>
-                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
-                  Member Dues Compliance Ledger
+                <h3 className="font-heading font-extrabold text-sm sm:text-base text-[#1b4332]">
+                  Dues Compliance
                 </h3>
                 <p className="text-xs text-[#52605d] leading-relaxed">
-                  Export per-member compliance ledger displaying total dues paid, upfront annual promo enrollment status, pending months count, and outstanding balances.
+                  Export per-member dues paid, annual promo status, unpaid months, and balances.
                 </p>
               </div>
 
-              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+              <div className="pt-2.5 border-t border-[#e2ece2] flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-[#1b4332]">
-                  {reportUsers.filter((u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')).length} Compliance Records
+                  {reportUsers.filter((u) => u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin')).length} Records
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
                       const data = getMemberComplianceReportData();
                       setPreviewModal({
-                        title: 'Member Dues Compliance Ledger Preview',
-                        subtitle: 'Sample view of member compliance and overdue dues status',
+                        title: 'Dues Compliance Preview',
+                        subtitle: 'Member compliance and dues status',
                         headers: data.headers,
                         rows: data.rows,
-                        onDownload: () => downloadCSVFile(`BRC_Member_Compliance_Ledger_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows),
+                        onDownload: () => downloadXLSXFile(`BRC_Member_Compliance_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Dues Compliance'),
                       });
                     }}
-                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    className="p-1.5 sm:p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
                     title="Preview Data"
                   >
                     <Eye className="w-4 h-4 text-[#2d6a4f]" />
@@ -2974,40 +3147,42 @@ export const Settings: React.FC = () => {
                     type="button"
                     onClick={() => {
                       const data = getMemberComplianceReportData();
-                      downloadCSVFile(`BRC_Member_Compliance_Ledger_${new Date().toISOString().slice(0, 10)}.csv`, data.headers, data.rows);
+                      downloadXLSXFile(`BRC_Member_Compliance_${new Date().toISOString().slice(0, 10)}.xlsx`, data.headers, data.rows, 'Dues Compliance');
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 sm:py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Export Excel (.xlsx)"
                   >
                     <Download className="w-3.5 h-3.5" />
+                    <span>.xlsx</span>
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Card 6: Dynamic Custom Collections Ledger CSV */}
-            <div className="bg-white rounded-2xl p-5 border border-[#e2ece2] shadow-xs space-y-4 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
-              <div className="space-y-2">
+            {/* Card 6: Dynamic Custom Collections Ledger XLSX */}
+            <div className="bg-white rounded-2xl p-4 sm:p-5 border border-[#e2ece2] shadow-xs space-y-3 hover:border-[#2d6a4f] transition-all flex flex-col justify-between">
+              <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
-                    <Layers className="w-5 h-5 text-amber-700" />
+                  <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center font-bold">
+                    <Layers className="w-4 h-4 text-amber-700" />
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-900 uppercase">
-                    Custom Projects
+                  <span className="px-2 py-0.5 rounded-full text-[9.5px] sm:text-[10px] font-black bg-amber-100 text-amber-900 uppercase">
+                    Drives
                   </span>
                 </div>
-                <h3 className="font-heading font-extrabold text-base text-[#1b4332]">
-                  Dynamic Collections & Special Projects Ledger
+                <h3 className="font-heading font-extrabold text-sm sm:text-base text-[#1b4332]">
+                  Custom Drives Ledger
                 </h3>
                 <p className="text-xs text-[#52605d] leading-relaxed">
-                  Export progress ledgers for dynamic custom collections (e.g. Anniversary Vest, Building Fund, CSR Drive) detailing target goals, collected amounts, and progress percentages.
+                  Export progress ledgers for special drives with target goals and collected totals.
                 </p>
               </div>
 
-              <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between gap-2">
+              <div className="pt-2.5 border-t border-[#e2ece2] flex items-center justify-between gap-2">
                 <span className="text-xs font-bold text-[#1b4332]">
-                  {dynamicCollections.length} Collection Items
+                  {dynamicCollections.length} Drives
                 </span>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
@@ -3019,14 +3194,14 @@ export const Settings: React.FC = () => {
                       ];
                       const rows = dynamicCollections.map((c) => [c.id, c.name, c.amount, c.status]);
                       setPreviewModal({
-                        title: 'Dynamic Custom Collections Preview',
-                        subtitle: 'Overview of custom collection items and status',
+                        title: 'Custom Drives Preview',
+                        subtitle: 'Overview of collection items',
                         headers,
                         rows,
-                        onDownload: () => downloadCSVFile(`BRC_Dynamic_Collections_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows),
+                        onDownload: () => downloadXLSXFile(`BRC_Dynamic_Collections_${new Date().toISOString().slice(0, 10)}.xlsx`, headers, rows, 'Custom Drives'),
                       });
                     }}
-                    className="p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
+                    className="p-1.5 sm:p-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold cursor-pointer"
                     title="Preview Data"
                   >
                     <Eye className="w-4 h-4 text-[#2d6a4f]" />
@@ -3041,11 +3216,13 @@ export const Settings: React.FC = () => {
                         'Status',
                       ];
                       const rows = dynamicCollections.map((c) => [c.id, c.name, c.amount, c.status]);
-                      downloadCSVFile(`BRC_Dynamic_Collections_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+                      downloadXLSXFile(`BRC_Dynamic_Collections_${new Date().toISOString().slice(0, 10)}.xlsx`, headers, rows, 'Custom Drives');
                     }}
-                    className="px-3.5 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    className="px-3 py-1.5 sm:py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                    title="Export Excel (.xlsx)"
                   >
                     <Download className="w-3.5 h-3.5" />
+                    <span>.xlsx</span>
                   </button>
                 </div>
               </div>
@@ -3142,7 +3319,7 @@ export const Settings: React.FC = () => {
                       )}
                     {previewModal.rows.length > 50 && (
                       <p className="text-[11px] text-[#52605d] italic text-center mt-3">
-                        Showing first 50 rows of {previewModal.rows.length} total records. Download CSV to view full dataset.
+                        Showing first 50 rows of {previewModal.rows.length} total records. Download .xlsx to view full dataset.
                       </p>
                     )}
                   </div>
@@ -3160,20 +3337,6 @@ export const Settings: React.FC = () => {
                       >
                         Close
                       </button>
-                      {previewModal.onXlsDownload && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            previewModal.onXlsDownload!();
-                            setPreviewModal(null);
-                          }}
-                          className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
-                          title="Export Formatted Excel (.xls)"
-                        >
-                          <FileSpreadsheet className="w-3.5 h-3.5" />
-                          <span>Excel</span>
-                        </button>
-                      )}
                       {previewModal.onPdfDownload && (
                         <button
                           type="button"
@@ -3195,10 +3358,10 @@ export const Settings: React.FC = () => {
                           setPreviewModal(null);
                         }}
                         className="px-4 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
-                        title="Export CSV"
+                        title="Export Excel (.xlsx)"
                       >
                         <Download className="w-3.5 h-3.5" />
-                        <span>CSV</span>
+                        <span>.xlsx</span>
                       </button>
                     </div>
                   </div>
@@ -3211,26 +3374,26 @@ export const Settings: React.FC = () => {
 
       {/* SUB TAB 3: SYSTEM SECURITY */}
       {activeSubTab === 'security' && (
-        <div className="bg-white rounded-3xl p-4 sm:p-6 md:p-8 border border-[#e2ece2] shadow-xs space-y-5 sm:space-y-6">
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-4 sm:space-y-5">
           {/* Section Header */}
-          <div className="pb-4 border-b border-[#e2ece2] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="pb-3 border-b border-[#e2ece2] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="font-heading text-base sm:text-lg font-black text-[#1b4332] flex items-center gap-2">
+                <h2 className="font-heading text-sm sm:text-base md:text-lg font-black text-[#1b4332] flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-[#2d6a4f] shrink-0" />
-                  <span>System & Security</span>
+                  <span>System Security</span>
                 </h2>
-                <span className="sm:hidden px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7] flex items-center gap-1 shrink-0">
+                <span className="sm:hidden px-2 py-0.5 rounded-full text-[9.5px] font-black uppercase tracking-wider bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7] flex items-center gap-1 shrink-0">
                   <Shield className="w-3 h-3 text-[#2d6a4f]" />
                   Executive
                 </span>
               </div>
-              <p className="text-[11px] sm:text-xs text-[#52605d] mt-1 leading-relaxed">
-                Configure administrative two-factor authorization policies, portal credentials, and session controls.
+              <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 leading-relaxed">
+                Admin 2FA authorization, credentials, and session controls
               </p>
             </div>
             <div className="hidden sm:flex items-center gap-2">
-              <span className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7] flex items-center gap-1.5 shrink-0">
+              <span className="px-2.5 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7] flex items-center gap-1.5 shrink-0">
                 <Shield className="w-3.5 h-3.5 text-[#2d6a4f]" />
                 Executive Access
               </span>
@@ -3244,7 +3407,7 @@ export const Settings: React.FC = () => {
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -10 }}
-                className={`p-3.5 rounded-2xl text-xs font-bold border flex items-center justify-between gap-3 ${
+                className={`p-3 rounded-xl text-xs font-bold border flex items-center justify-between gap-3 ${
                   securityToast.type === 'success'
                     ? 'bg-[#f0f9f1] border-[#74c69d] text-[#1b4332]'
                     : 'bg-stone-50 border-stone-300 text-stone-700'
@@ -3266,37 +3429,37 @@ export const Settings: React.FC = () => {
           </AnimatePresence>
 
           {/* Card 1: Admin 2FA OTP Toggle Settings */}
-          <div className="bg-[#f7f9f7] rounded-2xl p-4 sm:p-5 md:p-6 border border-[#e2ece2] space-y-4 sm:space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+          <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-start gap-3">
-                <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-[#1b4332] text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5 sm:mt-0">
-                  <Key className="w-4 h-4 sm:w-5 sm:h-5 text-[#74c69d]" />
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#1b4332] text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5 sm:mt-0">
+                  <Key className="w-4 h-4 text-[#74c69d]" />
                 </div>
-                <div className="space-y-1 min-w-0 flex-1">
+                <div className="space-y-0.5 min-w-0 flex-1">
                   <div className="flex items-center justify-between sm:justify-start gap-2 flex-wrap">
                     <h3 className="font-heading font-black text-xs sm:text-sm md:text-base text-[#1b4332] leading-snug">
-                      Admin Sign-In 2FA (OTP)
+                      Admin 2FA (OTP)
                     </h3>
                     {securitySettings.adminOtpEnabled ? (
                       <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shrink-0">
                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
-                        OTP ACTIVE
+                        Active
                       </span>
                     ) : (
                       <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-stone-200 text-stone-700 border border-stone-300 flex items-center gap-1 shrink-0">
                         <span className="w-1.5 h-1.5 rounded-full bg-stone-500"></span>
-                        OTP BYPASSED
+                        Bypassed
                       </span>
                     )}
                   </div>
-                  <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed max-w-xl">
-                    Require a 6-digit One-Time Password (OTP) authorization code sent via email whenever an administrator signs in.
+                  <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
+                    Require a 6-digit email OTP verification code upon administrator sign in.
                   </p>
                 </div>
               </div>
 
               {/* Toggle Switch */}
-              <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#e2ece2] shrink-0">
+              <div className="flex items-center justify-between sm:justify-end gap-2.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#e2ece2] shrink-0">
                 <span className="text-[11px] sm:text-xs font-black text-[#1b4332]">
                   {securitySettings.adminOtpEnabled ? 'OTP Enabled' : 'OTP Disabled'}
                 </span>
@@ -3305,14 +3468,14 @@ export const Settings: React.FC = () => {
                   role="switch"
                   aria-checked={securitySettings.adminOtpEnabled}
                   onClick={handleToggleAdminOtp}
-                  className={`relative inline-flex h-6 sm:h-7 w-12 sm:w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-[#2d6a4f] focus:ring-offset-2 ${
+                  className={`relative inline-flex h-6 sm:h-6.5 w-11 sm:w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden focus:ring-2 focus:ring-[#2d6a4f] focus:ring-offset-2 ${
                     securitySettings.adminOtpEnabled ? 'bg-[#1b4332]' : 'bg-stone-300'
                   }`}
                 >
                   <span
                     aria-hidden="true"
-                    className={`pointer-events-none inline-block h-5 w-5 sm:h-6 sm:w-6 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
-                      securitySettings.adminOtpEnabled ? 'translate-x-6 sm:translate-x-7' : 'translate-x-0'
+                    className={`pointer-events-none inline-block h-5 w-5 sm:h-5.5 sm:w-5.5 transform rounded-full bg-white shadow-md ring-0 transition duration-200 ease-in-out ${
+                      securitySettings.adminOtpEnabled ? 'translate-x-5 sm:translate-x-5.5' : 'translate-x-0'
                     }`}
                   />
                 </button>
@@ -3320,18 +3483,18 @@ export const Settings: React.FC = () => {
             </div>
 
             {/* Explanatory Details Box */}
-            <div className="p-3.5 sm:p-4 rounded-xl bg-white border border-[#e2ece2] space-y-2 text-[11px] sm:text-xs">
-              <div className="flex items-center gap-2 font-extrabold text-[#1b4332]">
-                <Mail className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f] shrink-0" />
-                <span>Delivery & Dispatch Configuration</span>
+            <div className="p-3 sm:p-3.5 rounded-xl bg-white border border-[#e2ece2] space-y-1.5 text-[11px] sm:text-xs">
+              <div className="flex items-center gap-1.5 font-extrabold text-[#1b4332]">
+                <Mail className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                <span>Email Dispatch Info</span>
               </div>
-              <p className="text-[#52605d] leading-relaxed break-words">
-                When this toggle is <strong>enabled</strong>, signing in with admin credentials triggers a 6-digit verification code dispatched from <span className="font-mono text-[#2d6a4f] font-semibold">noreply@bccriders.cc</span> to the admin email (<strong className="text-[#1b4332] break-all">{currentUser?.email || 'admin@bccriders.org'}</strong>).
+              <p className="text-[#52605d] leading-relaxed break-words text-[11px]">
+                When enabled, sign-in OTP codes are dispatched from <span className="font-mono text-[#2d6a4f] font-semibold">noreply@bccriders.cc</span> to <strong className="text-[#1b4332] break-all">{currentUser?.email || 'admin@bccriders.org'}</strong>.
               </p>
-              <div className="pt-2 border-t border-[#f0f4f0] grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-[#52605d]">
+              <div className="pt-1.5 border-t border-[#f0f4f0] grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] sm:text-[11px] text-[#52605d]">
                 <div className="flex items-center gap-1.5">
                   <Lock className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
-                  <span>Validity: <strong>5 minutes</strong> per session</span>
+                  <span>Validity: <strong>5 minutes</strong></span>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <ShieldCheck className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
@@ -3342,25 +3505,25 @@ export const Settings: React.FC = () => {
           </div>
 
           {/* Card 2: Executive Sign Out Card */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-rose-50/60 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
+          <div className="p-3.5 sm:p-4 rounded-2xl bg-rose-50/60 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-1.5">
                 <LogOut className="w-4 h-4 text-rose-700 shrink-0" />
                 <h3 className="font-heading font-extrabold text-rose-950 text-xs sm:text-sm">
-                  Executive Account Session
+                  Account Session
                 </h3>
               </div>
               <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
-                Sign out of your administrator account session safely when your executive tasks are completed.
+                Sign out of your active administrator account session safely.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setShowLogoutModal(true)}
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-2 shrink-0"
+              className="w-full sm:w-auto px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-2 shrink-0"
             >
-              <LogOut className="w-4 h-4" />
-              <span>Sign Out Account</span>
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign Out</span>
             </button>
           </div>
         </div>
@@ -3378,36 +3541,36 @@ export const Settings: React.FC = () => {
             >
               <form onSubmit={handleSubmitDue} className="flex flex-col h-full max-h-[92vh] sm:max-h-[88vh] overflow-hidden">
                 {/* Header (Fixed) */}
-                <div className="p-3.5 sm:p-5 pb-2.5 sm:pb-3 border-b border-[#e2ece2] relative shrink-0 bg-white">
+                <div className="p-3 sm:p-4 pb-2.5 sm:pb-3 border-b border-[#e2ece2] relative shrink-0 bg-white">
                   <button
                     type="button"
                     onClick={() => setShowMonthlyDueModal(false)}
-                    className="absolute top-3 sm:top-4 right-3 sm:right-4 p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                    className="absolute top-2.5 sm:top-3.5 right-2.5 sm:right-3.5 p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
                   >
                     <X className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
 
                   <div className="flex items-center gap-2.5 sm:gap-3 pr-8">
-                    <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
-                      <Calendar className="w-4 h-4 sm:w-5 sm:h-5" />
+                    <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+                      <Calendar className="w-4 h-4 text-[#2d6a4f]" />
                     </div>
                     <div className="min-w-0">
-                      <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base md:text-lg leading-tight truncate">
-                        {editingDue ? 'Edit Monthly Due' : 'Create Monthly Due'}
+                      <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base leading-tight truncate">
+                        {editingDue ? 'Edit Monthly Due' : 'Set Monthly Due'}
                       </h3>
                       <p className="text-[10px] sm:text-xs text-[#52605d] leading-tight mt-0.5 truncate">
-                        Set monthly due amount for a specific month and year
+                        Configure due amount for selected period
                       </p>
                     </div>
                   </div>
                 </div>
 
                 {/* Body (Scrollable) */}
-                <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3 sm:space-y-4 text-xs">
+                <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3 text-xs">
                   {/* Amount Due */}
                   <div>
                     <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
-                      Amount Due Per Member (₱) <span className="text-rose-600">*</span>
+                      Due Per Member (₱) <span className="text-rose-600">*</span>
                     </label>
                     <div className="relative">
                       <input
@@ -3417,16 +3580,16 @@ export const Settings: React.FC = () => {
                         step="any"
                         value={dueAmount}
                         onChange={(e) => setDueAmount(Number(e.target.value))}
-                        className="w-full pl-7 sm:pl-8 pr-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        className="w-full pl-7 pr-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                       />
-                      <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-xs font-bold text-[#52605d]">₱</span>
+                      <span className="absolute left-2.5 top-2 sm:top-2.5 text-xs font-bold text-[#52605d]">₱</span>
                     </div>
                   </div>
 
                   {/* Amount Due Period: Month & Year Dropdown Selection */}
-                  <div className="grid grid-cols-2 gap-2.5 bg-[#f0f9f1] p-3 rounded-2xl border border-[#c8e6c9]">
+                  <div className="grid grid-cols-2 gap-2 bg-[#f0f9f1] p-2.5 sm:p-3 rounded-2xl border border-[#c8e6c9]">
                     <CustomSelect
-                      label="Select Month"
+                      label="Month"
                       required
                       value={dueMonth}
                       onChange={(val) => setDueMonth(val)}
@@ -3434,7 +3597,7 @@ export const Settings: React.FC = () => {
                     />
 
                     <CustomSelect
-                      label="Select Year"
+                      label="Year"
                       required
                       value={dueYear}
                       onChange={(val) => setDueYear(val)}
@@ -3443,34 +3606,31 @@ export const Settings: React.FC = () => {
                   </div>
 
                   {/* Live Calculated Pending Collection Preview */}
-                  <div className="p-3 bg-[#1b4332] text-white rounded-2xl space-y-1">
-                    <span className="text-[10px] text-[#74c69d] font-bold uppercase tracking-wider block">
-                      Calculated Total Pending Collection
+                  <div className="p-2.5 sm:p-3 bg-[#1b4332] text-white rounded-xl sm:rounded-2xl space-y-0.5">
+                    <span className="text-[9.5px] sm:text-[10px] text-[#74c69d] font-bold uppercase tracking-wider block">
+                      Expected Total ({approvedMemberCount} members)
                     </span>
-                    <div className="text-base sm:text-lg font-black text-white">
+                    <div className="text-sm sm:text-base font-black text-white">
                       ₱{(approvedMemberCount * (Number(dueAmount) || 0)).toLocaleString()}
                     </div>
-                    <span className="text-[10px] text-[#d8f3dc] block">
-                      Based on {approvedMemberCount} approved member account(s)
-                    </span>
                   </div>
                 </div>
 
                 {/* Fixed Footer Buttons */}
-                <div className="p-3 sm:p-4 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-2.5 sm:gap-3 shrink-0">
+                <div className="p-3 sm:p-3.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => setShowMonthlyDueModal(false)}
-                    className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
+                    className="px-3.5 py-1.5 sm:py-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5"
+                    className="px-4 py-1.5 sm:py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5"
                   >
                     <CheckCircle2 className="w-4 h-4 text-[#74c69d] shrink-0" />
-                    <span>{editingDue ? 'Save Changes' : 'Save Monthly Due'}</span>
+                    <span>{editingDue ? 'Save' : 'Save Due'}</span>
                   </button>
                 </div>
               </form>
@@ -3491,37 +3651,37 @@ export const Settings: React.FC = () => {
             >
               <form onSubmit={handleSubmitCollection} className="flex flex-col h-full max-h-[92vh] sm:max-h-[88vh] overflow-hidden">
                 {/* Header (Fixed) */}
-                <div className="p-3.5 sm:p-5 pb-2.5 sm:pb-3 border-b border-[#e2ece2] relative shrink-0 bg-white">
+                <div className="p-3 sm:p-4 pb-2.5 sm:pb-3 border-b border-[#e2ece2] relative shrink-0 bg-white">
                   <button
                     type="button"
                     onClick={() => setShowCollectionModal(false)}
-                    className="absolute top-3 sm:top-4 right-3 sm:right-4 p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                    className="absolute top-2.5 sm:top-3.5 right-2.5 sm:right-3.5 p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
                   >
                     <X className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
 
                   <div className="flex items-center gap-2.5 sm:gap-3 pr-8">
-                    <div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 ${
+                    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center shrink-0 ${
                       colType === 'Donation' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                     }`}>
-                      {colType === 'Donation' ? <HeartHandshake className="w-4 h-4 sm:w-5 sm:h-5" /> : <PiggyBank className="w-4 h-4 sm:w-5 sm:h-5" />}
+                      {colType === 'Donation' ? <HeartHandshake className="w-4 h-4 text-emerald-700" /> : <PiggyBank className="w-4 h-4 text-amber-700" />}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base md:text-lg leading-tight truncate">
+                      <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base leading-tight truncate">
                         {editingCollection
-                          ? (colType === 'Donation' ? 'Edit Donation Collection' : 'Edit Dynamic Collection')
-                          : (colType === 'Donation' ? 'Add Donation Collection' : 'Create Dynamic Collection')}
+                          ? (colType === 'Donation' ? 'Edit Donation' : 'Edit Collection')
+                          : (colType === 'Donation' ? 'Add Donation' : 'New Collection')}
                       </h3>
                       <p className="text-[10px] sm:text-xs text-[#52605d] leading-tight mt-0.5 truncate">
                         {colType === 'Donation'
-                          ? 'Direct voluntary funds added to Net Treasury'
-                          : 'Set custom fee and bill approved members'}
+                          ? 'Voluntary fund for Net Treasury'
+                          : 'Set custom collection drive'}
                       </p>
                     </div>
                   </div>
 
                   {/* Type Switcher */}
-                  <div className="grid grid-cols-2 gap-1 p-1 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] mt-2.5 sm:mt-3">
+                  <div className="grid grid-cols-2 gap-1 p-1 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] mt-2 sm:mt-2.5">
                     <button
                       type="button"
                       onClick={() => setColType('Standard')}
@@ -3532,7 +3692,7 @@ export const Settings: React.FC = () => {
                       }`}
                     >
                       <Receipt className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Standard Assessment</span>
+                      <span className="truncate">Standard Drive</span>
                     </button>
                     <button
                       type="button"
@@ -3544,48 +3704,48 @@ export const Settings: React.FC = () => {
                       }`}
                     >
                       <HeartHandshake className="w-3.5 h-3.5 shrink-0" />
-                      <span className="truncate">Donation Collection</span>
+                      <span className="truncate">Donation</span>
                     </button>
                   </div>
                 </div>
 
                 {/* Scrollable Form Body */}
-                <div className="flex-1 overflow-y-auto p-3.5 sm:p-5 space-y-3 sm:space-y-4 text-xs">
+                <div className="flex-1 overflow-y-auto p-3.5 sm:p-4 space-y-3 text-xs">
                   {colType === 'Donation' ? (
                     <>
                       {/* Donation Collection Name */}
                       <div>
                         <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
-                          Donation Purpose / Drive Name <span className="text-rose-600">*</span>
+                          Donation Drive / Purpose <span className="text-rose-600">*</span>
                         </label>
                         <input
                           type="text"
                           required
                           value={colName}
                           onChange={(e) => setColName(e.target.value)}
-                          placeholder="e.g., Medical Relief Fund, Outreach Drive"
-                          className="w-full px-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          placeholder="e.g., Medical Relief Fund"
+                          className="w-full px-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                         />
                       </div>
 
                       {/* Donor / Contributor Name */}
                       <div>
                         <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
-                          Contributor / Donor Name <span className="text-[10px] font-normal text-[#52605d]">(Optional)</span>
+                          Donor / Contributor <span className="text-[10px] font-normal text-[#52605d]">(Optional)</span>
                         </label>
                         <input
                           type="text"
                           value={colDonorName}
                           onChange={(e) => setColDonorName(e.target.value)}
-                          placeholder="e.g., Anonymous Sponsor, BCC Chapter 1, John Doe"
-                          className="w-full px-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          placeholder="e.g., Anonymous Sponsor, BCC Chapter 1"
+                          className="w-full px-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                         />
                       </div>
 
                       {/* Donation Amount */}
                       <div>
                         <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
-                          Total Donation Amount (₱) <span className="text-rose-600">*</span>
+                          Donation Amount (₱) <span className="text-rose-600">*</span>
                         </label>
                         <div className="relative">
                           <input
@@ -3595,23 +3755,23 @@ export const Settings: React.FC = () => {
                             step="any"
                             value={colAmount}
                             onChange={(e) => setColAmount(Number(e.target.value) || 0)}
-                            className="w-full pl-7 sm:pl-8 pr-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                            className="w-full pl-7 pr-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                           />
-                          <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-xs font-bold text-[#52605d]">₱</span>
+                          <span className="absolute left-2.5 top-2 text-xs font-bold text-[#52605d]">₱</span>
                         </div>
                         <p className="text-[10px] text-emerald-800 font-semibold mt-1">
-                          Directly added to Total Funds and Net Treasury upon creation.
+                          Directly credited to Net Treasury upon creation.
                         </p>
                       </div>
 
                       {/* Educational Info Box */}
                       <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-2.5 sm:p-3 text-emerald-950 space-y-1">
-                        <div className="flex items-center gap-1.5 text-[11px] sm:text-xs font-extrabold text-emerald-900">
+                        <div className="flex items-center gap-1.5 text-[11px] font-extrabold text-emerald-900">
                           <Sparkles className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
                           <span>Treasury Impact</span>
                         </div>
-                        <p className="text-[10px] sm:text-[11px] leading-relaxed text-emerald-850">
-                          This donation is treated as an active paid contribution. It is <strong>NOT</strong> added to pending member dues, but is instantly credited to <strong>Total Funds Collected</strong> and <strong>Net Treasury Balance</strong>.
+                        <p className="text-[10px] leading-relaxed text-emerald-800">
+                          This donation is logged as paid revenue and immediately increases the Net Treasury.
                         </p>
                       </div>
                     </>
@@ -3620,22 +3780,22 @@ export const Settings: React.FC = () => {
                       {/* Collection Name */}
                       <div>
                         <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
-                          Collection Name / Title <span className="text-rose-600">*</span>
+                          Collection Title <span className="text-rose-600">*</span>
                         </label>
                         <input
                           type="text"
                           required
                           value={colName}
                           onChange={(e) => setColName(e.target.value)}
-                          placeholder="e.g., Annual Fellowship Gala Shirt, Uniform Fund"
-                          className="w-full px-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          placeholder="e.g., Club Shirt / Uniform"
+                          className="w-full px-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                         />
                       </div>
 
                       {/* Amount */}
                       <div>
                         <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
-                          Amount Per Contributor (₱) <span className="text-rose-600">*</span>
+                          Amount Per Member (₱) <span className="text-rose-600">*</span>
                         </label>
                         <div className="relative">
                           <input
@@ -3655,16 +3815,16 @@ export const Settings: React.FC = () => {
                                 setColTargetAmount('');
                               }
                             }}
-                            className="w-full pl-7 sm:pl-8 pr-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                            className="w-full pl-7 pr-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                           />
-                          <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-xs font-bold text-[#52605d]">₱</span>
+                          <span className="absolute left-2.5 top-2 text-xs font-bold text-[#52605d]">₱</span>
                         </div>
                       </div>
 
                       {/* Expected Target Collection */}
                       <div>
                         <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
-                          Expected Target Collection (₱) <span className="text-[10px] font-normal text-[#52605d]">(Optional)</span>
+                          Target Goal (₱) <span className="text-[10px] font-normal text-[#52605d]">(Optional)</span>
                         </label>
                         <div className="relative">
                           <input
@@ -3682,13 +3842,13 @@ export const Settings: React.FC = () => {
                                 setColAmount(calculatedAmount);
                               }
                             }}
-                            placeholder={approvedMembers.length > 0 ? `Auto: ₱${(approvedMembers.length * (Number(colAmount) || 0)).toLocaleString()}` : 'Auto: ₱0.00 (Muted)'}
-                            className="w-full pl-7 sm:pl-8 pr-3 py-2 sm:py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                            placeholder={approvedMembers.length > 0 ? `Auto: ₱${(approvedMembers.length * (Number(colAmount) || 0)).toLocaleString()}` : 'Auto: ₱0.00'}
+                            className="w-full pl-7 pr-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs sm:text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                           />
-                          <span className="absolute left-2.5 sm:left-3 top-2 sm:top-2.5 text-xs font-bold text-[#52605d]">₱</span>
+                          <span className="absolute left-2.5 top-2 text-xs font-bold text-[#52605d]">₱</span>
                         </div>
                         <p className="text-[10px] text-[#52605d] mt-1">
-                          Auto-calculated based on {approvedMembers.length} active member(s) (₱{colAmount || 0} × {approvedMembers.length} = ₱{(Number(colTargetAmount) || 0).toLocaleString()}).
+                          Auto-calculated for {approvedMembers.length} active member(s).
                         </p>
                       </div>
                     </>
@@ -3697,30 +3857,30 @@ export const Settings: React.FC = () => {
                   {/* Description */}
                   <div>
                     <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] mb-1 block">
-                      Description / Details
+                      Description / Notes
                     </label>
                     <textarea
                       rows={2}
                       value={colDescription}
                       onChange={(e) => setColDescription(e.target.value)}
-                      placeholder={colType === 'Donation' ? 'Notes regarding the donation cause or benefactor...' : 'Details about what this custom collection covers...'}
+                      placeholder={colType === 'Donation' ? 'Notes regarding the donation...' : 'Details on this collection drive...'}
                       className="w-full px-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] resize-none"
                     />
                   </div>
                 </div>
 
                 {/* Fixed Footer Buttons */}
-                <div className="p-3 sm:p-4 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-2.5 sm:gap-3 shrink-0">
+                <div className="p-3 sm:p-3.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => setShowCollectionModal(false)}
-                    className="px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
+                    className="px-3.5 py-1.5 sm:py-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className={`px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5 ${
+                    className={`px-4 py-1.5 sm:py-2 rounded-xl text-white font-extrabold text-xs shadow-md cursor-pointer transition-all flex items-center gap-1.5 ${
                       colType === 'Donation'
                         ? 'bg-emerald-700 hover:bg-emerald-800'
                         : 'bg-[#1b4332] hover:bg-[#2d6a4f]'
@@ -3729,8 +3889,8 @@ export const Settings: React.FC = () => {
                     <CheckCircle2 className="w-4 h-4 text-emerald-200 shrink-0" />
                     <span className="truncate">
                       {editingCollection
-                        ? (colType === 'Donation' ? 'Save Donation' : 'Save Collection')
-                        : (colType === 'Donation' ? 'Log Donation' : 'Create Collection')}
+                        ? (colType === 'Donation' ? 'Save Donation' : 'Save Drive')
+                        : (colType === 'Donation' ? 'Log Donation' : 'Create Drive')}
                     </span>
                   </button>
                 </div>
@@ -3748,40 +3908,41 @@ export const Settings: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-4 border border-[#e2ece2] shadow-2xl relative"
+              className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full text-center space-y-3.5 border border-[#e2ece2] shadow-2xl relative"
             >
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto">
-                <Trash2 className="w-6 h-6" />
+              <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto">
+                <Trash2 className="w-5 h-5" />
               </div>
               <div className="space-y-1">
-                <h3 className="font-heading font-extrabold text-[#1b4332] text-base">
-                  Confirm Item Deletion?
+                <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base">
+                  Delete Item?
                 </h3>
                 <p className="text-xs text-[#52605d] leading-relaxed">
-                  Are you sure you want to permanently delete <strong className="text-rose-700">"{deleteTarget.name}"</strong>?
-                  This financial item will be removed from your system records.
+                  Permanently delete <strong className="text-rose-700">"{deleteTarget.name}"</strong>?
+                  This item will be removed from system records.
                 </p>
               </div>
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-2 pt-1.5">
                 <button
                   type="button"
                   onClick={() => setDeleteTarget(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold transition-colors cursor-pointer"
+                  className="flex-1 py-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={confirmDeleteAction}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm"
+                  className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
                 >
-                  Yes, Delete Item
+                  Delete
                 </button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
       {/* SIGN OUT CONFIRMATION MODAL */}
       <AnimatePresence>
         {showLogoutModal && (
@@ -3790,26 +3951,26 @@ export const Settings: React.FC = () => {
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-5 border border-[#e2ece2] shadow-2xl relative"
+              className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full text-center space-y-4 border border-[#e2ece2] shadow-2xl relative"
             >
-              <div className="w-14 h-14 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
-                <LogOut className="w-7 h-7" />
+              <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
+                <LogOut className="w-6 h-6" />
               </div>
 
-              <div className="space-y-1.5">
-                <h3 className="font-heading text-lg font-extrabold text-[#1b4332]">
-                  Sign Out of Account?
+              <div className="space-y-1">
+                <h3 className="font-heading text-base sm:text-lg font-extrabold text-[#1b4332]">
+                  Sign Out?
                 </h3>
                 <p className="text-xs text-[#52605d] leading-relaxed">
-                  Are you sure you want to sign out of your executive account? You will need to log in again to access the BCC Riders Club app.
+                  Are you sure you want to sign out of your account?
                 </p>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-2 border-t border-[#e2ece2]">
+              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#e2ece2]">
                 <button
                   type="button"
                   onClick={() => setShowLogoutModal(false)}
-                  className="flex-1 px-4 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
+                  className="flex-1 px-3.5 py-2 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -3819,10 +3980,147 @@ export const Settings: React.FC = () => {
                     setShowLogoutModal(false);
                     logout();
                   }}
-                  className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                  className="flex-1 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-3.5 h-3.5" />
                   <span>Sign Out</span>
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* DELETE A YEAR'S TRANSACTIONS CONFIRMATION MODAL */}
+      <AnimatePresence>
+        {showDeleteYearModal && (
+          <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full shadow-2xl border border-rose-200 relative my-auto overflow-hidden text-left"
+            >
+              {/* Header */}
+              <div className="p-3.5 sm:p-4 border-b border-rose-100 bg-rose-50/70 relative">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteYearModal(false)}
+                  className="absolute top-3 right-3 p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-white transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+
+                <div className="flex items-center gap-2.5 pr-6">
+                  <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                    <Trash2 className="w-4 h-4 text-rose-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="font-heading font-black text-rose-950 text-sm sm:text-base leading-tight truncate">
+                      Delete FY {deleteYearInput} Records
+                    </h3>
+                    <p className="text-[11px] text-rose-700 leading-tight mt-0.5">
+                      Irreversible Fiscal Year Purge
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Body Content */}
+              <div className="p-3.5 sm:p-4 space-y-3 text-xs">
+                {/* Mandatory Archiving Instructions Callout */}
+                <div className="p-3 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 space-y-1.5">
+                  <div className="flex items-center gap-1.5 text-amber-900 font-black text-xs">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Important Instruction</span>
+                  </div>
+                  <p className="font-black text-amber-950 text-xs leading-snug">
+                    "Make sure to Archive the Year and download the Zip file first"
+                  </p>
+                  <p className="text-amber-900 text-[10.5px] sm:text-[11px] leading-relaxed">
+                    Permanently deletes all active collection records & expense vouchers for FY <strong>{deleteYearInput}</strong>.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowDeleteYearModal(false);
+                      setShowYearlyArchiveModal(true);
+                    }}
+                    className="mt-1 w-full py-1.5 px-3 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-black text-[11px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <FolderArchive className="w-3.5 h-3.5 text-amber-800" />
+                    <span>Archive FY {deleteYearInput} & Download .ZIP First</span>
+                  </button>
+                </div>
+
+                {/* Match Summary */}
+                <div className="p-2.5 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] space-y-1">
+                  <span className="text-[10px] font-bold text-[#52605d] uppercase tracking-wider block">
+                    Records to be deleted
+                  </span>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="p-2 bg-white rounded-lg border border-[#e2ece2]">
+                      <span className="text-[#52605d] text-[10px] block">Collections</span>
+                      <strong className="text-[#1b4332] text-xs sm:text-sm">{matchedYearRecords.length} records</strong>
+                    </div>
+                    <div className="p-2 bg-white rounded-lg border border-[#e2ece2]">
+                      <span className="text-[#52605d] text-[10px] block">Expenses</span>
+                      <strong className="text-rose-700 text-xs sm:text-sm">{matchedYearExpenses.length} vouchers</strong>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 10-Second Countdown Indicator */}
+                <div className="p-2.5 bg-stone-50 rounded-xl border border-stone-200 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Clock className={`w-3.5 h-3.5 shrink-0 ${deleteCountdown > 0 ? 'text-amber-600 animate-pulse' : 'text-emerald-600'}`} />
+                    <span className="text-[11px] font-bold text-stone-700 truncate">
+                      {deleteCountdown > 0 ? `Safety delay (${deleteCountdown}s)` : 'Delay complete. Ready.'}
+                    </span>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-black shrink-0 ${
+                    deleteCountdown > 0
+                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                      : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                  }`}>
+                    {deleteCountdown > 0 ? `${deleteCountdown}s` : 'Ready'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Footer Buttons */}
+              <div className="p-3 sm:p-3.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteYearModal(false)}
+                  disabled={isDeletingYear}
+                  className="px-3.5 py-1.5 sm:py-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteYear}
+                  disabled={deleteCountdown > 0 || isDeletingYear}
+                  className={`px-4 py-1.5 sm:py-2 rounded-xl font-black text-xs shadow-xs transition-all flex items-center gap-1.5 ${
+                    deleteCountdown > 0 || isDeletingYear
+                      ? 'bg-stone-200 text-stone-400 cursor-not-allowed opacity-60'
+                      : 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer active:scale-95'
+                  }`}
+                >
+                  {isDeletingYear ? (
+                    <>
+                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                      <span>
+                        {deleteCountdown > 0 ? `Confirm (${deleteCountdown}s)` : 'Confirm'}
+                      </span>
+                    </>
+                  )}
                 </button>
               </div>
             </motion.div>

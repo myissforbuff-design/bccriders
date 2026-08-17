@@ -59,15 +59,11 @@ export const Navigation: React.FC<NavigationProps> = ({
 
   const isMember = !currentUser?.role || currentUser?.role === 'Member' || currentUser?.role?.toLowerCase() === 'member';
   const isTreasurer = currentUser?.role === 'Treasurer' || currentUser?.role?.toLowerCase() === 'treasurer';
-  const canAccessFinances = isAdmin || isTreasurer;
+  const canAccessFinances = true;
 
   const handleTabClick = (tab: TabType) => {
     if (tab === 'qr' && isMember) {
       setShowOfficerAlert(true);
-      return;
-    }
-    if (tab === 'finances' && !canAccessFinances) {
-      setShowTreasurerAlert(true);
       return;
     }
     setActiveTab(tab);

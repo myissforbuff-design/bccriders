@@ -1,10 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   ShieldCheck,
   Mail,
-  Key,
-  CheckCircle2,
   X,
   AlertCircle,
   RefreshCw,
@@ -36,21 +34,34 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
   onSuccess,
 }) => {
   useModalDismiss(isOpen, onClose);
-  const [otp, setOtp] = useState('');
+  const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [loading, setLoading] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState('');
-  const [infoMessage, setInfoMessage] = useState('');
   const [countdown, setCountdown] = useState(60);
+  const [expiryCountdown, setExpiryCountdown] = useState(300);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  const otp = digits.join('');
+
+  const formatExpiryTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs < 10 ? '0' : ''}${secs}`;
+  };
 
   useEffect(() => {
     if (isOpen) {
-      setOtp('');
+      setDigits(['', '', '', '', '', '']);
       setError('');
-      setInfoMessage(`A 6-digit authorization code was sent to ${maskedEmail || email}`);
       setLoading(false);
       setResending(false);
       setCountdown(60);
+      setExpiryCountdown(300);
+      // Auto-focus first input on open
+      setTimeout(() => {
+        inputRefs.current[0]?.focus();
+      }, 100);
     }
   }, [isOpen, email, maskedEmail]);
 
@@ -62,13 +73,79 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
     return () => clearInterval(timer);
   }, [countdown]);
 
+  useEffect(() => {
+    if (expiryCountdown <= 0) return;
+    const timer = setInterval(() => {
+      setExpiryCountdown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [expiryCountdown]);
+
   if (!isOpen) return null;
+
+  const handleDigitChange = (index: number, value: string) => {
+    // Only accept numeric characters
+    const numericChar = value.replace(/\D/g, '');
+    if (!numericChar) {
+      const newDigits = [...digits];
+      newDigits[index] = '';
+      setDigits(newDigits);
+      return;
+    }
+
+    // Take the last character typed if multiple were somehow entered
+    const singleDigit = numericChar.slice(-1);
+    const newDigits = [...digits];
+    newDigits[index] = singleDigit;
+    setDigits(newDigits);
+
+    // Automatically advance focus to the next input box
+    if (index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace') {
+      if (!digits[index] && index > 0) {
+        // If current is empty, move back and clear previous
+        const newDigits = [...digits];
+        newDigits[index - 1] = '';
+        setDigits(newDigits);
+        inputRefs.current[index - 1]?.focus();
+      } else {
+        const newDigits = [...digits];
+        newDigits[index] = '';
+        setDigits(newDigits);
+      }
+    } else if (e.key === 'ArrowLeft' && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    } else if (e.key === 'ArrowRight' && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pastedData) return;
+
+    const newDigits = [...digits];
+    for (let i = 0; i < 6; i++) {
+      newDigits[i] = pastedData[i] || '';
+    }
+    setDigits(newDigits);
+
+    // Focus the box after the last pasted digit or the last box
+    const nextFocusIndex = Math.min(pastedData.length, 5);
+    inputRefs.current[nextFocusIndex]?.focus();
+  };
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanOtp = otp.trim();
     if (!cleanOtp || cleanOtp.length < 6) {
-      setError('Please enter the complete 6-digit OTP code.');
+      setError('Please enter the complete 6-digit verification code.');
       return;
     }
 
@@ -121,8 +198,12 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
         throw new Error(data.error || 'Failed to resend code.');
       }
 
-      setInfoMessage(`A fresh verification code was sent to ${maskedEmail || email}`);
+      setDigits(['', '', '', '', '', '']);
       setCountdown(60);
+      setExpiryCountdown(300);
+      setTimeout(() => {
+        inputRefs.current[0]?.focus();
+      }, 100);
     } catch (err: any) {
       setError(err.message || 'Failed to resend code.');
     } finally {
@@ -165,25 +246,17 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
-          <div className="p-3.5 rounded-2xl bg-[#f0f9f1] border border-[#74c69d]/40 flex items-start gap-3">
-            <Mail className="w-5 h-5 text-[#2d6a4f] shrink-0 mt-0.5" />
-            <div className="text-xs text-[#1b4332] space-y-1">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-4 sm:space-y-5">
+          <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f0f9f1] border border-[#74c69d]/40 flex items-start gap-2.5 sm:gap-3">
+            <Mail className="w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0 mt-0.5" />
+            <div className="text-xs text-[#1b4332] space-y-0.5 sm:space-y-1">
               <p className="font-bold">Enter the 6-Digit Code</p>
               <p className="text-[#52605d] leading-relaxed">
                 For security purposes, an authorization OTP was sent to{' '}
-                <strong className="text-[#1b4332] font-mono">{maskedEmail || email}</strong> via{' '}
-                <span className="font-mono text-[#2d6a4f] font-semibold">noreply@bccriders.cc</span>.
+                <strong className="text-[#1b4332] font-mono">{maskedEmail || email}</strong>.
               </p>
             </div>
           </div>
-
-          {infoMessage && (
-            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-600" />
-              <span>{infoMessage}</span>
-            </div>
-          )}
 
           {error && (
             <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-start gap-2">
@@ -192,35 +265,59 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
             </div>
           )}
 
-          <form onSubmit={handleVerify} className="space-y-4">
+          <form onSubmit={handleVerify} className="space-y-4 sm:space-y-5">
             <div>
-              <label className="text-[#2d3a3a] font-bold text-xs mb-1.5 block">
+              <label className="text-[#2d3a3a] font-bold text-xs mb-2 block text-center">
                 Verification Code (6 Digits)
               </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={otp}
-                  onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="• • • • • •"
-                  required
-                  autoFocus
-                  className="w-full text-center tracking-[12px] font-mono text-2xl py-3.5 rounded-2xl bg-[#f7f9f7] border-2 border-[#e2ece2] focus:border-[#2d6a4f] text-[#1b4332] font-black focus:outline-none transition-all placeholder:tracking-widest"
-                />
-                <Key className="w-4 h-4 text-[#52605d] absolute left-4 top-4.5 pointer-events-none" />
+
+              {/* 6 Individual Digit Input Boxes with responsive sizing */}
+              <div className="grid grid-cols-6 gap-1.5 sm:gap-2.5 max-w-[320px] sm:max-w-sm mx-auto">
+                {digits.map((digit, index) => (
+                  <input
+                    key={index}
+                    ref={(el) => {
+                      inputRefs.current[index] = el;
+                    }}
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={1}
+                    value={digit}
+                    onChange={(e) => handleDigitChange(index, e.target.value)}
+                    onKeyDown={(e) => handleKeyDown(index, e)}
+                    onPaste={handlePaste}
+                    aria-label={`Digit ${index + 1}`}
+                    className={`w-full h-11 sm:h-13 text-center font-mono text-lg sm:text-2xl font-black rounded-xl sm:rounded-2xl border-2 transition-all outline-none ${
+                      digit
+                        ? 'border-[#1b4332] bg-white text-[#1b4332] shadow-sm'
+                        : 'border-[#d6e4d6] bg-[#f7f9f7] text-[#1b4332]'
+                    } focus:border-[#1b4332] focus:bg-white focus:ring-4 focus:ring-[#74c69d]/25`}
+                  />
+                ))}
               </div>
-              <p className="text-[11px] text-[#52605d] mt-1.5 text-center">
-                Code expires in 5 minutes.
+
+              <p className="text-[11px] text-[#52605d] mt-2 text-center">
+                {expiryCountdown > 0 ? (
+                  <span>
+                    Code expires in{' '}
+                    <span className="font-mono font-bold text-[#1b4332]">
+                      {formatExpiryTime(expiryCountdown)}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-rose-600 font-semibold">
+                    Code has expired. Please request a new code.
+                  </span>
+                )}
               </p>
             </div>
 
-            <div className="pt-2 flex flex-col gap-2.5">
+            <div className="pt-1 sm:pt-2 flex flex-col gap-2.5">
               <button
                 type="submit"
                 disabled={loading || otp.length < 6}
-                className="w-full py-3.5 rounded-2xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full py-3 sm:py-3.5 rounded-xl sm:rounded-2xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs sm:text-sm shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <div className="flex items-center gap-2">
@@ -235,11 +332,11 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
                 )}
               </button>
 
-              <div className="flex items-center justify-between text-xs pt-1">
+              <div className="flex items-center justify-between text-xs pt-0.5">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="text-stone-500 hover:text-stone-800 font-semibold cursor-pointer"
+                  className="text-stone-500 hover:text-stone-800 font-semibold cursor-pointer py-1"
                 >
                   Cancel
                 </button>
@@ -248,7 +345,7 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
                   type="button"
                   onClick={handleResend}
                   disabled={countdown > 0 || resending}
-                  className="text-[#2d6a4f] hover:text-[#1b4332] font-bold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                  className="text-[#2d6a4f] hover:text-[#1b4332] font-bold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 py-1"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${resending ? 'animate-spin' : ''}`} />
                   <span>

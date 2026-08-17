@@ -237,8 +237,8 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
   const computedAge = calculateAge(birthdate);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setFormError('');
 
     if (!firstName.trim() || !lastName.trim()) {
@@ -336,6 +336,37 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setIsSaving(false);
     }, 500);
   };
+
+  // Keyboard shortcut: Pressing Enter saves changes once info/role is done
+  const handleSubmitRef = useRef(handleSubmit);
+  handleSubmitRef.current = handleSubmit;
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        const target = e.target as HTMLElement | null;
+        if (target) {
+          // If explicitly focused on the Cancel button, let cancel handle it
+          if (target.tagName?.toLowerCase() === 'button' && target.textContent?.toLowerCase().includes('cancel')) {
+            return;
+          }
+
+          // If focused on an open dropdown search input
+          if (target.getAttribute('placeholder')?.toLowerCase().includes('search')) {
+            return;
+          }
+        }
+
+        e.preventDefault();
+        handleSubmitRef.current();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleGlobalKeyDown);
+    };
+  }, []);
 
   const inputStyle =
     'w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#2d3a3a] text-xs focus:outline-none focus:border-[#2d6a4f]';
