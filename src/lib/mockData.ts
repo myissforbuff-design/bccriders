@@ -117,6 +117,34 @@ export const INITIAL_USERS: User[] = [
       licensePlate: 'CRL-99',
     },
   },
+  {
+    id: 'usr_member_3',
+    username: 'nigel_combatit',
+    name: 'Nigel Christian G. Combatit',
+    email: 'nigel.combatit@example.com',
+    role: 'Member',
+    memberNumber: 'BRC-0004',
+    network: 'Speaking Hammers',
+    password: 'bccriders123',
+    phone: '+63 919 988 7766',
+    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=250',
+    bio: 'Avid weekend rider and tourer.',
+    joinDate: '2026-03-15',
+    approvalStatus: 'Approved',
+    emergencyContact: {
+      name: 'Maria Combatit',
+      relationship: 'Spouse',
+      phone: '+63 919 111 2233',
+    },
+    bikeInfo: {
+      make: 'Honda',
+      model: 'RS125',
+      year: 2023,
+      engineCc: '125cc',
+      licensePlate: '123-ABC',
+      photoUrl: 'https://images.unsplash.com/photo-1558981403-c5f9899a28bc?auto=format&fit=crop&q=80&w=800',
+    },
+  },
 ];
 
 export const INITIAL_EVENTS: Event[] = [];

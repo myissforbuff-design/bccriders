@@ -646,9 +646,25 @@ export class DataStoreService {
     }
 
     // Check if membership fee payment already exists for this user
-    const exists = savedRecs.some(
-      (r: any) => r.userId === approvedUser.id && r.itemType === 'Membership Fee'
-    );
+    const exists = savedRecs.some((r: any) => {
+      if (r.itemType !== 'Membership Fee') return false;
+      if (r.userId === approvedUser.id || r.userId === approvedUser.username) return true;
+      if (
+        r.userMemberNo &&
+        approvedUser.memberNumber &&
+        r.userMemberNo.trim().toUpperCase() === approvedUser.memberNumber.trim().toUpperCase()
+      ) {
+        return true;
+      }
+      if (
+        r.userName &&
+        approvedUser.name &&
+        r.userName.trim().toLowerCase() === approvedUser.name.trim().toLowerCase()
+      ) {
+        return true;
+      }
+      return false;
+    });
 
     if (!exists) {
       const newRec = {
@@ -670,6 +686,9 @@ export class DataStoreService {
       savedRecs.unshift(newRec);
       try {
         localStorage.setItem(recKey, JSON.stringify(savedRecs));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('bcc_finance_updated'));
+        }
       } catch (e) {
         console.error(e);
       }

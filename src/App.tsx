@@ -105,7 +105,7 @@ function MainAppContent() {
       {/* Main Workspace Panel */}
       <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72'} flex flex-col min-w-0`}>
         {/* Top Header Bar */}
-        <header className="sticky top-[52px] lg:top-0 z-20 bg-white/98 backdrop-blur-md border-b border-[#e2ece2] px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between shadow-xs">
+        <header className="sticky top-[52px] lg:top-0 z-30 bg-white/98 backdrop-blur-md border-b border-[#e2ece2] px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between shadow-xs">
           <div>
             <h1 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg capitalize">
               {activeTab === 'settings'
@@ -168,7 +168,7 @@ function MainAppContent() {
         </header>
 
         {/* Dynamic Screen View Content */}
-        <main className="p-3.5 sm:p-6 lg:p-8 pb-28 lg:pb-8 max-w-7xl w-full mx-auto flex-1 overflow-x-hidden">
+        <main className="relative z-0 p-3.5 sm:p-6 lg:p-8 pb-28 lg:pb-8 max-w-7xl w-full mx-auto flex-1 overflow-x-hidden">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

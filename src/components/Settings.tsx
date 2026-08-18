@@ -1790,55 +1790,63 @@ export const Settings: React.FC = () => {
 
   if (!isAdmin) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4 max-w-sm sm:max-w-md mx-auto pb-10">
         {/* MEMBER SETTINGS CARD */}
-        <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#e2ece2] shadow-xs space-y-6">
-          <div className="pb-4 border-b border-[#e2ece2] flex items-center justify-between gap-4">
-            <div>
-              <h2 className="font-heading text-lg font-black text-[#1b4332] flex items-center gap-2">
-                <SettingsIcon className="w-5 h-5 text-[#2d6a4f]" />
-                Account & App Settings
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-4 sm:p-6 border border-[#e2ece2] shadow-sm space-y-3.5 sm:space-y-4">
+          <div className="pb-3 border-b border-[#e2ece2] flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-1.5">
+                <SettingsIcon className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                <span className="truncate">Account & App Settings</span>
               </h2>
-              <p className="text-xs text-[#52605d] mt-1">
+              <p className="text-[10.5px] sm:text-xs text-[#52605d] mt-0.5 leading-snug">
                 Manage your member account session and app preferences
               </p>
             </div>
-            <span className="px-3 py-1 rounded-full bg-[#d8f3dc] text-[#1b4332] text-xs font-bold shrink-0">
+            <span className="px-2.5 py-0.5 rounded-full bg-[#d8f3dc] text-[#1b4332] text-[10px] sm:text-[11px] font-extrabold shrink-0 border border-[#b7e4c7]">
               {currentUser?.role || 'Member'}
             </span>
           </div>
 
           {/* Member Profile Overview */}
-          <div className="p-5 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div>
-              <span className="text-[#52605d] block text-[11px] font-medium">Logged in as</span>
-              <span className="font-extrabold text-[#1b4332] text-sm">{currentUser?.name}</span>
+          <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 text-xs">
+            <div className="min-w-0">
+              <span className="text-[#52605d] block text-[9.5px] sm:text-[10px] font-bold uppercase tracking-wider">
+                Logged in as
+              </span>
+              <span className="font-heading font-black text-[#1b4332] text-xs sm:text-sm block truncate mt-0.5">
+                {currentUser?.name}
+              </span>
             </div>
-            <div>
-              <span className="text-[#52605d] block text-[11px] font-medium">Username / Member ID</span>
-              <span className="font-extrabold text-[#2d6a4f] text-sm">@{currentUser?.username} {currentUser?.memberNumber ? `(#${currentUser.memberNumber})` : ''}</span>
+            <div className="min-w-0">
+              <span className="text-[#52605d] block text-[9.5px] sm:text-[10px] font-bold uppercase tracking-wider">
+                Username / Member ID
+              </span>
+              <span className="font-mono font-bold text-[#2d6a4f] text-[11px] sm:text-xs block truncate mt-0.5">
+                @{currentUser?.username} {currentUser?.memberNumber ? `(#${currentUser.memberNumber})` : ''}
+              </span>
             </div>
           </div>
 
           {/* Account Session / Sign Out Card */}
-          <div className="p-5 rounded-2xl bg-rose-50/60 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2">
-                <LogOut className="w-4 h-4 text-rose-700" />
-                <h3 className="font-heading font-extrabold text-rose-950 text-sm">
+          <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-rose-50/70 border border-rose-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="space-y-0.5 min-w-0">
+              <div className="flex items-center gap-1.5">
+                <LogOut className="w-3.5 h-3.5 text-rose-700 shrink-0" />
+                <h3 className="font-heading font-extrabold text-rose-950 text-xs sm:text-sm">
                   Account Session
                 </h3>
               </div>
-              <p className="text-xs text-[#52605d]">
+              <p className="text-[10.5px] sm:text-xs text-[#52605d] leading-relaxed">
                 Sign out of your account session safely when you are done.
               </p>
             </div>
             <button
               type="button"
               onClick={() => setShowLogoutModal(true)}
-              className="px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors cursor-pointer shadow-xs flex items-center justify-center gap-2 shrink-0"
+              className="w-full sm:w-auto px-3.5 py-2 sm:py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-[11px] sm:text-xs transition-all cursor-pointer shadow-xs flex items-center justify-center gap-1.5 shrink-0 active:scale-[0.98]"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-3.5 h-3.5" />
               <span>Sign Out Account</span>
             </button>
           </div>
@@ -1847,31 +1855,31 @@ export const Settings: React.FC = () => {
         {/* SIGN OUT CONFIRMATION MODAL FOR MEMBER */}
         <AnimatePresence>
           {showLogoutModal && (
-            <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+            <div className="fixed inset-0 z-[60] bg-black/70 backdrop-blur-md flex items-center justify-center p-3.5 sm:p-4">
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-5 border border-[#e2ece2] shadow-2xl relative"
+                className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full text-center space-y-4 border border-[#e2ece2] shadow-2xl relative"
               >
-                <div className="w-14 h-14 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
-                  <LogOut className="w-7 h-7" />
+                <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
+                  <LogOut className="w-6 h-6" />
                 </div>
 
-                <div className="space-y-1.5">
-                  <h3 className="font-heading text-lg font-extrabold text-[#1b4332]">
+                <div className="space-y-1">
+                  <h3 className="font-heading text-base font-extrabold text-[#1b4332]">
                     Sign Out of Account?
                   </h3>
-                  <p className="text-xs text-[#52605d] leading-relaxed">
+                  <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
                     Are you sure you want to sign out of your account? You will need to log in again to access the BCC Riders Club app.
                   </p>
                 </div>
 
-                <div className="flex items-center justify-end gap-3 pt-2 border-t border-[#e2ece2]">
+                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#e2ece2]">
                   <button
                     type="button"
                     onClick={() => setShowLogoutModal(false)}
-                    className="flex-1 px-4 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
@@ -1881,9 +1889,9 @@ export const Settings: React.FC = () => {
                       setShowLogoutModal(false);
                       logout();
                     }}
-                    className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                    className="flex-1 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                   >
-                    <LogOut className="w-4 h-4" />
+                    <LogOut className="w-3.5 h-3.5" />
                     <span>Sign Out</span>
                   </button>
                 </div>

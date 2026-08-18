@@ -595,7 +595,8 @@ app.post('/api/auth/login-otp', async (req, res) => {
     type: 'login',
   });
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@bccriders.cc';
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'contact@bccriders.cc';
+  const replyToEmail = process.env.RESEND_REPLY_TO || 'contact@bccriders.cc';
   const resend = getResendClient();
 
   const emailHtml = `
@@ -643,7 +644,7 @@ app.post('/api/auth/login-otp', async (req, res) => {
           </div>
         </div>
         <div class="footer">
-          &copy; 2026 BCC Riders Club &bull; Sent from noreply@bccriders.cc
+          &copy; 2026 BCC Riders Club &bull; Questions? Reply directly to this email or reach us at contact@bccriders.cc
         </div>
       </div>
     </body>
@@ -655,6 +656,7 @@ app.post('/api/auth/login-otp', async (req, res) => {
       const response = await resend.emails.send({
         from: `BCC Riders Club <${fromEmail}>`,
         to: [memberEmail],
+        replyTo: replyToEmail,
         subject: `Your verification code - Verify it's you to stay secure`,
         html: emailHtml,
       });
@@ -783,7 +785,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     name: memberName,
   });
 
-  const fromEmail = process.env.RESEND_FROM_EMAIL || 'noreply@bccriders.cc';
+  const fromEmail = process.env.RESEND_FROM_EMAIL || 'contact@bccriders.cc';
+  const replyToEmail = process.env.RESEND_REPLY_TO || 'contact@bccriders.cc';
   const resend = getResendClient();
 
   const emailHtml = `
@@ -831,7 +834,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
           </div>
         </div>
         <div class="footer">
-          &copy; 2026 BCC Riders Club &bull; Sent from noreply@bccriders.cc
+          &copy; 2026 BCC Riders Club &bull; Questions? Reply directly to this email or reach us at contact@bccriders.cc
         </div>
       </div>
     </body>
@@ -843,6 +846,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       const response = await resend.emails.send({
         from: `BCC Riders Club <${fromEmail}>`,
         to: [normalizedEmail],
+        replyTo: replyToEmail,
         subject: `Your verification code - Verify it's you to stay secure`,
         html: emailHtml,
       });

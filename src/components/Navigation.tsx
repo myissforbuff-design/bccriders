@@ -182,7 +182,7 @@ export const Navigation: React.FC<NavigationProps> = ({
       )}
 
       {/* Mobile & Tablet Top Header */}
-      <div className="lg:hidden sticky top-0 z-30 bg-[#1b4332] border-b border-[#2d6a4f] px-3.5 sm:px-4 py-2 flex items-center justify-between text-white shadow-xs min-h-[52px]">
+      <div className="lg:hidden sticky top-0 z-50 bg-[#1b4332] border-b border-[#2d6a4f] px-3.5 sm:px-4 py-2 flex items-center justify-between text-white shadow-xs min-h-[52px]">
         <div className="flex items-center gap-2.5 min-w-0">
           <div className="p-1 sm:p-1.5 rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center shrink-0 w-8 h-8 sm:w-9 sm:h-9">
             <img src="/logo.png" alt="BCC Logo" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
