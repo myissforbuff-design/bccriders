@@ -527,12 +527,17 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
 
       {/* MEMBER ATTENDANCE BREAKDOWN MODAL */}
       {selectedMember && selectedMemberStats && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-2 sm:p-6 animate-fadeIn">
-          <div className="bg-white rounded-2xl sm:rounded-[32px] border border-[#e2ece2] w-full max-w-4xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden relative">
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[100] p-3 sm:p-4 animate-fadeIn"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setSelectedMember(null);
+          }}
+        >
+          <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] w-full max-w-4xl max-h-[75vh] sm:max-h-[82vh] flex flex-col shadow-2xl overflow-hidden relative">
             {/* Modal Header */}
-            <div className="p-3 sm:p-6 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3">
+            <div className="p-3.5 sm:p-5 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
-                <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl bg-emerald-100 border border-emerald-200 text-[#1b4332] font-black text-xs sm:text-base flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-emerald-100 border border-emerald-200 text-[#1b4332] font-black text-xs sm:text-base flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
                   {selectedMember.avatar ? (
                     <img
                       src={selectedMember.avatar}
