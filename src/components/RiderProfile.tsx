@@ -16,6 +16,9 @@ import {
   Wallet,
   Image as ImageIcon,
   ChevronRight,
+  QrCode,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageCropperModal } from './ImageCropperModal';
@@ -70,6 +73,20 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
   const [cropperSrc, setCropperSrc] = useState('');
   const [cropperTarget, setCropperTarget] = useState<'avatar_direct' | 'avatar_edit' | 'bike_direct' | 'bike_edit'>('avatar_edit');
   const [cropperTitle, setCropperTitle] = useState('Crop Profile Avatar');
+
+  // QR Code visibility state with persistent local storage preference (defaults to hidden)
+  const [showQrCode, setShowQrCode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('bcc_show_qr_code');
+    return saved !== null ? saved === 'true' : false;
+  });
+
+  const toggleQrCode = () => {
+    setShowQrCode((prev) => {
+      const next = !prev;
+      localStorage.setItem('bcc_show_qr_code', String(next));
+      return next;
+    });
+  };
 
   if (!currentUser) return null;
 
@@ -530,33 +547,64 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
             </div>
           </div>
 
-          {/* Member QR Code Section */}
-          <div className="px-3.5 sm:px-6 mb-3 sm:mb-4 space-y-1.5 text-center">
-            <h3 className="font-heading font-semibold text-xs sm:text-sm text-stone-800 tracking-tight">
-              Member QR Code
-            </h3>
-
-            {/* QR Code Container */}
-            <div className="flex justify-center">
-              <div className="bg-white p-3 sm:p-4 rounded-[20px] sm:rounded-[24px] border border-[#e2ece2] shadow-xs inline-block">
-                <div className="relative inline-block">
-                  <QRCodeSVG
-                    value={qrValue}
-                    size={145}
-                    level="H"
-                    bgColor="#FFFFFF"
-                    fgColor="#1b4332"
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <img
-                      src="/logo.png"
-                      alt="BCC"
-                      className="w-8 h-8 object-contain bg-white rounded-full p-0.5 shadow-2xs"
-                    />
-                  </div>
-                </div>
-              </div>
+          {/* Member QR Code Section with Hide/Unhide Toggle Button */}
+          <div className="px-3.5 sm:px-6 mb-3 sm:mb-4 text-center">
+            {/* Toggle Button named "QR Code" */}
+            <div className="flex justify-center mb-1.5">
+              <button
+                type="button"
+                id="btn-toggle-qr-code"
+                onClick={toggleQrCode}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer shadow-2xs border ${
+                  showQrCode
+                    ? 'bg-[#f0f9f1] hover:bg-[#d8f3dc] text-[#1b4332] border-[#74c69d]/60'
+                    : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
+                }`}
+                title={showQrCode ? 'Hide QR Code' : 'Show QR Code'}
+              >
+                <QrCode className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                <span>QR Code</span>
+                {showQrCode ? (
+                  <ChevronUp className="w-3.5 h-3.5 text-stone-500" />
+                ) : (
+                  <ChevronDown className="w-3.5 h-3.5 text-stone-500" />
+                )}
+              </button>
             </div>
+
+            <AnimatePresence initial={false}>
+              {showQrCode && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, height: 'auto', scale: 1 }}
+                  exit={{ opacity: 0, height: 0, scale: 0.95 }}
+                  transition={{ duration: 0.2 }}
+                  className="overflow-hidden"
+                >
+                  {/* QR Code Container */}
+                  <div className="flex justify-center pt-1 pb-1">
+                    <div className="bg-white p-3 sm:p-4 rounded-[20px] sm:rounded-[24px] border border-[#e2ece2] shadow-xs inline-block">
+                      <div className="relative inline-block">
+                        <QRCodeSVG
+                          value={qrValue}
+                          size={145}
+                          level="H"
+                          bgColor="#FFFFFF"
+                          fgColor="#1b4332"
+                        />
+                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                          <img
+                            src="/logo.png"
+                            alt="BCC"
+                            className="w-8 h-8 object-contain bg-white rounded-full p-0.5 shadow-2xs"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* Contributions Section */}
