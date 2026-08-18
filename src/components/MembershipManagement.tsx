@@ -336,45 +336,69 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
         </div>
       )}
 
-      {/* Roster & Pending Approvals Tab Selector */}
-      <div className="flex items-center gap-2 border-b border-[#e2ece2] pb-2 overflow-x-auto">
-        <button
-          onClick={() => setRosterTab('active')}
-          className={`py-2 px-3 sm:py-2.5 sm:px-4 rounded-xl text-[11px] sm:text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 sm:gap-2 shrink-0 ${
-            rosterTab === 'active'
-              ? 'bg-[#1b4332] text-white shadow-xs'
-              : 'bg-white text-[#52605d] hover:bg-[#f7f9f7] border border-[#e2ece2]'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
-          <span className="sm:hidden">Members</span>
-          <span className="hidden sm:inline">Active Member</span>
-          <span className="px-1.5 py-0.5 rounded-full bg-[#d8f3dc] text-[#1b4332] text-[10px] font-extrabold">
-            {activeMembersList.length}
-          </span>
-        </button>
+      {/* Members & Pending Button Group */}
+      <div className="flex items-center justify-start">
+        <div className="inline-flex p-1 sm:p-1.5 bg-[#eaf1ea] rounded-xl sm:rounded-2xl border border-[#d8e4d8] shadow-2xs gap-1">
+          <button
+            type="button"
+            onClick={() => setRosterTab('active')}
+            className={`py-1.5 px-3 sm:py-2 sm:px-4 rounded-lg sm:rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 sm:gap-2 select-none ${
+              rosterTab === 'active'
+                ? 'bg-[#1b4332] text-white shadow-xs'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-white/60'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span>Members</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold transition-colors ${
+                rosterTab === 'active'
+                  ? 'bg-[#d8f3dc] text-[#1b4332]'
+                  : 'bg-white text-[#52605d] border border-[#d8e4d8]'
+              }`}
+            >
+              {activeMembersList.length}
+            </span>
+          </button>
 
-        <button
-          onClick={() => setRosterTab('pending')}
-          className={`py-2 px-3 sm:py-2.5 sm:px-4 rounded-xl text-[11px] sm:text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 sm:gap-2 shrink-0 ${
-            rosterTab === 'pending'
-              ? 'bg-[#1b4332] text-white shadow-xs'
-              : 'bg-white text-[#52605d] hover:bg-[#f7f9f7] border border-[#e2ece2]'
-          }`}
-        >
-          <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-500" />
-          <span className="sm:hidden">Pending</span>
-          <span className="hidden sm:inline">Pending Approvals</span>
-          {pendingMembersList.length > 0 ? (
-            <span className="px-1.5 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-extrabold animate-pulse">
-              {pendingMembersList.length}
-            </span>
-          ) : (
-            <span className="px-1.5 py-0.5 rounded-full bg-gray-100 text-[#52605d] text-[10px] font-bold">
-              0
-            </span>
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={() => setRosterTab('pending')}
+            className={`py-1.5 px-3 sm:py-2 sm:px-4 rounded-lg sm:rounded-xl text-xs font-bold transition-all duration-200 cursor-pointer flex items-center gap-1.5 sm:gap-2 select-none ${
+              rosterTab === 'pending'
+                ? 'bg-[#1b4332] text-white shadow-xs'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-white/60'
+            }`}
+          >
+            <Clock
+              className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${
+                rosterTab === 'pending' ? 'text-[#74c69d]' : 'text-amber-500'
+              }`}
+            />
+            <span>Pending</span>
+            {pendingMembersList.length > 0 ? (
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold ${
+                  rosterTab === 'pending'
+                    ? 'bg-amber-400 text-stone-950 font-black'
+                    : 'bg-amber-500 text-white animate-pulse'
+                }`}
+              >
+                {pendingMembersList.length}
+              </span>
+            ) : (
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-bold ${
+                  rosterTab === 'pending'
+                    ? 'bg-[#d8f3dc]/30 text-white'
+                    : 'bg-white text-[#52605d] border border-[#d8e4d8]'
+                }`}
+              >
+                0
+              </span>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Search Toolbar & Actions */}

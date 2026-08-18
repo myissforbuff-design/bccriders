@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User } from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { OfficialDotSpinner } from './OfficialLoader';
+import { motion, AnimatePresence } from 'motion/react';
 import {
   Search,
   CheckCircle,
@@ -19,6 +20,8 @@ import {
   AlertCircle,
   ArrowUpDown,
   Filter,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 
 export interface Attendance {
@@ -82,6 +85,42 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
   const [selectedMember, setSelectedMember] = useState<User | null>(null);
   const [modalEventFilter, setModalEventFilter] = useState<'All' | 'Present' | 'Absent' | 'Upcoming'>('All');
   const [modalSearchTerm, setModalSearchTerm] = useState('');
+
+  // Interactive Dropdown States
+  const [isSortOpen, setIsSortOpen] = useState(false);
+  const [isRoleOpen, setIsRoleOpen] = useState(false);
+  const sortRef = useRef<HTMLDivElement>(null);
+  const roleRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdowns on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sortRef.current && !sortRef.current.contains(e.target as Node)) {
+        setIsSortOpen(false);
+      }
+      if (roleRef.current && !roleRef.current.contains(e.target as Node)) {
+        setIsRoleOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const sortOptions: {
+    value: 'present' | 'absent' | 'rate' | 'name' | 'id';
+    label: string;
+    description: string;
+    icon: React.ElementType;
+  }[] = [
+    { value: 'present', label: 'Most Present', description: 'Highest attendance counts', icon: TrendingUp },
+    { value: 'absent', label: 'Most Absent', description: 'Most missed activity events', icon: XCircle },
+    { value: 'rate', label: 'Highest Rate (%)', description: 'Best compliance percentage', icon: Percent },
+    { value: 'name', label: 'Name (A-Z)', description: 'Alphabetical rider order', icon: Users },
+    { value: 'id', label: 'Member ID', description: 'Sequential club roster ID', icon: Award },
+  ];
+
+  const currentSortOption = sortOptions.find((opt) => opt.value === sortBy) || sortOptions[0];
+  const CurrentSortIcon = currentSortOption.icon;
 
   useModalDismiss(Boolean(selectedMember), () => setSelectedMember(null));
 
@@ -336,41 +375,176 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
             />
           </div>
 
-          {/* Quick Selects (Role and Sort) */}
+          {/* Quick Selects (Role and Sort Interactive Dropdowns) */}
           <div className="grid grid-cols-2 sm:flex sm:items-center gap-1.5 sm:gap-2.5">
-            {/* Role Filter */}
-            <div className="flex items-center gap-1 sm:gap-1.5 bg-[#f7f9f7] px-2.5 py-1.5 rounded-xl border border-[#e2ece2] text-[10.5px] sm:text-xs min-w-0">
-              <Filter className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#2d6a4f] shrink-0" />
-              <span className="font-extrabold text-[#1b4332] shrink-0">Role:</span>
-              <select
-                value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value)}
-                className="bg-transparent text-[10.5px] sm:text-xs font-bold text-[#52605d] focus:outline-none cursor-pointer truncate w-full"
+            {/* Interactive Role Filter Dropdown */}
+            <div className="relative min-w-0" ref={roleRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsRoleOpen(!isRoleOpen);
+                  setIsSortOpen(false);
+                }}
+                className={`w-full flex items-center justify-between gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border text-[10.5px] sm:text-xs font-bold transition-all cursor-pointer select-none ${
+                  isRoleOpen
+                    ? 'bg-white border-[#2d6a4f] ring-2 ring-[#2d6a4f]/20 text-[#1b4332] shadow-xs'
+                    : roleFilter !== 'All'
+                    ? 'bg-emerald-50/80 border-emerald-300 text-[#1b4332]'
+                    : 'bg-[#f7f9f7] hover:bg-stone-200/60 border-[#e2ece2] text-[#52605d] hover:text-[#1b4332]'
+                }`}
               >
-                <option value="All">All Roles</option>
-                {uniqueRoles.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
+                <div className="flex items-center gap-1.5 min-w-0 truncate">
+                  <Filter className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  <span className="text-[#52605d] font-semibold hidden xs:inline shrink-0">Role:</span>
+                  <span className="font-extrabold text-[#1b4332] truncate">
+                    {roleFilter === 'All' ? 'All Roles' : roleFilter}
+                  </span>
+                </div>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-[#2d6a4f] shrink-0 transition-transform duration-200 ${
+                    isRoleOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              <AnimatePresence>
+                {isRoleOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute left-0 sm:left-auto sm:right-0 top-full mt-1.5 w-52 sm:w-56 bg-white rounded-2xl border border-[#e2ece2] shadow-xl p-1.5 z-40 max-h-60 overflow-y-auto"
+                  >
+                    <div className="px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-wider text-[#52605d] border-b border-[#e2ece2] mb-1">
+                      Filter By Role
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRoleFilter('All');
+                        setIsRoleOpen(false);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
+                        roleFilter === 'All'
+                          ? 'bg-[#1b4332] text-white font-bold'
+                          : 'hover:bg-[#f7f9f7] text-[#1b4332]'
+                      }`}
+                    >
+                      <span>All Roles</span>
+                      {roleFilter === 'All' && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    </button>
+                    {uniqueRoles.map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => {
+                          setRoleFilter(r);
+                          setIsRoleOpen(false);
+                        }}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
+                          roleFilter === r
+                            ? 'bg-[#1b4332] text-white font-bold'
+                            : 'hover:bg-[#f7f9f7] text-[#1b4332]'
+                        }`}
+                      >
+                        <span className="truncate">{r}</span>
+                        {roleFilter === r && <Check className="w-3.5 h-3.5 shrink-0" />}
+                      </button>
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Sort Dropdown */}
-            <div className="flex items-center gap-1 sm:gap-1.5 bg-[#f7f9f7] px-2.5 py-1.5 rounded-xl border border-[#e2ece2] text-[10.5px] sm:text-xs min-w-0">
-              <ArrowUpDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-[#2d6a4f] shrink-0" />
-              <span className="font-extrabold text-[#1b4332] shrink-0">Sort:</span>
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as any)}
-                className="bg-transparent text-[10.5px] sm:text-xs font-bold text-[#52605d] focus:outline-none cursor-pointer truncate w-full"
+            {/* Interactive Sort Dropdown */}
+            <div className="relative min-w-0" ref={sortRef}>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSortOpen(!isSortOpen);
+                  setIsRoleOpen(false);
+                }}
+                className={`w-full flex items-center justify-between gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl border text-[10.5px] sm:text-xs font-bold transition-all cursor-pointer select-none ${
+                  isSortOpen
+                    ? 'bg-white border-[#2d6a4f] ring-2 ring-[#2d6a4f]/20 text-[#1b4332] shadow-xs'
+                    : 'bg-[#f7f9f7] hover:bg-stone-200/60 border-[#e2ece2] text-[#52605d] hover:text-[#1b4332]'
+                }`}
               >
-                <option value="present">Most Present</option>
-                <option value="absent">Most Absent</option>
-                <option value="rate">Highest Rate (%)</option>
-                <option value="name">Name (A-Z)</option>
-                <option value="id">Member ID</option>
-              </select>
+                <div className="flex items-center gap-1.5 min-w-0 truncate">
+                  <CurrentSortIcon className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  <span className="text-[#52605d] font-semibold hidden xs:inline shrink-0">Sort:</span>
+                  <span className="font-extrabold text-[#1b4332] truncate">
+                    {currentSortOption.label}
+                  </span>
+                </div>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-[#2d6a4f] shrink-0 transition-transform duration-200 ${
+                    isSortOpen ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              <AnimatePresence>
+                {isSortOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 4, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 4, scale: 0.96 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-1.5 w-60 sm:w-64 bg-white rounded-2xl border border-[#e2ece2] shadow-xl p-1.5 z-40 max-h-72 overflow-y-auto"
+                  >
+                    <div className="px-2.5 py-1 text-[9px] font-extrabold uppercase tracking-wider text-[#52605d] border-b border-[#e2ece2] mb-1 flex items-center justify-between">
+                      <span>Sort Members By</span>
+                      <ArrowUpDown className="w-3 h-3 text-[#2d6a4f]" />
+                    </div>
+                    <div className="space-y-0.5">
+                      {sortOptions.map((opt) => {
+                        const Icon = opt.icon;
+                        const isSelected = sortBy === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              setSortBy(opt.value);
+                              setIsSortOpen(false);
+                            }}
+                            className={`w-full text-left p-2 rounded-xl transition-all flex items-center justify-between cursor-pointer ${
+                              isSelected
+                                ? 'bg-[#1b4332] text-white shadow-xs'
+                                : 'hover:bg-[#f7f9f7] text-[#2d3a3a]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div
+                                className={`p-1.5 rounded-lg shrink-0 ${
+                                  isSelected
+                                    ? 'bg-white/20 text-white'
+                                    : 'bg-emerald-50 text-[#2d6a4f] border border-emerald-100'
+                                }`}
+                              >
+                                <Icon className="w-3.5 h-3.5" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className={`text-xs font-bold truncate ${isSelected ? 'text-white' : 'text-[#1b4332]'}`}>
+                                  {opt.label}
+                                </div>
+                                <div className={`text-[10px] truncate ${isSelected ? 'text-emerald-200' : 'text-[#52605d]'}`}>
+                                  {opt.description}
+                                </div>
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <Check className="w-4 h-4 text-white shrink-0 ml-1.5" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </div>
