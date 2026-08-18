@@ -686,7 +686,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       <AnimatePresence>
         {selectedMember && (
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/65 backdrop-blur-xs"
             onClick={(e) => {
               if (e.target === e.currentTarget) setSelectedMember(null);
             }}
@@ -696,10 +696,10 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               transition={{ duration: 0.2 }}
-              className="relative w-full max-w-xl max-h-[75vh] sm:max-h-[82vh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl overflow-hidden text-[#2d3a3a]"
+              className="relative w-full max-w-md sm:max-w-lg lg:max-w-xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl overflow-hidden text-[#2d3a3a] my-auto"
             >
               {/* Sticky Modal Header */}
-              <div className="p-3.5 sm:p-5 bg-[#f7f9f7] border-b border-[#e2ece2] flex items-center justify-between shrink-0">
+              <div className="p-3 sm:p-4 bg-[#f7f9f7] border-b border-[#e2ece2] flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
                   <div className="relative shrink-0 inline-block">
                     <img
@@ -708,15 +708,15 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                       onError={(e) => {
                         (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
                       }}
-                      className="w-10 h-10 sm:w-12 sm:h-12 rounded-full object-cover border-2 border-[#2d6a4f]"
+                      className="w-9 h-9 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-[#2d6a4f]"
                     />
                     <RoleAvatarBadge role={selectedMember.role} size="md" />
                   </div>
                   <div className="min-w-0">
-                    <h3 className="font-heading font-bold text-[#1b4332] text-base sm:text-lg truncate">
+                    <h3 className="font-heading font-bold text-[#1b4332] text-sm sm:text-base truncate">
                       {selectedMember.name}
                     </h3>
-                    <p className="text-xs font-semibold text-[#2d6a4f] truncate">
+                    <p className="text-[11px] sm:text-xs font-semibold text-[#2d6a4f] truncate">
                       @{selectedMember.username || (selectedMember.email ? selectedMember.email.split('@')[0] : 'rider')}
                     </p>
                   </div>
@@ -727,32 +727,32 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                   className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
                   title="Close"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               </div>
 
               {/* Scrollable Modal Body */}
-              <div className="p-3.5 sm:p-5 space-y-3.5 sm:space-y-4 flex-1 overflow-y-auto overscroll-contain">
+              <div className="p-3 sm:p-4 md:p-5 space-y-3 sm:space-y-3.5 flex-1 overflow-y-auto overscroll-contain pr-2 scroll-smooth">
                 {/* Member Role Card */}
-                <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] flex items-center justify-between">
+                <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] flex items-center justify-between">
                   <div>
-                    <span className="text-[10px] text-[#52605d] uppercase tracking-wider font-bold">
+                    <span className="text-[9px] sm:text-[10px] text-[#52605d] uppercase tracking-wider font-bold">
                       Club Membership Info
                     </span>
-                    <p className="text-xs text-[#52605d] mt-0.5">
+                    <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5">
                       Member ID: <strong className="text-[#2d6a4f]">#{selectedMember.memberNumber}</strong>
                     </p>
                   </div>
 
-                  <span className="px-2.5 sm:px-3 py-1 rounded-full text-[11px] sm:text-xs font-extrabold uppercase bg-[#d8f3dc] text-[#1b4332]">
+                  <span className="px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-extrabold uppercase bg-[#d8f3dc] text-[#1b4332]">
                     {selectedMember.approvalStatus || 'Approved'}
                   </span>
                 </div>
 
                 {/* Contact & Personal Details */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 text-xs">
-                  <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2">
-                    <span className="text-[#52605d] font-bold block">Personal & License Info</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5 text-xs">
+                  <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1.5 sm:space-y-2">
+                    <span className="text-[#52605d] font-bold block text-[11px] sm:text-xs">Personal & License Info</span>
                     <p className="text-[#2d3a3a] flex items-center gap-2">
                       <UserIcon className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
                       Username: <strong className="text-[#1b4332]">{selectedMember.username || (selectedMember.email ? selectedMember.email.split('@')[0] : 'rider')}</strong>
@@ -796,9 +796,9 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                   </div>
 
                   {(selectedMember.network || selectedMember.chapter || selectedMember.leadersName || selectedMember.leadersContactNo) && (
-                    <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2 col-span-1 sm:col-span-2">
-                      <span className="text-[#52605d] font-bold block">BCC Information</span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[#52605d]">
+                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1.5 sm:space-y-2 col-span-1 sm:col-span-2">
+                      <span className="text-[#52605d] font-bold block text-[11px] sm:text-xs">BCC Information</span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-[#52605d]">
                         {selectedMember.network && (
                           <p>Network: <strong className="text-[#1b4332]">{selectedMember.network}</strong></p>
                         )}
@@ -815,8 +815,8 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     </div>
                   )}
 
-                  <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2">
-                    <span className="text-[#52605d] font-bold block">Emergency Contact</span>
+                  <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1.5 sm:space-y-2 col-span-1 sm:col-span-2">
+                    <span className="text-[#52605d] font-bold block text-[11px] sm:text-xs">Emergency Contact</span>
                     <p className="text-[#1b4332] font-semibold">
                       {selectedMember.emergencyContact.name} ({selectedMember.emergencyContact.relationship})
                     </p>
@@ -828,7 +828,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                 </div>
 
                 {/* Bike Garage Details */}
-                <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3">
+                <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2.5 sm:space-y-3">
                   <span className="text-xs font-bold text-[#1b4332] flex items-center gap-2">
                     <Bike className="w-4 h-4 text-[#2d6a4f]" />
                     Motorcycle Specifications & Documents
@@ -842,7 +842,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800'
                       }
                       alt={`${selectedMember.bikeInfo.make || 'Motorcycle'} ${selectedMember.bikeInfo.model || ''}`}
-                      className="w-full h-36 sm:h-48 object-cover object-center transition-transform duration-300 group-hover:scale-105"
+                      className="w-full h-32 sm:h-44 object-cover object-center transition-transform duration-300 group-hover:scale-105"
                       onError={(e) => {
                         (e.target as HTMLImageElement).src =
                           'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800';
@@ -854,41 +854,41 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 text-xs">
                     <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                      <span className="text-[10px] text-[#52605d] block">Make</span>
-                      <strong className="text-[#1b4332]">{selectedMember.bikeInfo.make}</strong>
+                      <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Make</span>
+                      <strong className="text-[#1b4332] truncate block">{selectedMember.bikeInfo.make}</strong>
                     </div>
                     <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                      <span className="text-[10px] text-[#52605d] block">Model</span>
-                      <strong className="text-[#1b4332]">{selectedMember.bikeInfo.model}</strong>
+                      <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Model</span>
+                      <strong className="text-[#1b4332] truncate block">{selectedMember.bikeInfo.model}</strong>
                     </div>
                     <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                      <span className="text-[10px] text-[#52605d] block">Engine No.</span>
-                      <strong className="text-[#1b4332]">{selectedMember.bikeInfo.engineNo || 'N/A'}</strong>
+                      <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Engine No.</span>
+                      <strong className="text-[#1b4332] truncate block">{selectedMember.bikeInfo.engineNo || 'N/A'}</strong>
                     </div>
                     <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                      <span className="text-[10px] text-[#52605d] block">Chassis No.</span>
-                      <strong className="text-[#2d6a4f]">{selectedMember.bikeInfo.chassisNo || 'N/A'}</strong>
+                      <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Chassis No.</span>
+                      <strong className="text-[#2d6a4f] truncate block">{selectedMember.bikeInfo.chassisNo || 'N/A'}</strong>
                     </div>
                   </div>
 
                   {(selectedMember.bikeInfo.plateNo || selectedMember.bikeInfo.licensePlate || selectedMember.bikeInfo.crNo || selectedMember.bikeInfo.orNo || selectedMember.bikeInfo.orExpiryDate) && (
-                    <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#e2ece2]">
+                    <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-xs pt-2 border-t border-[#e2ece2]">
                       <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                        <span className="text-[10px] text-[#52605d] block">Plate No.</span>
+                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Plate No.</span>
                         <strong className="text-[#1b4332] font-mono break-all">{selectedMember.bikeInfo.plateNo || selectedMember.bikeInfo.licensePlate || 'N/A'}</strong>
                       </div>
                       <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                        <span className="text-[10px] text-[#52605d] block">CR No.</span>
+                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">CR No.</span>
                         <strong className="text-[#1b4332] font-mono break-all">{selectedMember.bikeInfo.crNo || 'N/A'}</strong>
                       </div>
                       <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                        <span className="text-[10px] text-[#52605d] block">OR No.</span>
+                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">OR No.</span>
                         <strong className="text-[#1b4332] font-mono break-all">{selectedMember.bikeInfo.orNo || 'N/A'}</strong>
                       </div>
                       <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                        <span className="text-[10px] text-[#52605d] block">OR Exp. Date</span>
+                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">OR Exp. Date</span>
                         <strong className="text-[#2d6a4f] font-mono break-all">{selectedMember.bikeInfo.orExpiryDate || 'N/A'}</strong>
                       </div>
                     </div>
@@ -897,7 +897,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
 
                 {/* Admin Quick Override Buttons */}
                 {isAdmin && (
-                  <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2]">
+                  <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2]">
                     <div className="flex items-center justify-between flex-wrap gap-2">
                       <span className="text-xs font-bold text-[#1b4332] flex items-center gap-2">
                         <ShieldCheck className="w-4 h-4 text-[#2d6a4f]" />
@@ -945,7 +945,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       <AnimatePresence>
         {addModalOpen && (
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/65 backdrop-blur-xs"
             onClick={(e) => {
               if (e.target === e.currentTarget) setAddModalOpen(false);
             }}
@@ -955,14 +955,14 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               transition={{ duration: 0.2 }}
-              className="relative w-full max-w-2xl max-h-[75vh] sm:max-h-[82vh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden"
+              className="relative w-full max-w-lg sm:max-w-2xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden my-auto"
             >
-              <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+              <div className="flex items-center justify-between p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
                 <div>
-                  <h3 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-xl">
+                  <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-lg">
                     Register New Club Member
                   </h3>
-                  <p className="text-[11px] sm:text-xs text-[#52605d]">
+                  <p className="text-[10.5px] sm:text-xs text-[#52605d]">
                     Enter member personal, emergency contact, and motorcycle registration details.
                   </p>
                 </div>
@@ -971,11 +971,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                   onClick={() => setAddModalOpen(false)}
                   className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-3.5 sm:p-6 space-y-5 overscroll-contain">
+              <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4 overscroll-contain pr-2 scroll-smooth">
                 <MemberRegistrationForm
                   isAdminCreation={true}
                   onSuccess={() => {
@@ -1124,7 +1124,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       <AnimatePresence>
         {reviewingPendingUser && (
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/65 backdrop-blur-xs"
             onClick={(e) => {
               if (e.target === e.currentTarget) setReviewingPendingUser(null);
             }}
@@ -1134,14 +1134,14 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 10 }}
               transition={{ duration: 0.2 }}
-              className="relative w-full max-w-3xl max-h-[75vh] sm:max-h-[82vh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden"
+              className="relative w-full max-w-lg sm:max-w-2xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden my-auto"
             >
-              <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+              <div className="flex items-center justify-between p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
                 <div className="min-w-0 pr-2">
-                  <h3 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-xl truncate">
+                  <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-lg truncate">
                     Review Application: {reviewingPendingUser.name}
                   </h3>
-                  <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 truncate">
+                  <p className="text-[10.5px] sm:text-xs text-[#52605d] mt-0.5 truncate">
                     Applicant details are displayed in read-only mode for review.
                   </p>
                 </div>
@@ -1150,11 +1150,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                   onClick={() => setReviewingPendingUser(null)}
                   className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               </div>
 
-              <div className="overflow-y-auto flex-1 p-3.5 sm:p-6 space-y-4 overscroll-contain">
+              <div className="overflow-y-auto flex-1 p-3 sm:p-5 space-y-4 overscroll-contain pr-2 scroll-smooth">
                 <MemberRegistrationForm
                   initialData={reviewingPendingUser}
                   isReadOnly={true}
@@ -1162,11 +1162,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
               </div>
 
               {/* Action bar inside review modal */}
-              <div className="flex items-center justify-between gap-3 p-3.5 sm:p-4 border-t border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+              <div className="flex items-center justify-between gap-3 p-3 sm:p-4 border-t border-[#e2ece2] bg-[#f7f9f7] shrink-0">
                 <button
                   type="button"
                   onClick={() => setReviewingPendingUser(null)}
-                  className="py-2 sm:py-2.5 px-3.5 sm:px-5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-white font-bold text-xs cursor-pointer transition-colors"
+                  className="py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-white font-bold text-xs cursor-pointer transition-colors"
                 >
                   Cancel
                 </button>
@@ -1177,7 +1177,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     onClick={() => {
                       setConfirmModal({ type: 'reject', member: reviewingPendingUser });
                     }}
-                    className="py-2 sm:py-2.5 px-3.5 sm:px-4 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 cursor-pointer flex items-center gap-1.5 transition-colors"
+                    className="py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 cursor-pointer flex items-center gap-1.5 transition-colors"
                   >
                     <Trash2 className="w-4 h-4 text-rose-600" />
                     <span>Reject</span>
@@ -1187,7 +1187,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     onClick={() => {
                       setConfirmModal({ type: 'approve', member: reviewingPendingUser });
                     }}
-                    className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors"
+                    className="py-1.5 sm:py-2 px-3.5 sm:px-4 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors"
                   >
                     <CheckCircle2 className="w-4 h-4 text-[#74c69d]" />
                     <span>Approve</span>

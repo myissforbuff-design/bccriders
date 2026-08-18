@@ -375,7 +375,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/65 backdrop-blur-xs"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -385,15 +385,15 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ duration: 0.2 }}
-        className="relative w-full max-w-3xl max-h-[75vh] sm:max-h-[82vh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden"
+        className="relative w-full max-w-lg sm:max-w-2xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden my-auto"
       >
         {/* Sticky Header */}
-        <div className="flex items-center justify-between p-3.5 sm:p-5 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+        <div className="flex items-center justify-between p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
           <div className="min-w-0 pr-2">
-            <h3 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-xl truncate">
+            <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-lg truncate">
               Edit Member Profile: {member.name}
             </h3>
-            <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5 truncate">
+            <p className="text-[10.5px] sm:text-xs text-[#52605d] mt-0.5 truncate">
               Update official role, personal info, motorcycle garage, and club records.
             </p>
           </div>
@@ -403,22 +403,22 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
             className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
             title="Close"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
         </div>
 
         {/* Scrollable Form Body */}
-        <div className="flex-1 overflow-y-auto p-3.5 sm:p-6 space-y-5 overscroll-contain">
+        <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-3.5 sm:space-y-4 overscroll-contain pr-2 scroll-smooth">
           {formError && (
-            <div className="p-3.5 rounded-xl sm:rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
+            <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center gap-2">
               <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
               <span>{formError}</span>
             </div>
           )}
 
-          <form id="edit-member-form" onSubmit={handleSubmit} className="space-y-5 text-xs text-[#2d3a3a]">
+          <form id="edit-member-form" onSubmit={handleSubmit} className="space-y-3.5 sm:space-y-4 text-xs text-[#2d3a3a]">
           {/* Section 1: Club Role & Membership Details */}
-          <div className="p-5 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-4">
+          <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3">
             <div className="flex items-center gap-2 pb-2 border-b border-[#e2ece2] text-[#1b4332]">
               <ShieldCheck className="w-4 h-4 text-[#2d6a4f]" />
               <h4 className="font-heading font-extrabold text-xs uppercase tracking-wider">
@@ -1086,18 +1086,18 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       </div>
 
       {/* Sticky Action Footer */}
-        <div className="flex items-center justify-end gap-3 p-3.5 sm:p-4 border-t border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+        <div className="flex items-center justify-end gap-2.5 p-3 sm:p-4 border-t border-[#e2ece2] bg-[#f7f9f7] shrink-0">
           <button
             type="button"
             onClick={onClose}
-            className="py-2.5 px-4 sm:px-5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-white font-bold text-xs transition-colors cursor-pointer"
+            className="py-2 sm:py-2.5 px-3.5 sm:px-5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-white font-bold text-xs transition-colors cursor-pointer"
           >
             Cancel
           </button>
           <button
             type="submit"
             form="edit-member-form"
-            className="py-2.5 px-5 sm:px-6 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center gap-2"
+            className="py-2 sm:py-2.5 px-4 sm:px-6 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center gap-2"
           >
             <Save className="w-4 h-4 text-[#74c69d]" />
             <span>Save Changes</span>

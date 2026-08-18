@@ -702,14 +702,14 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
       {/* MEMBER ATTENDANCE BREAKDOWN MODAL */}
       {selectedMember && selectedMemberStats && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-[100] p-3 sm:p-4 animate-fadeIn"
+          className="fixed inset-0 bg-black/65 backdrop-blur-xs flex items-center justify-center z-[100] p-3 sm:p-5 animate-fadeIn"
           onClick={(e) => {
             if (e.target === e.currentTarget) setSelectedMember(null);
           }}
         >
-          <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] w-full max-w-4xl max-h-[75vh] sm:max-h-[82vh] flex flex-col shadow-2xl overflow-hidden relative">
+          <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] w-full max-w-2xl lg:max-w-3xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
             {/* Modal Header */}
-            <div className="p-3.5 sm:p-5 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3 shrink-0">
+            <div className="p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
                 <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-emerald-100 border border-emerald-200 text-[#1b4332] font-black text-xs sm:text-base flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
                   {selectedMember.avatar ? (
@@ -727,7 +727,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                    <h3 className="font-extrabold text-sm sm:text-lg text-[#1b4332] truncate">{selectedMember.name}</h3>
+                    <h3 className="font-extrabold text-sm sm:text-base text-[#1b4332] truncate">{selectedMember.name}</h3>
                     <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-[#1b4332] text-white shadow-2xs">
                       {selectedMember.role || 'Member'}
                     </span>
@@ -759,7 +759,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
             </div>
 
             {/* Modal Body: Stats & Activity Table */}
-            <div className="p-3 sm:p-6 overflow-y-auto flex-1 space-y-3.5 sm:space-y-5">
+            <div className="p-3 sm:p-5 overflow-y-auto flex-1 space-y-3.5 sm:space-y-4 overscroll-contain pr-2 scroll-smooth">
               {/* Member KPI Summary */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                 <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-emerald-50 border border-emerald-200/80 space-y-0.5">
