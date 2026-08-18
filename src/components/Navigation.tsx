@@ -182,82 +182,85 @@ export const Navigation: React.FC<NavigationProps> = ({
       )}
 
       {/* Mobile & Tablet Top Header */}
-      <div className="lg:hidden sticky top-0 z-50 bg-[#1b4332] border-b border-[#2d6a4f] px-3.5 sm:px-4 py-2 flex items-center justify-between text-white shadow-xs min-h-[52px]">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="p-1 sm:p-1.5 rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center shrink-0 w-8 h-8 sm:w-9 sm:h-9">
-            <img src="/logo.png" alt="BCC Logo" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h1 className="font-heading text-xs sm:text-sm font-extrabold text-white tracking-wide leading-tight uppercase truncate">
-              BCC RIDERS CLUB
-            </h1>
-            <p className="text-[11px] sm:text-xs font-medium text-[#74c69d] truncate leading-tight">
-              Hello, <span className="text-white font-bold">{currentUser?.name || 'Member'}</span>!
-            </p>
+      {activeTab !== 'qr' && (
+        <div className="lg:hidden sticky top-0 z-50 bg-[#1b4332] border-b border-[#2d6a4f] px-3.5 sm:px-4 py-2 flex items-center justify-between text-white shadow-xs min-h-[52px]">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="p-1 sm:p-1.5 rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center shrink-0 w-8 h-8 sm:w-9 sm:h-9">
+              <img src="/logo.png" alt="BCC Logo" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <h1 className="font-heading text-xs sm:text-sm font-extrabold text-white tracking-wide leading-tight uppercase truncate">
+                BCC RIDERS CLUB
+              </h1>
+              <p className="text-[11px] sm:text-xs font-medium text-[#74c69d] truncate leading-tight">
+                Hello, <span className="text-white font-bold">{currentUser?.name || 'Member'}</span>!
+              </p>
+            </div>
           </div>
         </div>
-
-      </div>
+      )}
 
       {/* Mobile & Tablet Bottom Navigation Bar (Hierarchy of Green) */}
-      <div className="lg:hidden fixed bottom-3 left-3 right-3 z-40 max-w-md mx-auto font-sans">
-        <div className="relative bg-white/98 backdrop-blur-xl rounded-[28px] shadow-2xl shadow-[#1b4332]/15 border border-[#e2ece2] px-2 pt-3 pb-1.5">
-          <div className="flex items-center justify-between relative px-2">
-            {navItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              const isCenter = item.id === 'qr';
+      {activeTab !== 'qr' && (
+        <div className="lg:hidden fixed bottom-3 left-3 right-3 z-40 max-w-md mx-auto font-sans">
+          <div className="relative bg-white/98 backdrop-blur-xl rounded-[28px] shadow-2xl shadow-[#1b4332]/15 border border-[#e2ece2] px-2 pt-3 pb-1.5">
+            <div className="flex items-center justify-between relative px-2">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                const isCenter = item.id === 'qr';
 
-              if (isCenter) {
-                return (
-                  <div key={item.id} className="flex-1 flex justify-center items-center relative -mt-9 z-10">
-                    <button
-                      onClick={() => handleTabClick(item.id as TabType)}
-                      title={item.label}
-                      className="group cursor-pointer focus:outline-hidden"
-                    >
-                      {/* Outer Halo Ring */}
-                      <div
-                        className={`p-1.5 rounded-full transition-all duration-200 ${
-                          isActive
-                            ? 'bg-[#d8f3dc] ring-4 ring-[#2d6a4f]/30 scale-105'
-                            : 'bg-[#d8f3dc]/80 hover:bg-[#d8f3dc]'
-                        }`}
+                if (isCenter) {
+                  return (
+                    <div key={item.id} className="flex-1 flex justify-center items-center relative -mt-9 z-10">
+                      <button
+                        onClick={() => handleTabClick(item.id as TabType)}
+                        title={item.label}
+                        className="group cursor-pointer focus:outline-hidden"
                       >
-                        {/* Inner Action Button */}
-                        <div className="w-13 h-13 sm:w-14 sm:h-14 bg-[#1b4332] hover:bg-[#2d6a4f] rounded-full flex items-center justify-center text-white shadow-lg shadow-[#1b4332]/35 group-active:scale-95 transition-all duration-200">
-                          <Icon className="w-6 h-6 sm:w-7 sm:h-7 text-white stroke-[2.2]" />
+                        {/* Outer Halo Ring */}
+                        <div
+                          className={`p-1.5 rounded-full transition-all duration-200 ${
+                            isActive
+                              ? 'bg-[#d8f3dc] ring-4 ring-[#2d6a4f]/30 scale-105'
+                              : 'bg-[#d8f3dc]/80 hover:bg-[#d8f3dc]'
+                          }`}
+                        >
+                          {/* Inner Action Button */}
+                          <div className="w-13 h-13 sm:w-14 sm:h-14 bg-[#1b4332] hover:bg-[#2d6a4f] rounded-full flex items-center justify-center text-white shadow-lg shadow-[#1b4332]/35 group-active:scale-95 transition-all duration-200">
+                            <Icon className="w-6 h-6 sm:w-7 sm:h-7 text-white stroke-[2.2]" />
+                          </div>
                         </div>
-                      </div>
-                    </button>
-                  </div>
+                      </button>
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    key={item.id}
+                    onClick={() => handleTabClick(item.id as TabType)}
+                    title={item.label}
+                    className="flex-1 flex flex-col items-center justify-center py-1 transition-transform duration-150 active:scale-90 cursor-pointer select-none relative"
+                  >
+                    <Icon
+                      className={`w-6 h-6 transition-colors duration-200 ${
+                        isActive ? 'text-[#1b4332] stroke-[2.5]' : 'text-[#52605d] hover:text-[#1b4332] stroke-[1.8]'
+                      }`}
+                    />
+                    {isActive && (
+                      <span className="w-1.5 h-1.5 bg-[#2d6a4f] rounded-full absolute -bottom-1" />
+                    )}
+                  </button>
                 );
-              }
+              })}
+            </div>
 
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => handleTabClick(item.id as TabType)}
-                  title={item.label}
-                  className="flex-1 flex flex-col items-center justify-center py-1 transition-transform duration-150 active:scale-90 cursor-pointer select-none relative"
-                >
-                  <Icon
-                    className={`w-6 h-6 transition-colors duration-200 ${
-                      isActive ? 'text-[#1b4332] stroke-[2.5]' : 'text-[#52605d] hover:text-[#1b4332] stroke-[1.8]'
-                    }`}
-                  />
-                  {isActive && (
-                    <span className="w-1.5 h-1.5 bg-[#2d6a4f] rounded-full absolute -bottom-1" />
-                  )}
-                </button>
-              );
-            })}
+            {/* Bottom Home Bar Indicator */}
+            <div className="w-28 h-1 bg-[#1b4332]/20 rounded-full mx-auto mt-2 mb-0.5" />
           </div>
-
-          {/* Bottom Home Bar Indicator */}
-          <div className="w-28 h-1 bg-[#1b4332]/20 rounded-full mx-auto mt-2 mb-0.5" />
         </div>
-      </div>
+      )}
 
       {/* Desktop Sidebar Navigation (Only visible on lg screens and up) */}
       <aside

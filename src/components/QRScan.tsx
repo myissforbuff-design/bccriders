@@ -687,7 +687,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   }
 
   return (
-    <div className="fixed inset-0 z-30 bg-black flex flex-col justify-between overflow-hidden w-full h-[100dvh]">
+    <div className="fixed inset-0 z-50 bg-black flex flex-col justify-between overflow-hidden w-full h-[100dvh]">
       {/* Toast Notification */}
       {scanSuccessMessage && (
         <div className="absolute top-16 left-4 right-4 z-50 p-4 rounded-2xl border text-xs font-bold shadow-2xl transition-all flex items-center justify-between animate-fadeIn backdrop-blur-md bg-stone-900/90 text-emerald-300 border-emerald-500/40">

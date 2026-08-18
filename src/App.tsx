@@ -105,70 +105,72 @@ function MainAppContent() {
       {/* Main Workspace Panel */}
       <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72'} flex flex-col min-w-0`}>
         {/* Top Header Bar */}
-        <header className="sticky top-[52px] lg:top-0 z-30 bg-white/98 backdrop-blur-md border-b border-[#e2ece2] px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between shadow-xs">
-          <div>
-            <h1 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg capitalize">
-              {activeTab === 'settings'
-                ? 'System Settings'
-                : activeTab === 'announcements'
-                ? 'News Updates'
-                : activeTab === 'finances'
-                ? 'Finances & Treasury Management'
-                : activeTab === 'activity'
-                ? (isAdmin ? 'Activity Management' : 'Member Activity Logs')
-                : activeTab === 'qr'
-                ? 'QR Attendance Scanner'
-                : activeTab === 'board'
-                ? 'Community Ride Posts'
-                : activeTab === 'members'
-                ? 'Members Directory'
-                : activeTab === 'events'
-                ? 'Ride & Event Scheduler'
-                : activeTab === 'leaderboard'
-                ? 'Mileage Leaderboard'
-                : activeTab === 'maps'
-                ? 'Offline Route Maps'
-                : activeTab === 'admin'
-                ? 'Executive Admin Hub'
-                : activeTab === 'document' ? (
-                    <>
-                      <span className="sm:hidden">Document</span>
-                      <span className="hidden sm:inline">Official Membership Agreement</span>
-                    </>
-                  )
-                : activeTab === 'profile'
-                ? 'Rider Profile'
-                : activeTab === 'dashboard'
-                ? 'Dashboard'
-                : activeTab}
-            </h1>
-          </div>
+        {activeTab !== 'qr' && (
+          <header className="sticky top-[52px] lg:top-0 z-30 bg-white/98 backdrop-blur-md border-b border-[#e2ece2] px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between shadow-xs">
+            <div>
+              <h1 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg capitalize">
+                {activeTab === 'settings'
+                  ? 'System Settings'
+                  : activeTab === 'announcements'
+                  ? 'News Updates'
+                  : activeTab === 'finances'
+                  ? 'Finances & Treasury Management'
+                  : activeTab === 'activity'
+                  ? (isAdmin ? 'Activity Management' : 'Member Activity Logs')
+                  : activeTab === 'qr'
+                  ? 'QR Attendance Scanner'
+                  : activeTab === 'board'
+                  ? 'Community Ride Posts'
+                  : activeTab === 'members'
+                  ? 'Members Directory'
+                  : activeTab === 'events'
+                  ? 'Ride & Event Scheduler'
+                  : activeTab === 'leaderboard'
+                  ? 'Mileage Leaderboard'
+                  : activeTab === 'maps'
+                  ? 'Offline Route Maps'
+                  : activeTab === 'admin'
+                  ? 'Executive Admin Hub'
+                  : activeTab === 'document' ? (
+                      <>
+                        <span className="sm:hidden">Document</span>
+                        <span className="hidden sm:inline">Official Membership Agreement</span>
+                      </>
+                    )
+                  : activeTab === 'profile'
+                  ? 'Rider Profile'
+                  : activeTab === 'dashboard'
+                  ? 'Dashboard'
+                  : activeTab}
+              </h1>
+            </div>
 
-          <div className="flex items-center gap-2">
-            {activeTab === 'document' && (
-              <>
-                <button
-                  onClick={() => setPrintTrigger((prev) => prev + 1)}
-                  title="System Print"
-                  className="p-1.5 sm:px-3 sm:py-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e2ece2] text-[#1b4332] text-xs font-bold border border-[#e2ece2] transition-colors cursor-pointer flex items-center gap-1.5"
-                >
-                  <Printer className="w-4 h-4 text-[#2d6a4f]" />
-                  <span className="hidden sm:inline">Print</span>
-                </button>
-                <button
-                  onClick={() => setExportPdfTrigger((prev) => prev + 1)}
-                  title="Export PDF"
-                  className="p-1.5 sm:p-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white transition-colors cursor-pointer flex items-center justify-center shadow-xs"
-                >
-                  <Download className="w-4 h-4 text-[#74c69d]" />
-                </button>
-              </>
-            )}
-          </div>
-        </header>
+            <div className="flex items-center gap-2">
+              {activeTab === 'document' && (
+                <>
+                  <button
+                    onClick={() => setPrintTrigger((prev) => prev + 1)}
+                    title="System Print"
+                    className="p-1.5 sm:px-3 sm:py-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e2ece2] text-[#1b4332] text-xs font-bold border border-[#e2ece2] transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Printer className="w-4 h-4 text-[#2d6a4f]" />
+                    <span className="hidden sm:inline">Print</span>
+                  </button>
+                  <button
+                    onClick={() => setExportPdfTrigger((prev) => prev + 1)}
+                    title="Export PDF"
+                    className="p-1.5 sm:p-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white transition-colors cursor-pointer flex items-center justify-center shadow-xs"
+                  >
+                    <Download className="w-4 h-4 text-[#74c69d]" />
+                  </button>
+                </>
+              )}
+            </div>
+          </header>
+        )}
 
         {/* Dynamic Screen View Content */}
-        <main className="relative z-0 p-3.5 sm:p-6 lg:p-8 pb-28 lg:pb-8 max-w-7xl w-full mx-auto flex-1 overflow-x-hidden">
+        <main className={`relative z-0 ${activeTab === 'qr' ? 'p-0 pb-0 max-w-none w-full' : 'p-3.5 sm:p-6 lg:p-8 pb-28 lg:pb-8 max-w-7xl'} w-full mx-auto flex-1 overflow-x-hidden`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
