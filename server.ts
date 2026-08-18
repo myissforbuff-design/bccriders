@@ -2513,9 +2513,9 @@ async function handleReceivedEmailPayload(payload: any): Promise<{ success: bool
 const handleResendWebhook = async (req: express.Request, res: express.Response) => {
   try {
     const payload = req.body;
-    console.log(`[Resend Webhook] Received webhook POST event:`, payload?.type || 'unknown_event');
+    console.log(`[Resend Webhook] Received webhook POST event:`, payload?.type || 'unknown_event', JSON.stringify(payload).slice(0, 300));
 
-    if (!payload) {
+    if (!payload || (typeof payload === 'object' && Object.keys(payload).length === 0)) {
       return res.status(400).json({ error: 'Missing webhook payload body' });
     }
 
