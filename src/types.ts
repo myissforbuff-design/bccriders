@@ -455,4 +455,36 @@ export interface TreasurerActionRequest {
   adminNotes?: string;
 }
 
+export interface InboundEmailAttachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  content_disposition?: string;
+  content_id?: string;
+  size?: number;
+  url?: string;
+}
+
+export interface InboundEmail {
+  id: string;
+  emailId?: string;
+  from: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  receivedFor?: string[];
+  messageId?: string;
+  subject: string;
+  bodyText?: string;
+  bodyHtml?: string;
+  attachments?: InboundEmailAttachment[];
+  rawEvent?: any;
+  receivedAt: string;
+  createdAt?: string;
+  read?: boolean;
+  starred?: boolean;
+  status?: string;
+}
+
+
 

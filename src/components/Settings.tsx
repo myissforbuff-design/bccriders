@@ -20,6 +20,7 @@ import {
 import { YearlyArchiveModal } from './YearlyArchiveModal';
 import { ArchiveExportModal } from './ArchiveExportModal';
 import { extractZipArchive } from '../lib/yearlyArchiveUtils';
+import { InboundEmailViewer } from './InboundEmailViewer';
 import {
   Coins,
   Wallet,
@@ -85,6 +86,7 @@ const SUB_TAB_OPTIONS = [
   { id: 'finance', label: 'Finances & Fees', icon: Wallet, description: 'Fees, monthly dues & drives' },
   { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet, description: 'Export member & financial ledgers' },
   { id: 'security', label: 'System Security', icon: Shield, description: 'Admin 2FA & session policies' },
+  { id: 'inbound', label: 'Receiving Email', icon: Mail, description: 'Resend webhook & contact@bccriders.cc inbox' },
 ] as const;
 
 export const Settings: React.FC = () => {
@@ -92,9 +94,9 @@ export const Settings: React.FC = () => {
   const { runWithLoader, refreshTick } = useLoader();
 
   // Settings Sub-Navigation Dropdown & Tabs
-  const [activeSubTab, setActiveSubTab] = useState<'finance' | 'reports' | 'security'>(() => {
+  const [activeSubTab, setActiveSubTab] = useState<'finance' | 'reports' | 'security' | 'inbound'>(() => {
     const saved = localStorage.getItem('bcc_settings_subtab');
-    return (saved === 'finance' || saved === 'reports' || saved === 'security') ? saved : 'finance';
+    return (saved === 'finance' || saved === 'reports' || saved === 'security' || saved === 'inbound') ? saved : 'finance';
   });
 
   useEffect(() => {
@@ -1907,6 +1909,7 @@ export const Settings: React.FC = () => {
               {activeSubTab === 'finance' && <Wallet className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'reports' && <FileSpreadsheet className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'security' && <Shield className="w-4 h-4 text-[#74c69d]" />}
+              {activeSubTab === 'inbound' && <Mail className="w-4 h-4 text-[#74c69d]" />}
             </div>
             <div className="truncate">
               <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#52605d]">Settings Category</p>
@@ -1939,7 +1942,7 @@ export const Settings: React.FC = () => {
                     key={tab.id}
                     type="button"
                     onClick={() => {
-                      setActiveSubTab(tab.id as 'finance' | 'reports' | 'security');
+                      setActiveSubTab(tab.id as 'finance' | 'reports' | 'security' | 'inbound');
                       setIsSubTabDropdownOpen(false);
                     }}
                     className={`w-full flex items-center justify-between gap-3 p-3 rounded-xl transition-all cursor-pointer text-left ${
@@ -3532,6 +3535,9 @@ export const Settings: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* SUB TAB 4: RECEIVING EMAIL & RESEND WEBHOOK */}
+      {activeSubTab === 'inbound' && <InboundEmailViewer />}
 
       {/* MODAL: CREATE / EDIT MONTHLY DUE */}
       <AnimatePresence>

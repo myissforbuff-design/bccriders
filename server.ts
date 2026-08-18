@@ -84,11 +84,38 @@ async function getMongoDb(): Promise<Db | null> {
     mongoClient = new MongoClient(mongoUri);
     await mongoClient.connect();
     db = mongoClient.db(dbName);
-    console.log(`Connected successfully to MongoDB database: ${dbName}`);
+    console.log(`Connected successfully to Primary MongoDB database: ${dbName}`);
     return db;
   } catch (err) {
     console.error('MongoDB connection error:', err);
     return null;
+  }
+}
+
+// Dedicated Inbound Email MongoDB Connection Setup
+const inboundMongoUri = process.env.MONGODB_INBOUND_URI || process.env.INBOUND_MONGODB_URI || mongoUri;
+const inboundDbName = process.env.MONGODB_INBOUND_DB_NAME || process.env.INBOUND_MONGODB_DB_NAME || (process.env.MONGODB_INBOUND_URI ? 'bcc-inbound-emails' : dbName);
+
+let inboundMongoClient: MongoClient | null = null;
+let inboundDb: Db | null = null;
+
+async function getInboundMongoDb(): Promise<Db | null> {
+  if (!inboundMongoUri) return null;
+  if (inboundDb) return inboundDb;
+  try {
+    // If the URI is identical to the primary, reuse primary connection
+    if (inboundMongoUri === mongoUri && inboundDbName === dbName) {
+      inboundDb = await getMongoDb();
+      return inboundDb;
+    }
+    inboundMongoClient = new MongoClient(inboundMongoUri);
+    await inboundMongoClient.connect();
+    inboundDb = inboundMongoClient.db(inboundDbName);
+    console.log(`[Resend Inbound] Connected to Dedicated Inbound MongoDB database: ${inboundDbName}`);
+    return inboundDb;
+  } catch (err) {
+    console.error('[Resend Inbound] Dedicated MongoDB connection error, falling back to primary:', err);
+    return getMongoDb();
   }
 }
 
@@ -2366,6 +2393,293 @@ app.get('/api/mongodb/users', async (req, res) => {
   } catch (err: any) {
     res.status(500).json({ error: err.message, data: [] });
   }
+});
+
+// ==========================================
+// RESEND INBOUND EMAIL & WEBHOOK SYSTEM
+// ==========================================
+interface InboundEmailRecord {
+  id: string;
+  emailId?: string;
+  from: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  receivedFor?: string[];
+  messageId?: string;
+  subject: string;
+  bodyText?: string;
+  bodyHtml?: string;
+  attachments?: any[];
+  rawEvent?: any;
+  receivedAt: string;
+  createdAt?: string;
+  read?: boolean;
+  starred?: boolean;
+  status?: string;
+}
+
+const inboundEmailMemoryCache: InboundEmailRecord[] = [];
+
+// Helper to save inbound email to MongoDB and Memory Cache
+async function handleReceivedEmailPayload(payload: any): Promise<{ success: boolean; record: InboundEmailRecord; isDuplicate: boolean }> {
+  const eventType = payload?.type || 'email.received';
+  const data = payload?.data || payload;
+
+  const emailId = data?.email_id || data?.id || `email_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  const recordId = `inb_${emailId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+
+  const fromAddress = String(data?.from || 'Unknown Sender');
+  const toAddresses: string[] = Array.isArray(data?.to)
+    ? data.to
+    : (data?.to ? [String(data.to)] : ['contact@bccriders.cc']);
+  const ccAddresses: string[] = Array.isArray(data?.cc) ? data.cc : [];
+  const bccAddresses: string[] = Array.isArray(data?.bcc) ? data.bcc : [];
+  const receivedFor: string[] = Array.isArray(data?.received_for) ? data.received_for : [];
+
+  const subject = String(data?.subject || '(No Subject)');
+  const messageId = String(data?.message_id || '');
+  const attachments = Array.isArray(data?.attachments) ? data.attachments : [];
+  const createdAt = data?.created_at || payload?.created_at || new Date().toISOString();
+  const receivedAt = new Date().toISOString();
+
+  const bodyText = data?.text || data?.bodyText || '';
+  const bodyHtml = data?.html || data?.bodyHtml || '';
+
+  // Construct standard record
+  const emailRecord: InboundEmailRecord = {
+    id: recordId,
+    emailId,
+    from: fromAddress,
+    to: toAddresses,
+    cc: ccAddresses,
+    bcc: bccAddresses,
+    receivedFor,
+    messageId,
+    subject,
+    bodyText,
+    bodyHtml,
+    attachments,
+    rawEvent: {
+      type: eventType,
+      created_at: createdAt,
+      data: {
+        email_id: emailId,
+        from: fromAddress,
+        to: toAddresses,
+        subject,
+        attachments_count: attachments.length,
+      }
+    },
+    receivedAt,
+    createdAt,
+    read: false,
+    starred: false,
+    status: 'received',
+  };
+
+  // Check duplicate in memory
+  const existingIdx = inboundEmailMemoryCache.findIndex((e) => e.id === recordId || (e.emailId && e.emailId === emailId));
+  const isDuplicate = existingIdx !== -1;
+
+  if (isDuplicate) {
+    inboundEmailMemoryCache[existingIdx] = { ...inboundEmailMemoryCache[existingIdx], ...emailRecord };
+  } else {
+    inboundEmailMemoryCache.unshift(emailRecord);
+    if (inboundEmailMemoryCache.length > 300) {
+      inboundEmailMemoryCache.pop();
+    }
+  }
+
+  // Save to MongoDB (Dedicated inbound DB or primary DB fallback)
+  const database = await getInboundMongoDb();
+  if (database) {
+    try {
+      await database.collection('inbound_emails').updateOne(
+        { id: recordId },
+        { $set: emailRecord },
+        { upsert: true }
+      );
+      console.log(`[Resend Inbound] Saved email ${recordId} from ${fromAddress} to ${toAddresses.join(', ')} in MongoDB.`);
+    } catch (dbErr) {
+      console.error('[Resend Inbound] Error saving to MongoDB:', dbErr);
+    }
+  }
+
+  return { success: true, record: emailRecord, isDuplicate };
+}
+
+// Resend Webhook POST endpoint (compatible with Resend webhook event: 'email.received')
+const handleResendWebhook = async (req: express.Request, res: express.Response) => {
+  try {
+    const payload = req.body;
+    console.log(`[Resend Webhook] Received webhook POST event:`, payload?.type || 'unknown_event');
+
+    if (!payload) {
+      return res.status(400).json({ error: 'Missing webhook payload body' });
+    }
+
+    // Process event
+    const { record, isDuplicate } = await handleReceivedEmailPayload(payload);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Inbound email webhook processed successfully',
+      id: record.id,
+      email_id: record.emailId,
+      duplicate: isDuplicate,
+      received_for: record.to,
+      subject: record.subject,
+    });
+  } catch (err: any) {
+    console.error('[Resend Webhook] Webhook processing error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to process webhook' });
+  }
+};
+
+app.post('/api/resend/webhook', handleResendWebhook);
+app.post('/api/webhook', handleResendWebhook);
+app.post('/api/events', handleResendWebhook);
+
+// Resend Webhook Status GET endpoint
+app.get('/api/resend/webhook', (_req, res) => {
+  const isDedicatedDb = Boolean(process.env.MONGODB_INBOUND_URI || process.env.INBOUND_MONGODB_URI);
+  res.json({
+    status: 'active',
+    endpoint: '/api/resend/webhook',
+    configuredAddress: 'contact@bccriders.cc',
+    description: 'Resend Inbound Email Webhook endpoint is listening for email.received events.',
+    supportedEvents: ['email.received'],
+    databaseMode: isDedicatedDb ? 'dedicated_inbound_mongodb' : 'primary_mongodb',
+    dedicatedDbConfigured: isDedicatedDb,
+    databaseName: inboundDbName,
+  });
+});
+
+// GET all inbound emails
+app.get('/api/inbound-emails', async (_req, res) => {
+  const isDedicatedDb = Boolean(process.env.MONGODB_INBOUND_URI || process.env.INBOUND_MONGODB_URI);
+  const database = await getInboundMongoDb();
+  if (database) {
+    try {
+      const docs = await database
+        .collection('inbound_emails')
+        .find({})
+        .sort({ receivedAt: -1, createdAt: -1 })
+        .limit(200)
+        .toArray();
+      const data = docs.map(({ _id, ...rest }) => rest);
+      return res.json({
+        success: true,
+        count: data.length,
+        data,
+        databaseMode: isDedicatedDb ? 'dedicated_inbound_mongodb' : 'primary_mongodb',
+        dedicatedDbConfigured: isDedicatedDb,
+        databaseName: inboundDbName,
+      });
+    } catch (err: any) {
+      console.warn('Error querying MongoDB inbound_emails:', err);
+    }
+  }
+  return res.json({
+    success: true,
+    count: inboundEmailMemoryCache.length,
+    data: inboundEmailMemoryCache,
+    databaseMode: isDedicatedDb ? 'dedicated_inbound_mongodb' : 'primary_mongodb',
+    dedicatedDbConfigured: isDedicatedDb,
+    databaseName: inboundDbName,
+  });
+});
+
+// DELETE an inbound email
+app.delete('/api/inbound-emails/:id', async (req, res) => {
+  const { id } = req.params;
+  const database = await getInboundMongoDb();
+
+  // Remove from cache
+  const idx = inboundEmailMemoryCache.findIndex((e) => e.id === id || e.emailId === id);
+  if (idx !== -1) {
+    inboundEmailMemoryCache.splice(idx, 1);
+  }
+
+  if (database) {
+    try {
+      const result = await database.collection('inbound_emails').deleteOne({
+        $or: [{ id }, { emailId: id }],
+      });
+      return res.json({ success: true, deletedCount: result.deletedCount });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  return res.json({ success: true, deletedCount: 1 });
+});
+
+// POST mark email as read/unread or toggle starred
+app.post('/api/inbound-emails/:id/mark-read', async (req, res) => {
+  const { id } = req.params;
+  const { read = true, starred } = req.body || {};
+
+  const updates: any = {};
+  if (typeof read === 'boolean') updates.read = read;
+  if (typeof starred === 'boolean') updates.starred = starred;
+
+  const item = inboundEmailMemoryCache.find((e) => e.id === id || e.emailId === id);
+  if (item) {
+    if (typeof read === 'boolean') item.read = read;
+    if (typeof starred === 'boolean') item.starred = starred;
+  }
+
+  const database = await getInboundMongoDb();
+  if (database) {
+    try {
+      await database.collection('inbound_emails').updateOne(
+        { $or: [{ id }, { emailId: id }] },
+        { $set: updates }
+      );
+    } catch (err: any) {
+      console.warn('Error updating read status in MongoDB:', err);
+    }
+  }
+
+  return res.json({ success: true, updates });
+});
+
+// POST test inbound email (simulates Resend webhook payload for contact@bccriders.cc)
+app.post('/api/inbound-emails/test', async (req, res) => {
+  const samplePayload = {
+    type: 'email.received',
+    created_at: new Date().toISOString(),
+    data: {
+      email_id: `test_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      created_at: new Date().toISOString(),
+      from: req.body?.from || 'rider.inquiry@gmail.com',
+      to: req.body?.to || ['contact@bccriders.cc'],
+      bcc: [],
+      cc: [],
+      received_for: ['contact@bccriders.cc'],
+      message_id: `<sample-${Date.now()}@mail.example.com>`,
+      subject: req.body?.subject || 'Inquiry regarding Club Membership & upcoming ride',
+      bodyText: req.body?.bodyText || 'Hello BCC Riders Club Team,\n\nI would like to inquire about the membership requirements and registration schedule for new adventure riders.\n\nBest regards,\nProspective Rider',
+      attachments: req.body?.attachments || [
+        {
+          id: `att_${Date.now()}`,
+          filename: 'motorcycle_registration_sample.png',
+          content_type: 'image/png',
+          content_disposition: 'attachment',
+          content_id: 'sample_doc',
+          size: 142850,
+        }
+      ]
+    }
+  };
+
+  const { record } = await handleReceivedEmailPayload(samplePayload);
+  return res.json({
+    success: true,
+    message: 'Simulated test inbound email created successfully!',
+    record,
+  });
 });
 
 // Catch-all route for API requests to ensure JSON response instead of HTML SPA fallback
