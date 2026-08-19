@@ -708,112 +708,109 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
         className="hidden"
       />
 
-      {/* TOP BAR OVERLAY CONTROLS (Matches screenshot: Gallery | Flash | Camera Switch | Close) */}
-      <div className="absolute top-0 left-0 right-0 z-40 flex items-center justify-between p-4 sm:p-6 bg-gradient-to-b from-black/90 via-black/50 to-transparent">
-        {/* Left: Gallery / Upload Icon */}
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          title="Upload QR Image from Gallery"
-          className="w-11 h-11 rounded-2xl bg-black/40 backdrop-blur-md hover:bg-black/60 border border-white/20 text-white flex items-center justify-center transition-all active:scale-90 cursor-pointer shadow-lg"
-        >
-          <ImageIcon className="w-5 h-5 text-[#74c69d]" />
-        </button>
-
-        {/* Center: Flash / Torch Toggle & Camera Selector */}
-        <div className="flex items-center gap-2">
+      {/* TOP BAR / HEADER (Matches Screenshot: Centered "Scan QR" and Top-Right "✕") */}
+      <div className="relative z-40 w-full pt-10 sm:pt-6 pb-4 px-6 flex items-center justify-between bg-gradient-to-b from-black/80 via-black/40 to-transparent">
+        {/* Left: Torch / Flash toggle */}
+        <div className="w-10 flex items-center">
           <button
             type="button"
             onClick={toggleTorch}
-            title={torchOn ? "Turn Flash Off" : "Turn Flash On"}
-            className={`w-11 h-11 rounded-2xl backdrop-blur-md border flex items-center justify-center transition-all active:scale-90 cursor-pointer shadow-lg ${
-              torchOn
-                ? 'bg-emerald-500 text-white border-emerald-300 shadow-emerald-500/50'
-                : 'bg-black/40 hover:bg-black/60 border-white/20 text-white'
+            className={`w-9 h-9 rounded-full flex items-center justify-center transition-all cursor-pointer ${
+              torchOn ? 'bg-white text-black' : 'text-white/70 hover:text-white hover:bg-white/10'
             }`}
+            title={torchOn ? "Turn Flash Off" : "Turn Flash On"}
           >
-            <Zap className={`w-5 h-5 ${torchOn ? 'fill-white text-white' : 'text-[#74c69d]'}`} />
+            <Zap className={`w-4 h-4 ${torchOn ? 'fill-black' : ''}`} />
           </button>
-
-          {cameras.length > 1 && (
-            <div className="min-w-[120px]">
-              <CustomSelect
-                value={selectedCameraId}
-                onChange={(camId) => {
-                  setSelectedCameraId(camId);
-                  startCamera(camId);
-                }}
-                options={cameras.map((c, index) => ({
-                  value: c.id,
-                  label: c.label || `Cam ${index + 1}`,
-                }))}
-              />
-            </div>
-          )}
         </div>
 
-        {/* Right: Camera Flip / Switch & Close Button */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={toggleCameraFacing}
-            title="Switch Camera Facing"
-            className="w-11 h-11 rounded-2xl bg-black/40 backdrop-blur-md hover:bg-black/60 border border-white/20 text-white flex items-center justify-center transition-all active:scale-90 cursor-pointer shadow-lg"
-          >
-            <RefreshCw className="w-5 h-5 text-[#74c69d]" />
-          </button>
+        {/* Centered Title */}
+        <h1 className="text-white text-base sm:text-lg font-semibold tracking-wide text-center">
+          Scan QR
+        </h1>
 
+        {/* Right: Close Button */}
+        <div className="w-10 flex items-center justify-end">
           {setActiveTab && (
             <button
               type="button"
               onClick={handleCloseScan}
               title="Close QR Scanner"
-              className="w-11 h-11 rounded-2xl bg-black/40 backdrop-blur-md hover:bg-black/60 border border-white/20 text-white flex items-center justify-center transition-all active:scale-90 cursor-pointer shadow-lg"
+              className="p-2 text-white hover:opacity-80 transition-opacity cursor-pointer active:scale-95"
             >
-              <X className="w-5 h-5 text-gray-300 hover:text-white" />
+              <X className="w-6 h-6 stroke-[2.5]" />
             </button>
           )}
         </div>
       </div>
 
+      {/* Event Context Pill (Subtle & Non-intrusive) */}
+      {selectedActivity && (
+        <div className="relative z-30 flex items-center justify-center px-4 -mt-2">
+          <button
+            type="button"
+            onClick={() => setShowEventModal(true)}
+            className="py-1 px-3.5 bg-black/40 hover:bg-black/60 backdrop-blur-md text-white/90 text-[11px] font-medium rounded-full border border-white/15 truncate transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 shadow-md"
+          >
+            <Calendar className="w-3 h-3 text-[#74c69d]" />
+            <span className="truncate max-w-[220px]">Event: {selectedActivity.name}</span>
+          </button>
+        </div>
+      )}
+
       {/* FULL SCREEN CAMERA VIEWPORT */}
-      <div className="relative w-full h-full flex-1 bg-black overflow-hidden flex items-center justify-center">
+      <div className="relative w-full flex-1 bg-black overflow-hidden flex items-center justify-center">
         <video
           ref={videoRef}
           autoPlay
           playsInline
           muted
-          className={`w-full h-full object-cover ${!scanning ? 'hidden' : 'block'}`}
+          className={`absolute inset-0 w-full h-full object-cover ${!scanning ? 'hidden' : 'block'}`}
         />
 
-        {/* CENTER TARGET SCANNER FRAME (Emerald theme) */}
-        <div className="absolute inset-0 flex items-center justify-center p-6 z-20 pointer-events-none">
-          <div className="relative w-72 h-72 sm:w-80 sm:h-80 max-w-[82vw] max-h-[82vw]">
-            {/* 4 Corner L-Brackets */}
-            <div className="absolute top-0 left-0 w-12 h-12 border-t-[5px] border-l-[5px] border-[#74c69d] rounded-tl-2xl drop-shadow-[0_0_12px_rgba(116,198,157,0.9)]" />
-            <div className="absolute top-0 right-0 w-12 h-12 border-t-[5px] border-r-[5px] border-[#74c69d] rounded-tr-2xl drop-shadow-[0_0_12px_rgba(116,198,157,0.9)]" />
-            <div className="absolute bottom-0 left-0 w-12 h-12 border-b-[5px] border-l-[5px] border-[#74c69d] rounded-bl-2xl drop-shadow-[0_0_12px_rgba(116,198,157,0.9)]" />
-            <div className="absolute bottom-0 right-0 w-12 h-12 border-b-[5px] border-r-[5px] border-[#74c69d] rounded-br-2xl drop-shadow-[0_0_12px_rgba(116,198,157,0.9)]" />
+        {/* CENTER TARGET SCANNER FRAME (Matches screenshot white rounded corner brackets) */}
+        <div className="relative z-20 flex items-center justify-center pointer-events-none">
+          <div className="relative w-[270px] h-[270px] sm:w-[310px] sm:h-[310px] max-w-[76vw] max-h-[76vw]">
+            {/* Top-Left Corner Bracket */}
+            <div className="absolute top-0 left-0 w-14 h-14 border-t-[4px] border-l-[4px] border-white rounded-tl-3xl drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]" />
+            {/* Top-Right Corner Bracket */}
+            <div className="absolute top-0 right-0 w-14 h-14 border-t-[4px] border-r-[4px] border-white rounded-tr-3xl drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]" />
+            {/* Bottom-Left Corner Bracket */}
+            <div className="absolute bottom-0 left-0 w-14 h-14 border-b-[4px] border-l-[4px] border-white rounded-bl-3xl drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]" />
+            {/* Bottom-Right Corner Bracket */}
+            <div className="absolute bottom-0 right-0 w-14 h-14 border-b-[4px] border-r-[4px] border-white rounded-br-3xl drop-shadow-[0_2px_8px_rgba(0,0,0,0.5)]" />
 
-            {/* Animated Laser Scan Line */}
+            {/* Subtle Animated Laser Scan Line */}
             {scanning && (
-              <div className="absolute left-2 right-2 h-1 bg-gradient-to-r from-[#74c69d] via-emerald-300 to-[#74c69d] rounded-full shadow-[0_0_18px_#74c69d] animate-laser-scan z-20" />
+              <div className="absolute left-2 right-2 h-0.5 bg-gradient-to-r from-transparent via-white/80 to-transparent rounded-full shadow-[0_0_12px_rgba(255,255,255,0.9)] animate-laser-scan z-20" />
             )}
-
-            {/* Translucent Target Overlay */}
-            <div className="absolute inset-2 border border-white/10 rounded-2xl bg-emerald-500/5 backdrop-contrast-125" />
           </div>
         </div>
 
+        {/* Camera Error / Permission Blocked */}
+        {cameraError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-white space-y-3 bg-black/90 backdrop-blur-md z-25">
+            <AlertCircle className="w-12 h-12 text-amber-400" />
+            <p className="text-xs text-stone-300 max-w-xs">{cameraError}</p>
+            <button
+              type="button"
+              onClick={() => startCamera()}
+              className="px-5 py-2 bg-white text-black hover:bg-stone-200 rounded-full text-xs font-bold transition-all cursor-pointer shadow-lg active:scale-95"
+            >
+              Retry Camera
+            </button>
+          </div>
+        )}
+
         {/* Paused state overlay */}
-        {!scanning && !isSelectedEventDone && (
+        {!scanning && !isSelectedEventDone && !cameraError && (
           <div className="absolute inset-0 flex flex-col items-center justify-center p-6 text-center text-white space-y-4 bg-black/90 backdrop-blur-md z-20">
-            <Camera className="w-16 h-16 text-emerald-400 opacity-90" />
+            <Camera className="w-14 h-14 text-white/70" />
             <p className="text-sm font-bold text-gray-200">Camera Scanner Paused</p>
             <button
               type="button"
               onClick={() => startCamera()}
-              className="px-6 py-3 bg-[#2d6a4f] hover:bg-[#1b4332] text-white rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-xl active:scale-95"
+              className="px-6 py-2.5 bg-white text-black hover:bg-stone-200 rounded-full text-xs font-bold transition-all cursor-pointer shadow-xl active:scale-95"
             >
               Enable Camera
             </button>
@@ -822,26 +819,26 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
         {/* Event Finished / Date Passed Overlay */}
         {isSelectedEventDone && (
-          <div className="absolute inset-0 z-30 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white space-y-4 animate-fadeIn">
-            <div className="w-16 h-16 rounded-3xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center shadow-lg">
-              <AlertCircle className="w-8 h-8" />
+          <div className="absolute inset-0 z-30 bg-black/85 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center text-white space-y-3 animate-fadeIn">
+            <div className="w-14 h-14 rounded-full bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center shadow-lg">
+              <AlertCircle className="w-7 h-7" />
             </div>
-            <div className="space-y-1.5 max-w-sm">
-              <span className="px-3 py-1 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-[10px] font-extrabold uppercase tracking-wider">
+            <div className="space-y-1 max-w-sm">
+              <span className="px-2.5 py-0.5 bg-rose-500/20 text-rose-300 border border-rose-500/40 rounded-full text-[10px] font-extrabold uppercase tracking-wider">
                 Scanning Disabled
               </span>
-              <h3 className="text-xl font-extrabold text-white mt-1">
+              <h3 className="text-base font-bold text-white mt-1">
                 Event Date Has Passed
               </h3>
               <p className="text-xs text-gray-300 leading-relaxed">
-                "<span className="font-bold text-white">{selectedActivity?.name}</span>" ({selectedActivity?.date ? new Date(selectedActivity.date).toLocaleDateString() : ''}) is completed. Attendance scanning is disabled for past events.
+                "<span className="font-bold text-white">{selectedActivity?.name}</span>" ({selectedActivity?.date ? new Date(selectedActivity.date).toLocaleDateString() : ''}) is completed.
               </p>
             </div>
 
             <button
               type="button"
               onClick={() => setShowEventModal(true)}
-              className="px-6 py-3.5 bg-[#2d6a4f] hover:bg-[#1b4332] text-white rounded-2xl text-xs font-extrabold transition-all cursor-pointer shadow-xl active:scale-95 flex items-center gap-2 mt-2"
+              className="px-5 py-2.5 bg-white text-black hover:bg-stone-200 rounded-full text-xs font-bold transition-all cursor-pointer shadow-xl active:scale-95 flex items-center gap-1.5 mt-2"
             >
               <Calendar className="w-4 h-4" />
               <span>Select Active Event</span>
@@ -850,24 +847,23 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
         )}
       </div>
 
-      {/* TOP EVENT CONTEXT BADGE (Above Scanner) */}
-      <div className="absolute top-20 sm:top-24 left-0 right-0 z-30 flex items-center justify-center px-4 pointer-events-auto">
+      {/* BOTTOM CONTROLS (Matches Screenshot: Circular Upload Button + "Upload QR" Label + Home Indicator) */}
+      <div className="relative z-40 w-full pb-6 pt-3 flex flex-col items-center justify-center bg-gradient-to-t from-black/80 via-black/40 to-transparent">
         <button
           type="button"
-          onClick={() => setShowEventModal(true)}
-          className="max-w-xs sm:max-w-sm w-full py-2 px-4 bg-black/65 hover:bg-black/85 backdrop-blur-md text-white text-xs font-bold rounded-full border border-white/20 truncate transition-all cursor-pointer text-center shadow-xl active:scale-95 flex items-center justify-center gap-2"
+          onClick={() => fileInputRef.current?.click()}
+          className="flex flex-col items-center gap-2 group cursor-pointer active:scale-95 transition-transform"
         >
-          <Calendar className="w-3.5 h-3.5 text-[#74c69d] shrink-0" />
-          <span className="truncate">Event: {selectedActivity?.name || 'No event created'}</span>
+          <div className="w-14 h-14 rounded-full border border-white/40 bg-white/10 hover:bg-white/20 backdrop-blur-md flex items-center justify-center text-white shadow-lg transition-all">
+            <ImageIcon className="w-6 h-6 text-white stroke-[1.8]" />
+          </div>
+          <span className="text-white text-xs sm:text-sm font-medium tracking-wide">
+            Upload QR
+          </span>
         </button>
-      </div>
 
-      {/* BOTTOM CONTROL OVERLAY */}
-      <div className="absolute bottom-32 sm:bottom-24 left-0 right-0 z-30 p-4 bg-gradient-to-t from-black/95 via-black/60 to-transparent flex flex-col items-center gap-3 pointer-events-none">
-        <div className="flex items-center gap-2 px-4 py-1.5 bg-black/75 backdrop-blur-md rounded-full border border-white/20 text-white/90 text-xs font-semibold shadow-2xl pointer-events-auto">
-          <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${isSelectedEventDone ? 'bg-rose-500' : 'bg-emerald-400 animate-ping'}`} />
-          <span>{isSelectedEventDone ? 'Scanning disabled for completed event' : "Point camera at member's QR code"}</span>
-        </div>
+        {/* iOS-style Home Indicator Bar */}
+        <div className="w-36 h-1 bg-white/60 rounded-full mx-auto mt-5" />
       </div>
 
       {/* Change Event Context Modal */}
