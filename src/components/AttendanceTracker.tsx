@@ -702,7 +702,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
       {/* MEMBER ATTENDANCE BREAKDOWN MODAL */}
       {selectedMember && selectedMemberStats && (
         <div
-          className="fixed inset-0 bg-black/65 backdrop-blur-xs flex items-center justify-center z-[100] p-3 sm:p-5 animate-fadeIn"
+          className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[100] p-3 sm:p-5 animate-fadeIn"
           onClick={(e) => {
             if (e.target === e.currentTarget) setSelectedMember(null);
           }}

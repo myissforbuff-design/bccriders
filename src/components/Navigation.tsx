@@ -105,7 +105,7 @@ export const Navigation: React.FC<NavigationProps> = ({
     <>
       {/* Officer Permission Alert Modal */}
       {showOfficerAlert && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
             <button
               type="button"
@@ -144,7 +144,7 @@ export const Navigation: React.FC<NavigationProps> = ({
 
       {/* Treasurer Permission Alert Modal */}
       {showTreasurerAlert && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
           <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
             <button
               type="button"

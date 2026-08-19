@@ -810,7 +810,7 @@ export const ActivityLog: React.FC = () => {
         const paginatedLogs = rawLogs.slice(startIndex, endIndex);
 
         return (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-3 sm:p-6 animate-fadeIn">
+          <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[100] p-3 sm:p-6 animate-fadeIn">
             <div className="bg-white rounded-[32px] border border-[#e2ece2] w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden relative">
               {/* Modal Header */}
               <div className="p-5 sm:p-6 border-b border-[#e2ece2] bg-[#f7f9f7] flex flex-row items-center justify-between gap-4">
@@ -969,7 +969,7 @@ export const ActivityLog: React.FC = () => {
 
       {/* Modal for Creating New Activity */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[100] p-4 animate-fadeIn">
           <div className="bg-white p-6 rounded-3xl border border-[#e2ece2] space-y-4 w-full max-w-sm shadow-2xl relative">
             <button
               onClick={() => setIsCreateModalOpen(false)}
@@ -1022,7 +1022,7 @@ export const ActivityLog: React.FC = () => {
       )}
       {/* Modal for Delete Activity Confirmation */}
       {activityToDelete && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[110] p-4 animate-fadeIn">
           <div className="bg-white p-6 rounded-3xl border border-[#e2ece2] space-y-4 w-full max-w-md shadow-2xl relative">
             <button
               onClick={() => setActivityToDelete(null)}

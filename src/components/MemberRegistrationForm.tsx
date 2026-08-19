@@ -732,7 +732,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
       {/* Restored Draft Modal */}
       <AnimatePresence>
         {hasRestoredDraft && !initialData && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
             <motion.div
               initial={{ opacity: 0, scale: 0.95, y: 10 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}

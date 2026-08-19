@@ -656,7 +656,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
   if (isMember) {
     return (
-      <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+      <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
         <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
           <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center mx-auto mb-4 shadow-sm">
             <ShieldAlert className="w-8 h-8" />
@@ -872,7 +872,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
       {/* Change Event Context Modal */}
       {showEventModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-[100] animate-fadeIn">
           <div className="bg-white w-full max-w-md rounded-[32px] p-6 shadow-2xl relative space-y-5 border border-[#e2ece2]">
             <div className="flex items-center justify-between pb-3 border-b border-[#e2ece2]">
               <div className="flex items-center gap-2">
@@ -944,7 +944,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
       {/* Scanned Verification Modal Dialog */}
       {scannedMemberModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-[100] animate-fadeIn">
           <div className="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl relative space-y-4 border border-[#e2ece2]">
             <button
               onClick={() => setScannedMemberModal(null)}
@@ -1048,7 +1048,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
       {/* Modal Alert: Member is already scanned */}
       {alreadyScannedMemberModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn">
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-[100] animate-fadeIn">
           <div className="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl relative space-y-4 border border-amber-200 text-center animate-scaleUp">
             <button
               onClick={() => setAlreadyScannedMemberModal(null)}

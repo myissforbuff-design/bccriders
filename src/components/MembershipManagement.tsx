@@ -686,7 +686,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       <AnimatePresence>
         {selectedMember && (
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/65 backdrop-blur-xs"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
             onClick={(e) => {
               if (e.target === e.currentTarget) setSelectedMember(null);
             }}
@@ -945,7 +945,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       <AnimatePresence>
         {addModalOpen && (
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/65 backdrop-blur-xs"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
             onClick={(e) => {
               if (e.target === e.currentTarget) setAddModalOpen(false);
             }}
@@ -1124,7 +1124,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       <AnimatePresence>
         {reviewingPendingUser && (
           <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/65 backdrop-blur-xs"
+            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
             onClick={(e) => {
               if (e.target === e.currentTarget) setReviewingPendingUser(null);
             }}
@@ -1224,7 +1224,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       {/* Action Confirmation Modal (Approve / Reject / Delete) */}
       <AnimatePresence>
         {confirmModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs overflow-y-auto">
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md overflow-y-auto">
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}

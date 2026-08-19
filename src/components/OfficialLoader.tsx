@@ -28,7 +28,7 @@ export const OfficialLoader: React.FC<OfficialLoaderProps> = ({ isLoading, messa
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.2 }}
-          className="fixed inset-0 z-[99999] bg-black/40 backdrop-blur-xs flex flex-col items-center justify-center p-6 select-none"
+          className="fixed inset-0 z-[99999] bg-black/70 backdrop-blur-md flex flex-col items-center justify-center p-6 select-none"
         >
           <motion.div
             initial={{ scale: 0.9, opacity: 0 }}
