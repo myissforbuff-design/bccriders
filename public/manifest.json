@@ -1,38 +1,37 @@
 {
-  "name": "BCC Riders Club",
   "short_name": "BCC Riders",
+  "name": "BCC Riders Club",
   "description": "BCC Riders Club Official Mobile & Web Application",
-  "start_url": "/",
-  "scope": "/",
-  "display": "standalone",
-  "orientation": "portrait",
-  "background_color": "#1b4332",
-  "theme_color": "#1b4332",
-  "categories": ["lifestyle", "sports", "productivity"],
   "icons": [
     {
       "src": "/logo.png",
-      "sizes": "192x192",
       "type": "image/png",
+      "sizes": "192x192",
       "purpose": "any"
     },
     {
       "src": "/logo.png",
-      "sizes": "512x512",
       "type": "image/png",
+      "sizes": "512x512",
       "purpose": "any"
     },
     {
       "src": "/logo.png",
-      "sizes": "192x192",
       "type": "image/png",
-      "purpose": "maskable"
+      "sizes": "192x192",
+      "purpose": "any"
     },
     {
       "src": "/logo.png",
-      "sizes": "512x512",
       "type": "image/png",
-      "purpose": "maskable"
+      "sizes": "512x512",
+      "purpose": "any"
     }
-  ]
+  ],
+  "start_url": "/",
+  "background_color": "#1b4332",
+  "theme_color": "#1b4332",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/"
 }
