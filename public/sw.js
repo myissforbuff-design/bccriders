@@ -1,24 +1,2 @@
-const CACHE_NAME = 'bcc-riders-v1';
-
-self.addEventListener('install', (event) => {
-  self.skipWaiting();
-});
-
-self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
-});
-
-self.addEventListener('fetch', (event) => {
-  // Serve from network first, fall back to cache if offline
-  if (event.request.method !== 'GET') return;
-  
-  event.respondWith(
-    fetch(event.request)
-      .then((response) => {
-        return response;
-      })
-      .catch(() => {
-        return caches.match(event.request);
-      })
-  );
-});
+// Backward compatibility import / alias for service-worker.js
+importScripts('/service-worker.js');
