@@ -16,12 +16,14 @@ import { QRScan } from './components/QRScan';
 import { Finances } from './components/Finances';
 import { AnnouncementsView } from './components/AnnouncementsView';
 import { useIdleTimer } from './hooks/useIdleTimer';
+import { useIsAnyModalOpen } from './hooks/useModalDismiss';
 import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
 function MainAppContent() {
   const { currentUser, isAuthenticated, isAdmin, logout } = useAuth();
   const { toastMessage, clearToast, triggerPushAlert } = useNotifications();
+  const isAnyModalOpen = useIsAnyModalOpen();
 
   // Automatic security logout after 5 minutes of inactivity for both members & administrators
   useIdleTimer({
@@ -106,7 +108,11 @@ function MainAppContent() {
       <div className={`flex-1 transition-all duration-300 ${isSidebarCollapsed ? 'lg:pl-20' : 'lg:pl-72'} flex flex-col min-w-0`}>
         {/* Top Header Bar */}
         {activeTab !== 'qr' && (
-          <header className="sticky top-[52px] lg:top-0 z-30 bg-white/98 backdrop-blur-md border-b border-[#e2ece2] px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between shadow-xs">
+          <header
+            className={`sticky top-[52px] lg:top-0 z-30 bg-white/98 backdrop-blur-md border-b border-[#e2ece2] px-3.5 sm:px-6 py-2.5 sm:py-3.5 flex items-center justify-between shadow-xs transition-[filter] duration-200 ${
+              isAnyModalOpen ? 'blur-sm lg:blur-none pointer-events-none lg:pointer-events-auto' : ''
+            }`}
+          >
             <div>
               <h1 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg capitalize">
                 {activeTab === 'settings'

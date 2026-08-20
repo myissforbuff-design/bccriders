@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 import { store } from '../lib/db';
 import { User, MembershipType } from '../types';
 import { MemberRegistrationForm } from './MemberRegistrationForm';
@@ -685,223 +686,226 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       {/* Member Detail Drawer Modal */}
       <AnimatePresence>
         {selectedMember && (
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setSelectedMember(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.2 }}
-              className="relative w-full max-w-md sm:max-w-lg lg:max-w-xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl overflow-hidden text-[#2d3a3a] my-auto"
+          <ModalPortal>
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setSelectedMember(null);
+              }}
             >
-              {/* Sticky Modal Header */}
-              <div className="p-3 sm:p-4 bg-[#f7f9f7] border-b border-[#e2ece2] flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                  <div className="relative shrink-0 inline-block">
-                    <img
-                      src={selectedMember.avatar || DEFAULT_AVATAR}
-                      alt={selectedMember.name}
-                      onError={(e) => {
-                        (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
-                      }}
-                      className="w-9 h-9 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-[#2d6a4f]"
-                    />
-                    <RoleAvatarBadge role={selectedMember.role} size="md" />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                className="relative w-full max-w-md sm:max-w-lg lg:max-w-xl max-h-[82dvh] sm:max-h-[78dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl overflow-hidden text-[#2d3a3a] my-auto"
+              >
+                {/* Sticky Modal Header */}
+                <div className="p-3 sm:p-4 bg-[#f7f9f7] border-b border-[#e2ece2] flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                    <div className="relative shrink-0 inline-block">
+                      <img
+                        src={selectedMember.avatar || DEFAULT_AVATAR}
+                        alt={selectedMember.name}
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
+                        }}
+                        className="w-9 h-9 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-[#2d6a4f]"
+                      />
+                      <RoleAvatarBadge role={selectedMember.role} size="md" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-heading font-bold text-[#1b4332] text-sm sm:text-base truncate">
+                        {selectedMember.name}
+                      </h3>
+                      <p className="text-[11px] sm:text-xs font-semibold text-[#2d6a4f] truncate">
+                        @{selectedMember.username || (selectedMember.email ? selectedMember.email.split('@')[0] : 'rider')}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <h3 className="font-heading font-bold text-[#1b4332] text-sm sm:text-base truncate">
-                      {selectedMember.name}
-                    </h3>
-                    <p className="text-[11px] sm:text-xs font-semibold text-[#2d6a4f] truncate">
-                      @{selectedMember.username || (selectedMember.email ? selectedMember.email.split('@')[0] : 'rider')}
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedMember(null)}
+                    className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
+                    title="Close"
+                  >
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedMember(null)}
-                  className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
-                  title="Close"
-                >
-                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
-                </button>
-              </div>
 
-              {/* Scrollable Modal Body */}
-              <div className="p-3 sm:p-4 md:p-5 space-y-3 sm:space-y-3.5 flex-1 overflow-y-auto overscroll-contain pr-2 scroll-smooth">
-                {/* Member Role Card */}
-                <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] flex items-center justify-between">
-                  <div>
-                    <span className="text-[9px] sm:text-[10px] text-[#52605d] uppercase tracking-wider font-bold">
-                      Club Membership Info
+                {/* Scrollable Modal Body */}
+                <div className="p-3 sm:p-4 md:p-5 space-y-3 sm:space-y-3.5 flex-1 overflow-y-auto overscroll-contain pr-2 scroll-smooth">
+                  {/* Member Role Card */}
+                  <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] flex items-center justify-between">
+                    <div>
+                      <span className="text-[9px] sm:text-[10px] text-[#52605d] uppercase tracking-wider font-bold">
+                        Club Membership Info
+                      </span>
+                      <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5">
+                        Member ID: <strong className="text-[#2d6a4f]">#{selectedMember.memberNumber}</strong>
+                      </p>
+                    </div>
+
+                    <span className="px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-extrabold uppercase bg-[#d8f3dc] text-[#1b4332]">
+                      {selectedMember.approvalStatus || 'Approved'}
                     </span>
-                    <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5">
-                      Member ID: <strong className="text-[#2d6a4f]">#{selectedMember.memberNumber}</strong>
-                    </p>
                   </div>
 
-                  <span className="px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full text-[10px] sm:text-xs font-extrabold uppercase bg-[#d8f3dc] text-[#1b4332]">
-                    {selectedMember.approvalStatus || 'Approved'}
-                  </span>
-                </div>
+                  {/* Contact & Personal Details */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5 text-xs">
+                    <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1.5 sm:space-y-2">
+                      <span className="text-[#52605d] font-bold block text-[11px] sm:text-xs">Personal & License Info</span>
+                      <p className="text-[#2d3a3a] flex items-center gap-2">
+                        <UserIcon className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                        Username: <strong className="text-[#1b4332]">{selectedMember.username || (selectedMember.email ? selectedMember.email.split('@')[0] : 'rider')}</strong>
+                      </p>
+                      <p className="text-[#2d3a3a] flex items-center gap-2 truncate">
+                        <Mail className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                        <span className="truncate">{selectedMember.email}</span>
+                      </p>
+                      <p className="text-[#2d3a3a] flex items-center gap-2">
+                        <Phone className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                        {selectedMember.phone}
+                      </p>
+                      {selectedMember.birthdate && (
+                        <p className="text-[#52605d]">
+                          Birthdate: <strong className="text-[#1b4332]">{selectedMember.birthdate}</strong>
+                          {selectedMember.age && ` (${selectedMember.age} yrs)`}
+                        </p>
+                      )}
+                      {selectedMember.gender && (
+                        <p className="text-[#52605d]">
+                          Gender: <strong className="text-[#1b4332]">{selectedMember.gender}</strong>
+                        </p>
+                      )}
+                      {selectedMember.licenseNo && (
+                        <p className="text-[#52605d]">
+                          License No: <strong className="text-[#1b4332]">{selectedMember.licenseNo}</strong>
+                          {selectedMember.licenseExpiryDate && ` (Exp: ${selectedMember.licenseExpiryDate})`}
+                        </p>
+                      )}
+                      {(selectedMember.streetAddress || selectedMember.address) && (
+                        <p className="text-[#52605d]">
+                          Address:{' '}
+                          <strong className="text-[#1b4332]">
+                            {[
+                              selectedMember.streetAddress,
+                              cleanBarangayCityAddress(selectedMember.address, selectedMember.streetAddress)
+                            ].filter(Boolean).join(', ')}
+                          </strong>
+                        </p>
+                      )}
+                    </div>
 
-                {/* Contact & Personal Details */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3.5 text-xs">
-                  <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1.5 sm:space-y-2">
-                    <span className="text-[#52605d] font-bold block text-[11px] sm:text-xs">Personal & License Info</span>
-                    <p className="text-[#2d3a3a] flex items-center gap-2">
-                      <UserIcon className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
-                      Username: <strong className="text-[#1b4332]">{selectedMember.username || (selectedMember.email ? selectedMember.email.split('@')[0] : 'rider')}</strong>
-                    </p>
-                    <p className="text-[#2d3a3a] flex items-center gap-2 truncate">
-                      <Mail className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
-                      <span className="truncate">{selectedMember.email}</span>
-                    </p>
-                    <p className="text-[#2d3a3a] flex items-center gap-2">
-                      <Phone className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
-                      {selectedMember.phone}
-                    </p>
-                    {selectedMember.birthdate && (
-                      <p className="text-[#52605d]">
-                        Birthdate: <strong className="text-[#1b4332]">{selectedMember.birthdate}</strong>
-                        {selectedMember.age && ` (${selectedMember.age} yrs)`}
-                      </p>
+                    {(selectedMember.network || selectedMember.chapter || selectedMember.leadersName || selectedMember.leadersContactNo) && (
+                      <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1.5 sm:space-y-2 col-span-1 sm:col-span-2">
+                        <span className="text-[#52605d] font-bold block text-[11px] sm:text-xs">BCC Information</span>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-[#52605d]">
+                          {selectedMember.network && (
+                            <p>Network: <strong className="text-[#1b4332]">{selectedMember.network}</strong></p>
+                          )}
+                          {selectedMember.chapter && (
+                            <p>Chapter: <strong className="text-[#1b4332]">{selectedMember.chapter}</strong></p>
+                          )}
+                          {selectedMember.leadersName && (
+                            <p>Leader's Name: <strong className="text-[#1b4332]">{selectedMember.leadersName}</strong></p>
+                          )}
+                          {selectedMember.leadersContactNo && (
+                            <p>Leader's Contact No: <strong className="text-[#1b4332]">{selectedMember.leadersContactNo}</strong></p>
+                          )}
+                        </div>
+                      </div>
                     )}
-                    {selectedMember.gender && (
-                      <p className="text-[#52605d]">
-                        Gender: <strong className="text-[#1b4332]">{selectedMember.gender}</strong>
-                      </p>
-                    )}
-                    {selectedMember.licenseNo && (
-                      <p className="text-[#52605d]">
-                        License No: <strong className="text-[#1b4332]">{selectedMember.licenseNo}</strong>
-                        {selectedMember.licenseExpiryDate && ` (Exp: ${selectedMember.licenseExpiryDate})`}
-                      </p>
-                    )}
-                    {(selectedMember.streetAddress || selectedMember.address) && (
-                      <p className="text-[#52605d]">
-                        Address:{' '}
-                        <strong className="text-[#1b4332]">
-                          {[
-                            selectedMember.streetAddress,
-                            cleanBarangayCityAddress(selectedMember.address, selectedMember.streetAddress)
-                          ].filter(Boolean).join(', ')}
-                        </strong>
-                      </p>
-                    )}
-                  </div>
 
-                  {(selectedMember.network || selectedMember.chapter || selectedMember.leadersName || selectedMember.leadersContactNo) && (
                     <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1.5 sm:space-y-2 col-span-1 sm:col-span-2">
-                      <span className="text-[#52605d] font-bold block text-[11px] sm:text-xs">BCC Information</span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-2 text-[#52605d]">
-                        {selectedMember.network && (
-                          <p>Network: <strong className="text-[#1b4332]">{selectedMember.network}</strong></p>
-                        )}
-                        {selectedMember.chapter && (
-                          <p>Chapter: <strong className="text-[#1b4332]">{selectedMember.chapter}</strong></p>
-                        )}
-                        {selectedMember.leadersName && (
-                          <p>Leader's Name: <strong className="text-[#1b4332]">{selectedMember.leadersName}</strong></p>
-                        )}
-                        {selectedMember.leadersContactNo && (
-                          <p>Leader's Contact No: <strong className="text-[#1b4332]">{selectedMember.leadersContactNo}</strong></p>
-                        )}
+                      <span className="text-[#52605d] font-bold block text-[11px] sm:text-xs">Emergency Contact</span>
+                      <p className="text-[#1b4332] font-semibold">
+                        {selectedMember.emergencyContact.name} ({selectedMember.emergencyContact.relationship})
+                      </p>
+                      <p className="text-[#52605d] flex items-center gap-2">
+                        <Phone className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                        {selectedMember.emergencyContact.phone}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Bike Garage Details */}
+                  <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2.5 sm:space-y-3">
+                    <span className="text-xs font-bold text-[#1b4332] flex items-center gap-2">
+                      <Bike className="w-4 h-4 text-[#2d6a4f]" />
+                      Motorcycle Specifications & Documents
+                    </span>
+
+                    {/* Motorcycle Photo Display */}
+                    <div className="rounded-xl sm:rounded-2xl overflow-hidden border border-[#e2ece2] bg-stone-900 relative shadow-xs group">
+                      <img
+                        src={
+                          selectedMember.bikeInfo.photoUrl ||
+                          'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800'
+                        }
+                        alt={`${selectedMember.bikeInfo.make || 'Motorcycle'} ${selectedMember.bikeInfo.model || ''}`}
+                        className="w-full h-32 sm:h-44 object-cover object-center transition-transform duration-300 group-hover:scale-105"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src =
+                            'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800';
+                        }}
+                      />
+                      <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg bg-[#1b4332]/90 backdrop-blur-md text-white text-[10px] sm:text-[11px] font-extrabold tracking-wide flex items-center gap-1.5 shadow-md border border-white/20">
+                        <Bike className="w-3.5 h-3.5 text-[#74c69d]" />
+                        <span>{selectedMember.bikeInfo.make} {selectedMember.bikeInfo.model}</span>
                       </div>
                     </div>
-                  )}
 
-                  <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-1.5 sm:space-y-2 col-span-1 sm:col-span-2">
-                    <span className="text-[#52605d] font-bold block text-[11px] sm:text-xs">Emergency Contact</span>
-                    <p className="text-[#1b4332] font-semibold">
-                      {selectedMember.emergencyContact.name} ({selectedMember.emergencyContact.relationship})
-                    </p>
-                    <p className="text-[#52605d] flex items-center gap-2">
-                      <Phone className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                      {selectedMember.emergencyContact.phone}
-                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 text-xs">
+                      <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
+                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Make</span>
+                        <strong className="text-[#1b4332] truncate block">{selectedMember.bikeInfo.make}</strong>
+                      </div>
+                      <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
+                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Model</span>
+                        <strong className="text-[#1b4332] truncate block">{selectedMember.bikeInfo.model}</strong>
+                      </div>
+                      <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
+                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Engine No.</span>
+                        <strong className="text-[#1b4332] truncate block">{selectedMember.bikeInfo.engineNo || 'N/A'}</strong>
+                      </div>
+                      <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
+                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Chassis No.</span>
+                        <strong className="text-[#2d6a4f] truncate block">{selectedMember.bikeInfo.chassisNo || 'N/A'}</strong>
+                      </div>
+                    </div>
+
+                    {(selectedMember.bikeInfo.plateNo || selectedMember.bikeInfo.licensePlate || selectedMember.bikeInfo.crNo || selectedMember.bikeInfo.orNo || selectedMember.bikeInfo.orExpiryDate) && (
+                      <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-xs pt-2 border-t border-[#e2ece2]">
+                        <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
+                          <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Plate No.</span>
+                          <strong className="text-[#1b4332] font-mono break-all">{selectedMember.bikeInfo.plateNo || selectedMember.bikeInfo.licensePlate || 'N/A'}</strong>
+                        </div>
+                        <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
+                          <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">CR No.</span>
+                          <strong className="text-[#1b4332] font-mono break-all">{selectedMember.bikeInfo.crNo || 'N/A'}</strong>
+                        </div>
+                        <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
+                          <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">OR No.</span>
+                          <strong className="text-[#1b4332] font-mono break-all">{selectedMember.bikeInfo.orNo || 'N/A'}</strong>
+                        </div>
+                        <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
+                          <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">OR Exp. Date</span>
+                          <strong className="text-[#2d6a4f] font-mono break-all">{selectedMember.bikeInfo.orExpiryDate || 'N/A'}</strong>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Bike Garage Details */}
-                <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2.5 sm:space-y-3">
-                  <span className="text-xs font-bold text-[#1b4332] flex items-center gap-2">
-                    <Bike className="w-4 h-4 text-[#2d6a4f]" />
-                    Motorcycle Specifications & Documents
-                  </span>
-
-                  {/* Motorcycle Photo Display */}
-                  <div className="rounded-xl sm:rounded-2xl overflow-hidden border border-[#e2ece2] bg-stone-900 relative shadow-xs group">
-                    <img
-                      src={
-                        selectedMember.bikeInfo.photoUrl ||
-                        'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800'
-                      }
-                      alt={`${selectedMember.bikeInfo.make || 'Motorcycle'} ${selectedMember.bikeInfo.model || ''}`}
-                      className="w-full h-32 sm:h-44 object-cover object-center transition-transform duration-300 group-hover:scale-105"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src =
-                          'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800';
-                      }}
-                    />
-                    <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg bg-[#1b4332]/90 backdrop-blur-md text-white text-[10px] sm:text-[11px] font-extrabold tracking-wide flex items-center gap-1.5 shadow-md border border-white/20">
-                      <Bike className="w-3.5 h-3.5 text-[#74c69d]" />
-                      <span>{selectedMember.bikeInfo.make} {selectedMember.bikeInfo.model}</span>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 text-xs">
-                    <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                      <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Make</span>
-                      <strong className="text-[#1b4332] truncate block">{selectedMember.bikeInfo.make}</strong>
-                    </div>
-                    <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                      <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Model</span>
-                      <strong className="text-[#1b4332] truncate block">{selectedMember.bikeInfo.model}</strong>
-                    </div>
-                    <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                      <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Engine No.</span>
-                      <strong className="text-[#1b4332] truncate block">{selectedMember.bikeInfo.engineNo || 'N/A'}</strong>
-                    </div>
-                    <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                      <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Chassis No.</span>
-                      <strong className="text-[#2d6a4f] truncate block">{selectedMember.bikeInfo.chassisNo || 'N/A'}</strong>
-                    </div>
-                  </div>
-
-                  {(selectedMember.bikeInfo.plateNo || selectedMember.bikeInfo.licensePlate || selectedMember.bikeInfo.crNo || selectedMember.bikeInfo.orNo || selectedMember.bikeInfo.orExpiryDate) && (
-                    <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-xs pt-2 border-t border-[#e2ece2]">
-                      <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">Plate No.</span>
-                        <strong className="text-[#1b4332] font-mono break-all">{selectedMember.bikeInfo.plateNo || selectedMember.bikeInfo.licensePlate || 'N/A'}</strong>
-                      </div>
-                      <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">CR No.</span>
-                        <strong className="text-[#1b4332] font-mono break-all">{selectedMember.bikeInfo.crNo || 'N/A'}</strong>
-                      </div>
-                      <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">OR No.</span>
-                        <strong className="text-[#1b4332] font-mono break-all">{selectedMember.bikeInfo.orNo || 'N/A'}</strong>
-                      </div>
-                      <div className="p-2 sm:p-2.5 rounded-xl bg-white border border-[#e2ece2]">
-                        <span className="text-[9.5px] sm:text-[10px] text-[#52605d] block">OR Exp. Date</span>
-                        <strong className="text-[#2d6a4f] font-mono break-all">{selectedMember.bikeInfo.orExpiryDate || 'N/A'}</strong>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Admin Quick Override Buttons */}
+                {/* Static Admin Controls at bottom of modal */}
                 {isAdmin && (
-                  <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2]">
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                      <span className="text-xs font-bold text-[#1b4332] flex items-center gap-2">
+                  <div className="p-3 sm:p-3.5 bg-[#f7f9f7] border-t border-[#e2ece2] shrink-0">
+                    <div className="flex items-center justify-between gap-2.5">
+                      <span className="text-xs font-bold text-[#1b4332] flex items-center gap-1.5 shrink-0">
                         <ShieldCheck className="w-4 h-4 text-[#2d6a4f]" />
-                        Admin Controls
+                        <span className="hidden xs:inline sm:inline">Admin Controls</span>
+                        <span className="xs:hidden sm:hidden">Admin</span>
                       </span>
                       <div className="flex items-center gap-2">
                         <button
@@ -911,7 +915,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                             setSelectedMember(null);
                             setEditingMember(target);
                           }}
-                          className="py-1.5 px-3 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs transition-colors"
+                          className="py-1.5 sm:py-2 px-3 sm:px-3.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs transition-colors active:scale-95 whitespace-nowrap"
                         >
                           <Pencil className="w-3.5 h-3.5 text-[#74c69d]" />
                           <span>Edit Info & Role</span>
@@ -926,7 +930,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                               type: 'delete',
                             });
                           }}
-                          className="py-1.5 px-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs transition-colors"
+                          className="py-1.5 sm:py-2 px-3 sm:px-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold cursor-pointer flex items-center gap-1.5 shadow-xs transition-colors active:scale-95 whitespace-nowrap"
                         >
                           <Trash2 className="w-3.5 h-3.5 text-rose-200" />
                           <span>Remove</span>
@@ -935,58 +939,60 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     </div>
                   </div>
                 )}
-              </div>
-            </motion.div>
-          </div>
+              </motion.div>
+            </div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 
       {/* Add Member Modal */}
       <AnimatePresence>
         {addModalOpen && (
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setAddModalOpen(false);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.2 }}
-              className="relative w-full max-w-lg sm:max-w-2xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden my-auto"
+          <ModalPortal>
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setAddModalOpen(false);
+              }}
             >
-              <div className="flex items-center justify-between p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
-                <div>
-                  <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-lg">
-                    Register New Club Member
-                  </h3>
-                  <p className="text-[10.5px] sm:text-xs text-[#52605d]">
-                    Enter member personal, emergency contact, and motorcycle registration details.
-                  </p>
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                className="relative w-full max-w-lg sm:max-w-2xl max-h-[82dvh] sm:max-h-[78dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden my-auto"
+              >
+                <div className="flex items-center justify-between p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+                  <div>
+                    <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-lg">
+                      Register New Club Member
+                    </h3>
+                    <p className="text-[10.5px] sm:text-xs text-[#52605d]">
+                      Enter member personal, emergency contact, and motorcycle registration details.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setAddModalOpen(false)}
+                    className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
+                  >
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setAddModalOpen(false)}
-                  className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
-                >
-                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
-                </button>
-              </div>
 
-              <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4 overscroll-contain pr-2 scroll-smooth">
-                <MemberRegistrationForm
-                  isAdminCreation={true}
-                  onSuccess={() => {
-                    setAddModalOpen(false);
-                    refreshList();
-                  }}
-                  onCancel={() => setAddModalOpen(false)}
-                />
-              </div>
-            </motion.div>
-          </div>
+                <div className="flex-1 overflow-y-auto p-3 sm:p-5 space-y-4 overscroll-contain pr-2 scroll-smooth">
+                  <MemberRegistrationForm
+                    isAdminCreation={true}
+                    onSuccess={() => {
+                      setAddModalOpen(false);
+                      refreshList();
+                    }}
+                    onCancel={() => setAddModalOpen(false)}
+                  />
+                </div>
+              </motion.div>
+            </div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 
@@ -1123,79 +1129,81 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       {/* Review Application Modal (Muted Read-Only Form) */}
       <AnimatePresence>
         {reviewingPendingUser && (
-          <div
-            className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setReviewingPendingUser(null);
-            }}
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 10 }}
-              transition={{ duration: 0.2 }}
-              className="relative w-full max-w-lg sm:max-w-2xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden my-auto"
+          <ModalPortal>
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setReviewingPendingUser(null);
+              }}
             >
-              <div className="flex items-center justify-between p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
-                <div className="min-w-0 pr-2">
-                  <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-lg truncate">
-                    Review Application: {reviewingPendingUser.name}
-                  </h3>
-                  <p className="text-[10.5px] sm:text-xs text-[#52605d] mt-0.5 truncate">
-                    Applicant details are displayed in read-only mode for review.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setReviewingPendingUser(null)}
-                  className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
-                >
-                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
-                </button>
-              </div>
-
-              <div className="overflow-y-auto flex-1 p-3 sm:p-5 space-y-4 overscroll-contain pr-2 scroll-smooth">
-                <MemberRegistrationForm
-                  initialData={reviewingPendingUser}
-                  isReadOnly={true}
-                />
-              </div>
-
-              {/* Action bar inside review modal */}
-              <div className="flex items-center justify-between gap-3 p-3 sm:p-4 border-t border-[#e2ece2] bg-[#f7f9f7] shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setReviewingPendingUser(null)}
-                  className="py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-white font-bold text-xs cursor-pointer transition-colors"
-                >
-                  Cancel
-                </button>
-
-                <div className="flex items-center gap-2">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                className="relative w-full max-w-lg sm:max-w-2xl max-h-[82dvh] sm:max-h-[78dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden my-auto"
+              >
+                <div className="flex items-center justify-between p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+                  <div className="min-w-0 pr-2">
+                    <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-lg truncate">
+                      Review Application: {reviewingPendingUser.name}
+                    </h3>
+                    <p className="text-[10.5px] sm:text-xs text-[#52605d] mt-0.5 truncate">
+                      Applicant details are displayed in read-only mode for review.
+                    </p>
+                  </div>
                   <button
                     type="button"
-                    onClick={() => {
-                      setConfirmModal({ type: 'reject', member: reviewingPendingUser });
-                    }}
-                    className="py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 cursor-pointer flex items-center gap-1.5 transition-colors"
+                    onClick={() => setReviewingPendingUser(null)}
+                    className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
                   >
-                    <Trash2 className="w-4 h-4 text-rose-600" />
-                    <span>Reject</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setConfirmModal({ type: 'approve', member: reviewingPendingUser });
-                    }}
-                    className="py-1.5 sm:py-2 px-3.5 sm:px-4 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors"
-                  >
-                    <CheckCircle2 className="w-4 h-4 text-[#74c69d]" />
-                    <span>Approve</span>
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
                 </div>
-              </div>
-            </motion.div>
-          </div>
+
+                <div className="overflow-y-auto flex-1 p-3 sm:p-5 space-y-4 overscroll-contain pr-2 scroll-smooth">
+                  <MemberRegistrationForm
+                    initialData={reviewingPendingUser}
+                    isReadOnly={true}
+                  />
+                </div>
+
+                {/* Action bar inside review modal */}
+                <div className="flex items-center justify-between gap-3 p-3 sm:p-4 border-t border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setReviewingPendingUser(null)}
+                    className="py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-white font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmModal({ type: 'reject', member: reviewingPendingUser });
+                      }}
+                      className="py-1.5 sm:py-2 px-3 sm:px-4 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs border border-rose-200 cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-600" />
+                      <span>Reject</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmModal({ type: 'approve', member: reviewingPendingUser });
+                      }}
+                      className="py-1.5 sm:py-2 px-3.5 sm:px-4 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-[#74c69d]" />
+                      <span>Approve</span>
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 
@@ -1224,167 +1232,169 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
       {/* Action Confirmation Modal (Approve / Reject / Delete) */}
       <AnimatePresence>
         {confirmModal && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md overflow-y-auto">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-sm sm:max-w-md rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] p-4 sm:p-6 space-y-3.5 sm:space-y-4 shadow-2xl text-[#2d3a3a]"
-            >
-              <div className="flex items-center gap-2.5 sm:gap-3 pb-2.5 sm:pb-3 border-b border-[#e2ece2]">
-                <div
-                  className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 ${
-                    confirmModal.type === 'approve'
-                      ? 'bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7]'
-                      : 'bg-rose-100 text-rose-700 border border-rose-200'
-                  }`}
-                >
+          <ModalPortal>
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="w-full max-w-sm sm:max-w-md rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] p-4 sm:p-6 space-y-3.5 sm:space-y-4 shadow-2xl text-[#2d3a3a] my-auto"
+              >
+                <div className="flex items-center gap-2.5 sm:gap-3 pb-2.5 sm:pb-3 border-b border-[#e2ece2]">
+                  <div
+                    className={`w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl flex items-center justify-center shrink-0 ${
+                      confirmModal.type === 'approve'
+                        ? 'bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7]'
+                        : 'bg-rose-100 text-rose-700 border border-rose-200'
+                    }`}
+                  >
+                    {confirmModal.type === 'approve' ? (
+                      <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-[#2d6a4f]" />
+                    ) : (
+                      <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-rose-600" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg leading-tight">
+                      {confirmModal.type === 'approve'
+                        ? 'Confirm Approval'
+                        : confirmModal.type === 'delete'
+                        ? 'Delete Member'
+                        : 'Reject Application'}
+                    </h3>
+                    <p className="text-[11px] sm:text-xs text-[#52605d]">
+                      {confirmModal.type === 'approve'
+                        ? 'Approve & activate membership'
+                        : confirmModal.type === 'delete'
+                        ? 'Permanently remove record'
+                        : 'Reject pending application'}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Member Summary Card */}
+                <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] flex items-center gap-2.5 sm:gap-3">
+                  <img
+                    src={confirmModal.member.avatar || DEFAULT_AVATAR}
+                    alt={confirmModal.member.name}
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
+                    }}
+                    className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-[#2d6a4f] shrink-0"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <h4 className="font-bold text-[#1b4332] text-xs sm:text-sm truncate">
+                      {confirmModal.member.name}
+                    </h4>
+                    <p className="text-[10px] sm:text-[11px] text-[#52605d] truncate">
+                      {confirmModal.member.email} • {confirmModal.member.phone || 'No phone'}
+                    </p>
+                    <p className="text-[10px] text-[#2d6a4f] font-semibold mt-0.5 truncate">
+                      Bike: {confirmModal.member.bikeInfo?.make || 'Yamaha'} {confirmModal.member.bikeInfo?.model || ''}
+                    </p>
+                  </div>
+                </div>
+
+                <p className="text-xs text-[#52605d] leading-relaxed">
                   {confirmModal.type === 'approve' ? (
-                    <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-[#2d6a4f]" />
+                    <>
+                      Approve <strong>{confirmModal.member.name}</strong>? Member will be activated and an approval email sent to{' '}
+                      <strong className="text-[#1b4332]">{confirmModal.member.email || 'member'}</strong>.
+                    </>
+                  ) : confirmModal.type === 'delete' ? (
+                    <>
+                      Permanently delete <strong>{confirmModal.member.name}</strong> from the club directory?
+                    </>
                   ) : (
-                    <AlertCircle className="w-5 h-5 sm:w-6 sm:h-6 text-rose-600" />
+                    <>
+                      Reject application for <strong>{confirmModal.member.name}</strong>? A status notification email will be sent to{' '}
+                      <strong className="text-rose-700">{confirmModal.member.email || 'applicant'}</strong>.
+                    </>
+                  )}
+                </p>
+
+                <div className="flex items-center justify-end gap-2.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmModal(null)}
+                    className="py-2 sm:py-2.5 px-3.5 sm:px-4 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-gray-100 font-bold text-xs cursor-pointer transition-colors whitespace-nowrap"
+                  >
+                    Cancel
+                  </button>
+
+                  {confirmModal.type === 'approve' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetId = confirmModal.member.id;
+                        handleApproveMember(targetId);
+                        setConfirmModal(null);
+                        if (reviewingPendingUser?.id === targetId) {
+                          setReviewingPendingUser(null);
+                        }
+                      }}
+                      className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    >
+                      <CheckCircle2 className="w-4 h-4 text-[#74c69d]" />
+                      <span>Approve</span>
+                    </button>
+                  ) : confirmModal.type === 'delete' ? (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const targetId = confirmModal.member.id;
+                        setConfirmModal(null);
+                        if (selectedMember?.id === targetId) {
+                          setSelectedMember(null);
+                        }
+                        if (reviewingPendingUser?.id === targetId) {
+                          setReviewingPendingUser(null);
+                        }
+                        await runWithLoader(
+                          async () => {
+                            store.deleteUser(targetId);
+                            refreshList();
+                          },
+                          {
+                            message: 'Deleting Member Record & Refreshing...',
+                            onComplete: () => {
+                              setSyncStatusMsg({
+                                type: 'success',
+                                text: 'Member record deleted.',
+                              });
+                              setTimeout(() => {
+                                setSyncStatusMsg(null);
+                              }, 2000);
+                            },
+                          }
+                        );
+                      }}
+                      className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-200" />
+                      <span>Delete</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const targetId = confirmModal.member.id;
+                        handleRejectMember(targetId);
+                        setConfirmModal(null);
+                        if (reviewingPendingUser?.id === targetId) {
+                          setReviewingPendingUser(null);
+                        }
+                      }}
+                      className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    >
+                      <Trash2 className="w-4 h-4 text-rose-200" />
+                      <span>Reject</span>
+                    </button>
                   )}
                 </div>
-                <div>
-                  <h3 className="font-heading font-extrabold text-[#1b4332] text-base sm:text-lg leading-tight">
-                    {confirmModal.type === 'approve'
-                      ? 'Confirm Approval'
-                      : confirmModal.type === 'delete'
-                      ? 'Delete Member'
-                      : 'Reject Application'}
-                  </h3>
-                  <p className="text-[11px] sm:text-xs text-[#52605d]">
-                    {confirmModal.type === 'approve'
-                      ? 'Approve & activate membership'
-                      : confirmModal.type === 'delete'
-                      ? 'Permanently remove record'
-                      : 'Reject pending application'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Member Summary Card */}
-              <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] flex items-center gap-2.5 sm:gap-3">
-                <img
-                  src={confirmModal.member.avatar || DEFAULT_AVATAR}
-                  alt={confirmModal.member.name}
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
-                  }}
-                  className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-[#2d6a4f] shrink-0"
-                />
-                <div className="min-w-0 flex-1">
-                  <h4 className="font-bold text-[#1b4332] text-xs sm:text-sm truncate">
-                    {confirmModal.member.name}
-                  </h4>
-                  <p className="text-[10px] sm:text-[11px] text-[#52605d] truncate">
-                    {confirmModal.member.email} • {confirmModal.member.phone || 'No phone'}
-                  </p>
-                  <p className="text-[10px] text-[#2d6a4f] font-semibold mt-0.5 truncate">
-                    Bike: {confirmModal.member.bikeInfo?.make || 'Yamaha'} {confirmModal.member.bikeInfo?.model || ''}
-                  </p>
-                </div>
-              </div>
-
-              <p className="text-xs text-[#52605d] leading-relaxed">
-                {confirmModal.type === 'approve' ? (
-                  <>
-                    Approve <strong>{confirmModal.member.name}</strong>? Member will be activated and an approval email sent to{' '}
-                    <strong className="text-[#1b4332]">{confirmModal.member.email || 'member'}</strong>.
-                  </>
-                ) : confirmModal.type === 'delete' ? (
-                  <>
-                    Permanently delete <strong>{confirmModal.member.name}</strong> from the club directory?
-                  </>
-                ) : (
-                  <>
-                    Reject application for <strong>{confirmModal.member.name}</strong>? A status notification email will be sent to{' '}
-                    <strong className="text-rose-700">{confirmModal.member.email || 'applicant'}</strong>.
-                  </>
-                )}
-              </p>
-
-              <div className="flex items-center justify-end gap-2.5 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setConfirmModal(null)}
-                  className="py-2 sm:py-2.5 px-3.5 sm:px-4 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-gray-100 font-bold text-xs cursor-pointer transition-colors whitespace-nowrap"
-                >
-                  Cancel
-                </button>
-
-                {confirmModal.type === 'approve' ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const targetId = confirmModal.member.id;
-                      handleApproveMember(targetId);
-                      setConfirmModal(null);
-                      if (reviewingPendingUser?.id === targetId) {
-                        setReviewingPendingUser(null);
-                      }
-                    }}
-                    className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                  >
-                    <CheckCircle2 className="w-4 h-4 text-[#74c69d]" />
-                    <span>Approve</span>
-                  </button>
-                ) : confirmModal.type === 'delete' ? (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const targetId = confirmModal.member.id;
-                      setConfirmModal(null);
-                      if (selectedMember?.id === targetId) {
-                        setSelectedMember(null);
-                      }
-                      if (reviewingPendingUser?.id === targetId) {
-                        setReviewingPendingUser(null);
-                      }
-                      await runWithLoader(
-                        async () => {
-                          store.deleteUser(targetId);
-                          refreshList();
-                        },
-                        {
-                          message: 'Deleting Member Record & Refreshing...',
-                          onComplete: () => {
-                            setSyncStatusMsg({
-                              type: 'success',
-                              text: 'Member record deleted.',
-                            });
-                            setTimeout(() => {
-                              setSyncStatusMsg(null);
-                            }, 2000);
-                          },
-                        }
-                      );
-                    }}
-                    className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                  >
-                    <Trash2 className="w-4 h-4 text-rose-200" />
-                    <span>Delete</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const targetId = confirmModal.member.id;
-                      handleRejectMember(targetId);
-                      setConfirmModal(null);
-                      if (reviewingPendingUser?.id === targetId) {
-                        setReviewingPendingUser(null);
-                      }
-                    }}
-                    className="py-2 sm:py-2.5 px-4 sm:px-5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs shadow-md cursor-pointer flex items-center gap-1.5 transition-colors whitespace-nowrap"
-                  >
-                    <Trash2 className="w-4 h-4 text-rose-200" />
-                    <span>Reject</span>
-                  </button>
-                )}
-              </div>
-            </motion.div>
-          </div>
+              </motion.div>
+            </div>
+          </ModalPortal>
         )}
       </AnimatePresence>
     </div>

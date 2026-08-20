@@ -12,6 +12,8 @@ import {
 import { FinanceRecord, ExpenseRecord, User, DynamicCollection, FinanceYearArchive } from '../types';
 import { store } from '../lib/db';
 import { buildArchivePackageData, downloadZipArchive } from '../lib/yearlyArchiveUtils';
+import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 
 interface YearlyArchiveModalProps {
   isOpen: boolean;
@@ -35,6 +37,7 @@ export const YearlyArchiveModal: React.FC<YearlyArchiveModalProps> = ({
   currentUser = null,
   onArchiveComplete,
 }) => {
+  useModalDismiss(isOpen, onClose);
   const currentCalYear = new Date().getFullYear();
   const defaultYear = currentCalYear - 1 > 2023 ? currentCalYear - 1 : currentCalYear;
   const [yearInput, setYearInput] = useState<string>(String(defaultYear));
@@ -188,8 +191,9 @@ export const YearlyArchiveModal: React.FC<YearlyArchiveModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/70 backdrop-blur-md overflow-y-auto animate-fadeIn">
-      <div className="bg-white rounded-2xl sm:rounded-3xl max-w-xl w-full p-3.5 sm:p-5 md:p-6 shadow-2xl border border-[#e2ece2] flex flex-col max-h-[92dvh] my-auto">
+    <ModalPortal>
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/70 backdrop-blur-md overflow-y-auto animate-fadeIn">
+        <div className="bg-white rounded-2xl sm:rounded-3xl max-w-xl w-full p-3.5 sm:p-5 md:p-6 shadow-2xl border border-[#e2ece2] flex flex-col max-h-[92dvh] my-auto">
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-[#e2ece2] pb-2.5 sm:pb-3 shrink-0 gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -437,5 +441,6 @@ export const YearlyArchiveModal: React.FC<YearlyArchiveModalProps> = ({
         </div>
       </div>
     </div>
-  );
+  </ModalPortal>
+);
 };

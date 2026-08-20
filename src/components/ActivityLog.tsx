@@ -106,20 +106,38 @@ export const ActivityLog: React.FC = () => {
   useModalDismiss(isCreateModalOpen, () => setIsCreateModalOpen(false));
   useModalDismiss(Boolean(activityToDelete), () => setActivityToDelete(null));
 
-  const fetchActivities = () => {
-    setIsLoadingActivities(true);
+  const fetchActivities = (silent = false) => {
+    if (!silent) setIsLoadingActivities(true);
     safeFetchJson('/api/mongodb/activities')
-      .then((data) => setActivities(data.data || []))
+      .then((data) => {
+        if (data.data && Array.isArray(data.data)) {
+          setActivities(data.data);
+          // If modal is open, sync the open activity
+          setSelectedActivityForModal((prev) => {
+            if (!prev) return null;
+            const updated = data.data.find((a: Activity) => a.id === prev.id || a.name.toLowerCase().trim() === prev.name.toLowerCase().trim());
+            return updated || prev;
+          });
+        }
+      })
       .catch((err) => console.error(err))
-      .finally(() => setIsLoadingActivities(false));
+      .finally(() => {
+        if (!silent) setIsLoadingActivities(false);
+      });
   };
 
-  const fetchAttendanceLogs = () => {
-    setIsLoadingLogs(true);
+  const fetchAttendanceLogs = (silent = false) => {
+    if (!silent) setIsLoadingLogs(true);
     safeFetchJson('/api/mongodb/attendanceLogs')
-      .then((data) => setAttendanceLogs(data.data || []))
+      .then((data) => {
+        if (data.data && Array.isArray(data.data)) {
+          setAttendanceLogs(data.data);
+        }
+      })
       .catch((err) => console.error('Error fetching attendanceLogs:', err))
-      .finally(() => setIsLoadingLogs(false));
+      .finally(() => {
+        if (!silent) setIsLoadingLogs(false);
+      });
   };
 
   useEffect(() => {
@@ -154,6 +172,87 @@ export const ActivityLog: React.FC = () => {
         }
       })
       .catch((err) => console.error(err));
+
+    // Real-time listener for scans and updates within the same application session
+    const handleRealtimeUpdate = (e: CustomEvent) => {
+      const detail = e.detail;
+      if (detail?.activity) {
+        setActivities((prev) => {
+          const exists = prev.some(
+            (a) => a.id === detail.activity.id || a.name.toLowerCase().trim() === detail.activity.name.toLowerCase().trim()
+          );
+          if (exists) {
+            return prev.map((a) =>
+              a.id === detail.activity.id || a.name.toLowerCase().trim() === detail.activity.name.toLowerCase().trim()
+                ? detail.activity
+                : a
+            );
+          }
+          return [detail.activity, ...prev];
+        });
+
+        setSelectedActivityForModal((prev) => {
+          if (!prev) return null;
+          if (prev.id === detail.activity.id || prev.name.toLowerCase().trim() === detail.activity.name.toLowerCase().trim()) {
+            return detail.activity;
+          }
+          return prev;
+        });
+      }
+
+      if (detail?.attendanceLog) {
+        setAttendanceLogs((prev) => {
+          const already = prev.some((l) => l.id === detail.attendanceLog.id);
+          if (already) return prev;
+          return [detail.attendanceLog, ...prev];
+        });
+      }
+
+      // Silent sync with server in background
+      fetchActivities(true);
+      fetchAttendanceLogs(true);
+    };
+
+    // Cross-tab synchronization
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'bcc_activity_sync_time' || e.key === 'bcc_events_v2') {
+        fetchActivities(true);
+        fetchAttendanceLogs(true);
+      }
+    };
+
+    const handleFocus = () => {
+      fetchActivities(true);
+      fetchAttendanceLogs(true);
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchActivities(true);
+        fetchAttendanceLogs(true);
+      }
+    };
+
+    window.addEventListener('bcc_activities_updated', handleRealtimeUpdate as EventListener);
+    window.addEventListener('bcc_attendance_updated', handleRealtimeUpdate as EventListener);
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // Periodic silent background polling (every 3.5s) to guarantee real-time updates across multiple devices/scanners
+    const interval = setInterval(() => {
+      fetchActivities(true);
+      fetchAttendanceLogs(true);
+    }, 3500);
+
+    return () => {
+      window.removeEventListener('bcc_activities_updated', handleRealtimeUpdate as EventListener);
+      window.removeEventListener('bcc_attendance_updated', handleRealtimeUpdate as EventListener);
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(interval);
+    };
   }, []);
 
   const filteredActivities = activities.filter((a) =>
@@ -178,6 +277,13 @@ export const ActivityLog: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newActivity),
       });
+
+      window.dispatchEvent(
+        new CustomEvent('bcc_activities_updated', {
+          detail: { activity: newActivity },
+        })
+      );
+      localStorage.setItem('bcc_activity_sync_time', Date.now().toString());
     } catch (err) {
       console.error(err);
     }
@@ -208,6 +314,13 @@ export const ActivityLog: React.FC = () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updatedActivity),
         });
+
+        window.dispatchEvent(
+          new CustomEvent('bcc_activities_updated', {
+            detail: { activity: updatedActivity },
+          })
+        );
+        localStorage.setItem('bcc_activity_sync_time', Date.now().toString());
       } catch (err) {
         console.error(err);
       }
@@ -238,10 +351,16 @@ export const ActivityLog: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: activityName, id: activityId }),
       });
+
+      window.dispatchEvent(
+        new CustomEvent('bcc_activities_updated', {
+          detail: { deletedActivityId: activityId },
+        })
+      );
+      localStorage.setItem('bcc_activity_sync_time', Date.now().toString());
     } catch (err) {
       console.error('Failed to delete activity:', err);
     }
-    window.location.reload();
   };
 
   const handleOpenActivityLogsModal = (activity: Activity) => {

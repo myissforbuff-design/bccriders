@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import jsQR from 'jsqr';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 import { safeFetchJson } from '../lib/db';
 import {
   QrCode,
@@ -89,6 +90,28 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   const [showEventModal, setShowEventModal] = useState<boolean>(false);
   const [manualInputId, setManualInputId] = useState<string>('');
 
+  // Synchronous references to prevent race conditions during rapid continuous frame scanning
+  const activitiesRef = useRef<Activity[]>(activities);
+  activitiesRef.current = activities;
+
+  const selectedActivityIdRef = useRef<string>(selectedActivityId);
+  selectedActivityIdRef.current = selectedActivityId;
+
+  const isModalOpenRef = useRef<boolean>(false);
+  isModalOpenRef.current = Boolean(scannedMemberModal || alreadyScannedMemberModal || showEventModal);
+
+  const dismissScannedModal = useCallback(() => {
+    setScannedMemberModal(null);
+    lastScannedTextRef.current = '';
+    lastScannedTimeRef.current = 0;
+  }, []);
+
+  const dismissDuplicateModal = useCallback(() => {
+    setAlreadyScannedMemberModal(null);
+    lastScannedTextRef.current = '';
+    lastScannedTimeRef.current = 0;
+  }, []);
+
   const handleCloseScan = useCallback(() => {
     if (!setActiveTab) return;
     const isAdmin = currentUser?.role === 'admin';
@@ -100,8 +123,8 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   }, [currentUser, setActiveTab]);
 
   useModalDismiss(true, handleCloseScan);
-  useModalDismiss(Boolean(scannedMemberModal), () => setScannedMemberModal(null));
-  useModalDismiss(Boolean(alreadyScannedMemberModal), () => setAlreadyScannedMemberModal(null));
+  useModalDismiss(Boolean(scannedMemberModal), dismissScannedModal);
+  useModalDismiss(Boolean(alreadyScannedMemberModal), dismissDuplicateModal);
   useModalDismiss(showEventModal, () => setShowEventModal(false));
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -162,10 +185,12 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     safeFetchJson('/api/mongodb/activities')
       .then(data => {
         const loaded: Activity[] = data.data || [];
+        activitiesRef.current = loaded;
         setActivities(loaded);
-        if (loaded.length > 0 && !selectedActivityId) {
+        if (loaded.length > 0 && !selectedActivityIdRef.current) {
           const openOne = loaded.find(a => a.status === 'Open' && !isEventDone(a)) || loaded[0];
           setSelectedActivityId(openOne.id);
+          selectedActivityIdRef.current = openOne.id;
         }
       })
       .catch(err => console.error('Error fetching activities:', err));
@@ -173,6 +198,34 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
   useEffect(() => {
     loadActivities();
+
+    const handleActivitiesUpdate = (e: CustomEvent) => {
+      if (e.detail?.activity) {
+        setActivities(prev => {
+          const act = e.detail.activity;
+          const exists = prev.some(a => a.id === act.id);
+          const updated = exists ? prev.map(a => a.id === act.id ? act : a) : [act, ...prev];
+          activitiesRef.current = updated;
+          return updated;
+        });
+      } else {
+        loadActivities();
+      }
+    };
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'bcc_activity_sync_time') {
+        loadActivities();
+      }
+    };
+
+    window.addEventListener('bcc_activities_updated', handleActivitiesUpdate as EventListener);
+    window.addEventListener('storage', handleStorage);
+
+    return () => {
+      window.removeEventListener('bcc_activities_updated', handleActivitiesUpdate as EventListener);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, []);
 
   const selectedActivity = activities.find(a => a.id === selectedActivityId);
@@ -285,18 +338,23 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   };
 
   const handleScannedData = async (decodedText: string) => {
-    if (!selectedActivityId) return;
+    // If a modal is open, prevent camera frame ingestion
+    if (isModalOpenRef.current) return;
 
-    const activeAct = activities.find(a => a.id === selectedActivityId);
+    const currentActId = selectedActivityIdRef.current;
+    if (!currentActId) return;
+
+    const currentActivities = activitiesRef.current;
+    const activeAct = currentActivities.find(a => a.id === currentActId);
     if (isEventDone(activeAct)) {
       setScanSuccessMessage(`⚠️ Scanning is disabled for "${activeAct?.name || 'this event'}". The event is completed or date has passed.`);
       setTimeout(() => setScanSuccessMessage(null), 5000);
       return;
     }
 
-    // Debounce duplicate scans within 2.5s
+    // Debounce rapid continuous frame detections of exact same text within 1200ms
     const now = Date.now();
-    if (decodedText === lastScannedTextRef.current && now - lastScannedTimeRef.current < 2500) {
+    if (decodedText === lastScannedTextRef.current && now - lastScannedTimeRef.current < 1200) {
       return;
     }
     lastScannedTextRef.current = decodedText;
@@ -314,50 +372,63 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
       return;
     }
 
-    let isAlreadyScanned = false;
+    // Check duplicate SYNCHRONOUSLY using current activities state & ref
+    const memIdClean = (parsedData.memberId || '').toLowerCase().trim();
+    const memIdDigits = memIdClean.replace(/[^a-z0-9]/g, '');
+    const memNameClean = (parsedData.name || '').toLowerCase().trim();
 
-    setActivities(prev => prev.map(a => {
-      if (a.id === selectedActivityId) {
-        const memIdClean = (parsedData.memberId || '').toLowerCase().trim();
-        const memNameClean = (parsedData.name || '').toLowerCase().trim();
+    const existingAttendance = activeAct?.attendance || [];
+    const isAlreadyScanned = existingAttendance.some(att => {
+      const attIdClean = (att.memberId || '').toLowerCase().trim();
+      const attIdDigits = attIdClean.replace(/[^a-z0-9]/g, '');
+      const attNameClean = (att.name || '').toLowerCase().trim();
 
-        const alreadyInActivity = a.attendance.some(att => {
-          const attIdClean = (att.memberId || '').toLowerCase().trim();
-          const attNameClean = (att.name || '').toLowerCase().trim();
-          if (memIdClean && attIdClean && memIdClean === attIdClean) return true;
-          if (memNameClean && attNameClean && attNameClean !== 'member' && memNameClean === attNameClean) return true;
-          return false;
-        });
+      // 1. Direct ID matching or normalized alphanumeric match (e.g. BRC-0002 vs brc0002)
+      if (memIdClean && attIdClean && memIdClean === attIdClean) return true;
+      if (memIdDigits && attIdDigits && memIdDigits === attIdDigits) return true;
 
-        if (alreadyInActivity) {
-          isAlreadyScanned = true;
-          return a;
-        }
+      // 2. Direct name matching
+      if (memNameClean && attNameClean && attNameClean !== 'member' && attNameClean !== 'unregistered member' && memNameClean === attNameClean) return true;
 
-        const updatedActivity = {
-          ...a,
-          attendance: [parsedData, ...a.attendance]
-        };
-
-        // Save updated activity to database
-        fetch('/api/mongodb/activities', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updatedActivity)
-        }).catch(err => console.error('Error saving activity:', err));
-
-        return updatedActivity;
-      }
-      return a;
-    }));
+      return false;
+    });
 
     if (isAlreadyScanned) {
       setScannedMemberModal(null);
       setAlreadyScannedMemberModal(parsedData);
-      setScanSuccessMessage(`⚠️ Member is already scanned! (${parsedData.name})`);
+      setScanSuccessMessage(`⚠️ Member has already been scanned for this event (${parsedData.name}).`);
       setTimeout(() => setScanSuccessMessage(null), 4000);
       return;
     }
+
+    // Build updated activity with newly logged attendance
+    const updatedAttendance = [parsedData, ...existingAttendance];
+    const updatedActivity: Activity = {
+      ...(activeAct || {
+        id: currentActId,
+        name: 'Event',
+        date: new Date().toISOString().split('T')[0],
+        status: 'Open' as const,
+        attendance: []
+      }),
+      attendance: updatedAttendance
+    };
+
+    const newActivities = currentActivities.map(a => a.id === currentActId ? updatedActivity : a);
+    if (!currentActivities.some(a => a.id === currentActId)) {
+      newActivities.push(updatedActivity);
+    }
+
+    // Immediately update ref so synchronous duplicate checks in consecutive scans see the member instantly
+    activitiesRef.current = newActivities;
+    setActivities(newActivities);
+
+    // Save updated activity to database
+    fetch('/api/mongodb/activities', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updatedActivity)
+    }).catch(err => console.error('Error saving activity:', err));
 
     // Save entry to MongoDB "attendanceLogs" collection table
     const eventName = activeAct?.name || 'No event created';
@@ -389,8 +460,8 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
     const attendanceLogEntry = {
       id: `attlog_${Date.now()}_${Math.floor(1000 + Math.random() * 9000)}`,
-      activityId: selectedActivityId,
-      "Activity ID": selectedActivityId,
+      activityId: currentActId,
+      "Activity ID": currentActId,
       "Event Name": eventName,
       "Event Date": eventDate,
       "Member ID": parsedData.memberId,
@@ -416,10 +487,27 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
       body: JSON.stringify(attendanceLogEntry)
     }).catch(err => console.error('Error saving to mongodb attendanceLogs:', err));
 
+    // Dispatch global events for instant real-time sync across Admin Activity Management & Attendance Tracker
+    try {
+      window.dispatchEvent(new CustomEvent('bcc_activities_updated', {
+        detail: { activity: updatedActivity, attendanceLog: attendanceLogEntry }
+      }));
+      window.dispatchEvent(new CustomEvent('bcc_attendance_updated', {
+        detail: { activity: updatedActivity, attendanceLog: attendanceLogEntry }
+      }));
+      localStorage.setItem('bcc_activity_sync_time', Date.now().toString());
+    } catch (e) {
+      console.error('Error dispatching activity update event:', e);
+    }
+
+    setAlreadyScannedMemberModal(null);
     setScannedMemberModal(parsedData);
     setScanSuccessMessage(`✅ Successfully recorded attendance for ${parsedData.name} (${parsedData.memberId})!`);
     setTimeout(() => setScanSuccessMessage(null), 5000);
   };
+
+  const handleScannedDataRef = useRef<(code: string) => Promise<void>>(handleScannedData);
+  handleScannedDataRef.current = handleScannedData;
 
   // Toggle flashlight / torch on camera stream if available
   const toggleTorch = async () => {
@@ -549,8 +637,8 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
             inversionAttempts: 'dontInvert',
           });
 
-          if (code && code.data && !isEventDone(activities.find(a => a.id === selectedActivityId))) {
-            handleScannedData(code.data);
+          if (code && code.data && !isModalOpenRef.current) {
+            handleScannedDataRef.current(code.data);
           }
         }
         animationFrameRef.current = requestAnimationFrame(scanFrame);
@@ -868,253 +956,270 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
       {/* Change Event Context Modal */}
       {showEventModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-[100] animate-fadeIn">
-          <div className="bg-white w-full max-w-md rounded-[32px] p-6 shadow-2xl relative space-y-5 border border-[#e2ece2]">
-            <div className="flex items-center justify-between pb-3 border-b border-[#e2ece2]">
-              <div className="flex items-center gap-2">
-                <Calendar className="w-5 h-5 text-[#2d6a4f]" />
-                <h3 className="font-extrabold text-[#1b4332] text-sm">Select Active Event Context</h3>
+        <ModalPortal>
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-[9999] animate-fadeIn">
+            <div className="bg-white w-full max-w-sm sm:max-w-md rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-2xl relative space-y-3.5 border border-[#e2ece2] my-auto flex flex-col max-h-[82dvh]">
+              <div className="flex items-center justify-between pb-2.5 border-b border-[#e2ece2] shrink-0">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-[#2d6a4f]" />
+                  <h3 className="font-extrabold text-[#1b4332] text-xs sm:text-sm">Select Active Event Context</h3>
+                </div>
+                <button
+                  onClick={() => setShowEventModal(false)}
+                  className="text-stone-400 hover:text-stone-700 font-bold p-1 rounded-full hover:bg-stone-100 cursor-pointer transition-colors"
+                >
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
               </div>
-              <button
-                onClick={() => setShowEventModal(false)}
-                className="text-gray-400 hover:text-gray-700 font-bold p-1 rounded-full cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
 
-            <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-              {activities.length === 0 ? (
-                <p className="text-xs text-gray-500 text-center py-4">No events found.</p>
-              ) : (
-                activities.map(act => {
-                  const actDone = isEventDone(act);
-                  return (
-                    <button
-                      key={act.id}
-                      onClick={() => {
-                        setSelectedActivityId(act.id);
-                        setShowEventModal(false);
-                      }}
-                      className={`w-full text-left p-3.5 rounded-2xl border text-xs flex items-center justify-between transition-all cursor-pointer ${
-                        act.id === selectedActivityId
-                          ? 'border-[#2d6a4f] bg-[#f7f9f7] font-extrabold text-[#1b4332]'
-                          : 'border-[#e2ece2] hover:bg-stone-50 text-[#52605d]'
-                      }`}
-                    >
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-[#1b4332]">{act.name}</p>
-                          {actDone ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
-                              Closed / Date Passed
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 font-mono">
-                              Active
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] text-[#52605d]">
-                          Date: {new Date(act.date).toLocaleDateString()} | Records: {act.attendance.length}
-                        </p>
-                      </div>
-                      {act.id === selectedActivityId && (
-                        <CheckCircle className="w-4 h-4 text-[#2d6a4f] shrink-0" />
-                      )}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-
-            <button
-              onClick={() => setShowEventModal(false)}
-              className="w-full py-3 bg-[#2d6a4f] hover:bg-[#1b4332] text-white font-extrabold text-xs rounded-2xl transition-colors cursor-pointer"
-            >
-              Done / Save Choice
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Scanned Verification Modal Dialog */}
-      {scannedMemberModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-[100] animate-fadeIn">
-          <div className="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl relative space-y-4 border border-[#e2ece2]">
-            <button
-              onClick={() => setScannedMemberModal(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 font-bold cursor-pointer"
-            >
-              <XCircle className="w-6 h-6" />
-            </button>
-
-            <div className="flex flex-col items-center text-center space-y-3 pt-2">
-              {/* Member Avatar */}
-              <div className="relative">
-                {scannedMemberModal.avatar ? (
-                  <img
-                    src={scannedMemberModal.avatar}
-                    alt={scannedMemberModal.name}
-                    className="w-20 h-20 rounded-full object-cover border-4 border-[#74c69d] shadow-md"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
-                    }}
-                  />
+              <div className="space-y-2 flex-1 overflow-y-auto pr-1">
+                {activities.length === 0 ? (
+                  <p className="text-xs text-stone-500 text-center py-4">No events found.</p>
                 ) : (
-                  <div className="w-20 h-20 rounded-full bg-emerald-50 border-2 border-emerald-200 text-emerald-700 flex items-center justify-center shadow-xs">
-                    <UserIcon className="w-10 h-10" />
-                  </div>
+                  activities.map(act => {
+                    const actDone = isEventDone(act);
+                    return (
+                      <button
+                        key={act.id}
+                        onClick={() => {
+                          setSelectedActivityId(act.id);
+                          setShowEventModal(false);
+                        }}
+                        className={`w-full text-left p-3 rounded-xl sm:rounded-2xl border text-xs flex items-center justify-between transition-all cursor-pointer ${
+                          act.id === selectedActivityId
+                            ? 'border-[#2d6a4f] bg-[#f7f9f7] font-extrabold text-[#1b4332]'
+                            : 'border-[#e2ece2] hover:bg-stone-50 text-[#52605d]'
+                        }`}
+                      >
+                        <div className="space-y-0.5 min-w-0 pr-2">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="font-bold text-[#1b4332] text-xs truncate">{act.name}</p>
+                            {actDone ? (
+                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
+                                Closed
+                              </span>
+                            ) : (
+                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 font-mono">
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] sm:text-[11px] text-[#52605d]">
+                            Date: {new Date(act.date).toLocaleDateString()} | Records: {act.attendance.length}
+                          </p>
+                        </div>
+                        {act.id === selectedActivityId && (
+                          <CheckCircle className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                        )}
+                      </button>
+                    );
+                  })
                 )}
               </div>
 
-              <div>
-                <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-extrabold uppercase tracking-wider">
-                  Verification Success
-                </span>
-                <h3 className="text-lg font-extrabold text-[#1b4332] mt-2">
-                  {scannedMemberModal.name}
-                </h3>
-                <p className="text-xs font-mono font-bold text-[#2d6a4f]">
-                  Member ID: #{scannedMemberModal.memberId}
-                </p>
-                <p className="text-xs text-[#52605d]">
-                  Network / Chapter: {scannedMemberModal.network}
-                </p>
-              </div>
+              <button
+                onClick={() => setShowEventModal(false)}
+                className="w-full py-2.5 sm:py-3 bg-[#2d6a4f] hover:bg-[#1b4332] active:scale-95 text-white font-extrabold text-xs rounded-xl sm:rounded-2xl transition-colors cursor-pointer shrink-0"
+              >
+                Done / Save Choice
+              </button>
             </div>
+          </div>
+        </ModalPortal>
+      )}
 
-            {/* Registered Motorcycle Details */}
-            <div className="p-3 bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] text-xs space-y-2">
-              <div className="flex items-center gap-2 pb-1.5 border-b border-[#e2ece2]">
-                <Bike className="w-4 h-4 text-[#2d6a4f]" />
-                <span className="font-extrabold text-[#1b4332]">Registered Motorcycle</span>
-              </div>
-              {scannedMemberModal.bikeInfo && (scannedMemberModal.bikeInfo.make || scannedMemberModal.bikeInfo.model) ? (
-                <div className="space-y-2">
-                  {scannedMemberModal.bikeInfo.photoUrl && (
-                    <div className="rounded-xl overflow-hidden border border-[#e2ece2] max-h-36 bg-stone-900">
-                      <img
-                        src={scannedMemberModal.bikeInfo.photoUrl}
-                        alt="Motorcycle"
-                        className="w-full h-32 object-cover"
-                      />
+      {/* Scanned Verification Modal Dialog (Small & Scrollable) */}
+      {scannedMemberModal && (
+        <ModalPortal>
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-[9999] animate-fadeIn">
+            <div className="bg-white w-full max-w-[340px] sm:max-w-sm rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xl relative flex flex-col max-h-[78dvh] sm:max-h-[82dvh] border border-[#e2ece2] my-auto overflow-hidden text-[#2d3a3a]">
+              {/* Close Button */}
+              <button
+                onClick={dismissScannedModal}
+                className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 p-1 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors z-20 cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+
+              {/* Compact Header */}
+              <div className="flex flex-col items-center text-center space-y-1.5 pt-0.5 shrink-0">
+                {/* Member Avatar */}
+                <div className="relative">
+                  {scannedMemberModal.avatar ? (
+                    <img
+                      src={scannedMemberModal.avatar}
+                      alt={scannedMemberModal.name}
+                      className="w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover border-2 sm:border-[3px] border-[#74c69d] shadow-xs"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-full bg-emerald-50 border-2 border-emerald-200 text-emerald-700 flex items-center justify-center shadow-xs">
+                      <UserIcon className="w-6 h-6 sm:w-7 sm:h-7" />
                     </div>
                   )}
-                  <div className="grid grid-cols-2 gap-2 text-[11px] text-[#52605d]">
-                    <div>
-                      <span className="block text-[10px] font-bold text-gray-400">Make & Model</span>
-                      <strong className="text-[#1b4332]">{scannedMemberModal.bikeInfo.make || ''} {scannedMemberModal.bikeInfo.model || 'N/A'}</strong>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] font-bold text-gray-400">Model Year</span>
-                      <strong className="text-[#1b4332]">{scannedMemberModal.bikeInfo.year || 'N/A'}</strong>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] font-bold text-gray-400">Displacement</span>
-                      <strong className="text-[#2d6a4f]">{scannedMemberModal.bikeInfo.engineCc ? (scannedMemberModal.bikeInfo.engineCc.toString().toLowerCase().endsWith('cc') ? scannedMemberModal.bikeInfo.engineCc : `${scannedMemberModal.bikeInfo.engineCc} cc`) : 'N/A'}</strong>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] font-bold text-gray-400">Plate Number</span>
-                      <strong className="text-[#1b4332] font-mono">{scannedMemberModal.bikeInfo.licensePlate || scannedMemberModal.bikeInfo.plateNo || 'N/A'}</strong>
-                    </div>
-                  </div>
                 </div>
-              ) : (
-                <p className="text-[#52605d] text-center text-[11px] py-1 italic">No motorcycle details recorded</p>
-              )}
-            </div>
 
-            {/* Event Attendance Context */}
-            <div className="p-2.5 bg-emerald-50/60 rounded-2xl border border-emerald-200 text-xs text-center space-y-0.5">
-              <p className="font-bold text-[#1b4332]">Recorded for Event:</p>
-              <p className="text-[#2d6a4f] font-bold">{selectedActivity?.name || 'No event created'}</p>
-              <p className="text-[11px] text-[#52605d] font-mono">{scannedMemberModal.date} {scannedMemberModal.time}</p>
-            </div>
+                <div>
+                  <span className="px-2.5 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[9px] sm:text-[9.5px] font-extrabold uppercase tracking-wider inline-block">
+                    Verification Success
+                  </span>
+                  <h3 className="text-sm sm:text-base font-extrabold text-[#1b4332] mt-0.5 leading-tight truncate max-w-[260px]">
+                    {scannedMemberModal.name}
+                  </h3>
+                  <p className="text-[10.5px] sm:text-xs font-mono font-bold text-[#2d6a4f]">
+                    Member ID: #{scannedMemberModal.memberId}
+                  </p>
+                  <p className="text-[9.5px] sm:text-[10.5px] text-[#52605d] truncate max-w-[260px]">
+                    Network / Chapter: {scannedMemberModal.network || 'Main Chapter'}
+                  </p>
+                </div>
+              </div>
 
-            <button
-              onClick={() => setScannedMemberModal(null)}
-              className="w-full py-3 bg-[#2d6a4f] hover:bg-[#1b4332] text-white font-extrabold text-xs rounded-2xl shadow-xs cursor-pointer transition-colors"
-            >
-              Done / Continue Scanning
-            </button>
+              {/* Scrollable Content Body */}
+              <div className="flex-1 overflow-y-auto overscroll-contain pr-1 space-y-2 my-2 scroll-smooth">
+                {/* Registered Motorcycle Details */}
+                <div className="p-2 sm:p-2.5 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] space-y-1.5">
+                  <div className="flex items-center gap-1.5 pb-1 border-b border-[#e2ece2]">
+                    <Bike className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                    <span className="text-[10.5px] sm:text-[11px] font-extrabold text-[#1b4332]">Registered Motorcycle</span>
+                  </div>
+                  {scannedMemberModal.bikeInfo && (scannedMemberModal.bikeInfo.make || scannedMemberModal.bikeInfo.model) ? (
+                    <div className="space-y-1.5">
+                      {scannedMemberModal.bikeInfo.photoUrl && (
+                        <div className="rounded-lg overflow-hidden border border-[#e2ece2] max-h-24 sm:max-h-28 bg-stone-900">
+                          <img
+                            src={scannedMemberModal.bikeInfo.photoUrl}
+                            alt="Motorcycle"
+                            className="w-full h-20 sm:h-24 object-cover"
+                          />
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-1.5 text-[10px] sm:text-[11px]">
+                        <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
+                          <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Make & Model</span>
+                          <strong className="text-[#1b4332] font-bold text-[10.5px] sm:text-xs truncate block">{scannedMemberModal.bikeInfo.make || ''} {scannedMemberModal.bikeInfo.model || 'N/A'}</strong>
+                        </div>
+                        <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
+                          <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Model Year</span>
+                          <strong className="text-[#1b4332] font-bold text-[10.5px] sm:text-xs truncate block">{scannedMemberModal.bikeInfo.year || 'N/A'}</strong>
+                        </div>
+                        <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
+                          <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Displacement</span>
+                          <strong className="text-[#2d6a4f] font-bold text-[10.5px] sm:text-xs truncate block">{scannedMemberModal.bikeInfo.engineCc ? (scannedMemberModal.bikeInfo.engineCc.toString().toLowerCase().endsWith('cc') ? scannedMemberModal.bikeInfo.engineCc : `${scannedMemberModal.bikeInfo.engineCc} cc`) : 'N/A'}</strong>
+                        </div>
+                        <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
+                          <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Plate Number</span>
+                          <strong className="text-[#1b4332] font-mono font-bold text-[10.5px] sm:text-xs truncate block">{scannedMemberModal.bikeInfo.licensePlate || scannedMemberModal.bikeInfo.plateNo || 'N/A'}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[#52605d] text-center text-[10px] py-1 italic">No motorcycle details recorded</p>
+                  )}
+                </div>
+
+                {/* Event Attendance Context */}
+                <div className="p-2 bg-emerald-50/70 rounded-xl border border-emerald-200 text-center space-y-0.5">
+                  <p className="text-[8.5px] sm:text-[9.5px] font-bold text-emerald-800 uppercase tracking-wider">Recorded for Event:</p>
+                  <p className="text-[11px] sm:text-xs font-bold text-[#1b4332] truncate">{selectedActivity?.name || 'No event created'}</p>
+                  <p className="text-[9px] sm:text-[10px] text-[#52605d] font-mono">{scannedMemberModal.date} {scannedMemberModal.time}</p>
+                </div>
+              </div>
+
+              {/* Static Bottom Button */}
+              <button
+                onClick={dismissScannedModal}
+                className="w-full py-2.5 sm:py-3 bg-[#2d6a4f] hover:bg-[#1b4332] active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl sm:rounded-2xl shadow-xs cursor-pointer transition-all shrink-0"
+              >
+                Done / Continue Scanning
+              </button>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* Modal Alert: Member is already scanned */}
       {alreadyScannedMemberModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center p-4 z-[100] animate-fadeIn">
-          <div className="bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl relative space-y-4 border border-amber-200 text-center animate-scaleUp">
-            <button
-              onClick={() => setAlreadyScannedMemberModal(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 font-bold cursor-pointer p-1 rounded-full transition-colors"
-              title="Close modal"
-            >
-              <XCircle className="w-6 h-6 text-stone-400 hover:text-stone-700" />
-            </button>
+        <ModalPortal>
+          <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-[9999] animate-fadeIn">
+            <div className="bg-white w-full max-w-[340px] sm:max-w-sm rounded-2xl sm:rounded-3xl p-3.5 sm:p-4 shadow-2xl relative space-y-3 border border-amber-200 text-center animate-scaleUp my-auto flex flex-col max-h-[78dvh] sm:max-h-[82dvh] overflow-hidden text-[#2d3a3a]">
+              {/* Close Button */}
+              <button
+                onClick={dismissDuplicateModal}
+                className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 p-1 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors z-20 cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
 
-            {/* Warning Icon Badge */}
-            <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-600 border-2 border-amber-300 flex items-center justify-center mx-auto shadow-xs">
-              <AlertCircle className="w-8 h-8" />
-            </div>
+              {/* Warning Icon Badge */}
+              <div className="w-12 h-12 rounded-full bg-amber-100 text-amber-600 border-2 border-amber-300 flex items-center justify-center mx-auto shadow-xs shrink-0 mt-0.5">
+                <AlertCircle className="w-6 h-6" />
+              </div>
 
-            {/* Title */}
-            <div>
-              <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-full text-[10px] font-extrabold uppercase tracking-wider">
-                Duplicate Scan
-              </span>
-              <h3 className="text-xl font-extrabold text-[#1b4332] mt-2">
-                Member is already scanned
-              </h3>
-              <p className="text-xs text-[#52605d] mt-1">
-                This member's attendance was previously recorded for this event.
-              </p>
-            </div>
-
-            {/* Scanned Member Details Card */}
-            <div className="p-3.5 bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] text-xs text-left flex items-center gap-3">
-              {alreadyScannedMemberModal.avatar ? (
-                <img
-                  src={alreadyScannedMemberModal.avatar}
-                  alt={alreadyScannedMemberModal.name}
-                  className="w-12 h-12 rounded-full object-cover border-2 border-amber-300 shrink-0"
-                  onError={(e) => {
-                    (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
-                  }}
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-full bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
-                  <UserIcon className="w-6 h-6" />
-                </div>
-              )}
-              <div className="space-y-0.5 min-w-0">
-                <h4 className="font-extrabold text-sm text-[#1b4332] truncate">
-                  {alreadyScannedMemberModal.name}
-                </h4>
-                <p className="text-[11px] font-mono font-bold text-[#2d6a4f]">
-                  Member ID: #{alreadyScannedMemberModal.memberId}
-                </p>
-                <p className="text-[10px] text-[#52605d]">
-                  Chapter: {alreadyScannedMemberModal.network || 'Main Chapter'}
+              {/* Title */}
+              <div className="shrink-0">
+                <span className="px-2.5 py-0.5 bg-amber-100 text-amber-800 rounded-full text-[9px] sm:text-[9.5px] font-extrabold uppercase tracking-wider inline-block">
+                  Duplicate Scan
+                </span>
+                <h3 className="text-base sm:text-lg font-extrabold text-[#1b4332] mt-1 leading-tight">
+                  Member has already been scanned
+                </h3>
+                <p className="text-[10px] sm:text-[11px] text-[#52605d] mt-0.5">
+                  This member's attendance is already recorded for this event.
                 </p>
               </div>
-            </div>
 
-            {/* Event Name Context */}
-            <div className="p-2.5 bg-amber-50/70 rounded-2xl border border-amber-200 text-xs text-center">
-              <p className="text-[10px] font-extrabold text-amber-800 uppercase tracking-wider">Event Context</p>
-              <p className="font-bold text-[#1b4332] mt-0.5">{selectedActivity?.name || 'No event created'}</p>
-            </div>
+              {/* Scrollable middle body */}
+              <div className="flex-1 overflow-y-auto overscroll-contain pr-1 space-y-2 scroll-smooth">
+                {/* Scanned Member Details Card */}
+                <div className="p-2.5 sm:p-3 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] text-xs text-left flex items-center gap-2.5">
+                  {alreadyScannedMemberModal.avatar ? (
+                    <img
+                      src={alreadyScannedMemberModal.avatar}
+                      alt={alreadyScannedMemberModal.name}
+                      className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-amber-300 shrink-0"
+                      onError={(e) => {
+                        (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
+                      }}
+                    />
+                  ) : (
+                    <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-amber-50 border border-amber-200 text-amber-700 flex items-center justify-center shrink-0">
+                      <UserIcon className="w-5 h-5" />
+                    </div>
+                  )}
+                  <div className="space-y-0.5 min-w-0 flex-1">
+                    <h4 className="font-extrabold text-xs sm:text-sm text-[#1b4332] truncate">
+                      {alreadyScannedMemberModal.name}
+                    </h4>
+                    <p className="text-[10px] sm:text-[11px] font-mono font-bold text-[#2d6a4f]">
+                      Member ID: #{alreadyScannedMemberModal.memberId}
+                    </p>
+                    <p className="text-[9.5px] sm:text-[10px] text-[#52605d] truncate">
+                      Chapter: {alreadyScannedMemberModal.network || 'Main Chapter'}
+                    </p>
+                  </div>
+                </div>
 
-            <button
-              onClick={() => setAlreadyScannedMemberModal(null)}
-              className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs rounded-2xl shadow-md cursor-pointer transition-all active:scale-98"
-            >
-              OK / Continue Scanning
-            </button>
+                {/* Event Name Context */}
+                <div className="p-2 bg-amber-50/70 rounded-xl border border-amber-200 text-xs text-center">
+                  <p className="text-[9px] font-extrabold text-amber-800 uppercase tracking-wider">Event Context</p>
+                  <p className="font-bold text-[#1b4332] text-xs mt-0.5 truncate">{selectedActivity?.name || 'No event created'}</p>
+                </div>
+              </div>
+
+              <button
+                onClick={dismissDuplicateModal}
+                className="w-full py-2.5 sm:py-3 bg-[#1b4332] hover:bg-[#2d6a4f] active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl sm:rounded-2xl shadow-xs cursor-pointer transition-all shrink-0"
+              >
+                OK / Continue Scanning
+              </button>
+            </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );

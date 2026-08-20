@@ -5,6 +5,7 @@ import { useLoader } from '../context/LoaderContext';
 import { store } from '../lib/db';
 import { Announcement, AnnouncementPriority } from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 import {
   Megaphone,
   Plus,
@@ -489,220 +490,224 @@ export const AnnouncementsView: React.FC = () => {
       </div>
 
       {/* Modal: Create / Edit Announcement */}
-      <AnimatePresence>
-        {showModal && (
-          <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative flex flex-col my-auto overflow-hidden"
-            >
-              {/* Modal Header */}
-              <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-
-                <div className="flex items-center gap-2 pr-6">
-                  <div className="w-7 h-7 rounded-lg bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
-                    <Megaphone className="w-3.5 h-3.5 text-[#1b4332]" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-heading font-extrabold text-[#1b4332] text-xs sm:text-sm leading-tight truncate">
-                      {editingAnn ? 'Edit News Update' : 'Post Activity Update'}
-                    </h3>
-                    <p className="text-[9px] sm:text-[10px] text-[#52605d] truncate">
-                      Official directives &amp; Facebook embeds
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Scrollable Form Body */}
-              <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0">
-                <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 pr-1.5 text-xs">
-                  {/* Title */}
-                  <div>
-                    <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                      Update Title <span className="text-rose-600">*</span>
-                    </label>
-                    <input
-                      type="text"
-                      required
-                      value={formTitle}
-                      onChange={(e) => setFormTitle(e.target.value)}
-                      placeholder="e.g., Recent Community Ride"
-                      className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                    />
-                  </div>
-
-                  {/* Priority Selector */}
-                  <div>
-                    <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                      Priority Category
-                    </label>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
-                      {(['General', 'Important', 'Event', 'Emergency'] as AnnouncementPriority[]).map(
-                        (p) => (
-                          <button
-                            key={p}
-                            type="button"
-                            onClick={() => setFormPriority(p)}
-                            className={`py-0.5 px-1.5 rounded-md border text-[9.5px] sm:text-[10.5px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                              formPriority === p
-                                ? 'bg-[#1b4332] text-white border-[#1b4332]'
-                                : 'bg-[#f7f9f7] text-[#52605d] border-[#e2ece2] hover:bg-[#e2ece2]'
-                            }`}
-                          >
-                            <span>{p}</span>
-                          </button>
-                        )
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Content */}
-                  <div>
-                    <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                      Description / Body <span className="text-rose-600">*</span>
-                    </label>
-                    <textarea
-                      required
-                      rows={2}
-                      value={formContent}
-                      onChange={(e) => setFormContent(e.target.value)}
-                      placeholder="Write details about the update or church event..."
-                      className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] resize-none"
-                    />
-                  </div>
-
-                  {/* Facebook Post Link / Embed URL */}
-                  <div>
-                    <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 flex items-center justify-between">
-                      <span className="flex items-center gap-1">
-                        <img src="/fb.ico" alt="FB" className="w-3 h-3 object-contain" />
-                        <span>Embed FB Link (Optional)</span>
-                      </span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formFacebookUrl}
-                      onChange={(e) => setFormFacebookUrl(e.target.value)}
-                      placeholder="https://facebook.com/..."
-                      className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                    />
-                  </div>
-
-                  {/* Author Name & Role Fields */}
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div>
-                      <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                        Author Name
-                      </label>
-                      <input
-                        type="text"
-                        value={formAuthorName}
-                        onChange={(e) => setFormAuthorName(e.target.value)}
-                        className="w-full px-2 py-1 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332]"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                        Author Role
-                      </label>
-                      <input
-                        type="text"
-                        value={formAuthorRole}
-                        onChange={(e) => setFormAuthorRole(e.target.value)}
-                        className="w-full px-2 py-1 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332]"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Pin Checkbox */}
-                  <label className="flex items-center gap-1.5 p-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] cursor-pointer hover:bg-[#e2ece2]/50 transition-colors">
-                    <input
-                      type="checkbox"
-                      checked={formPinned}
-                      onChange={(e) => setFormPinned(e.target.checked)}
-                      className="w-3 h-3 rounded text-[#2d6a4f] focus:ring-[#2d6a4f] accent-[#1b4332]"
-                    />
-                    <div className="flex items-center gap-1 text-[10px] font-bold text-[#1b4332]">
-                      <Pin className="w-3 h-3 text-amber-600" />
-                      <span>Pin to top as bulletin</span>
-                    </div>
-                  </label>
-                </div>
-
-                {/* Form Buttons Footer */}
-                <div className="p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-1.5 shrink-0">
+      <ModalPortal>
+        <AnimatePresence>
+          {showModal && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative flex flex-col my-auto overflow-hidden"
+              >
+                {/* Modal Header */}
+                <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
                   <button
                     type="button"
                     onClick={() => setShowModal(false)}
-                    className="px-2.5 py-1 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-[11px] cursor-pointer transition-colors"
+                    className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+
+                  <div className="flex items-center gap-2 pr-6">
+                    <div className="w-7 h-7 rounded-lg bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+                      <Megaphone className="w-3.5 h-3.5 text-[#1b4332]" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="font-heading font-extrabold text-[#1b4332] text-xs sm:text-sm leading-tight truncate">
+                        {editingAnn ? 'Edit News Update' : 'Post Activity Update'}
+                      </h3>
+                      <p className="text-[9px] sm:text-[10px] text-[#52605d] truncate">
+                        Official directives &amp; Facebook embeds
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scrollable Form Body */}
+                <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden min-h-0">
+                  <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 pr-1.5 text-xs">
+                    {/* Title */}
+                    <div>
+                      <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                        Update Title <span className="text-rose-600">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formTitle}
+                        onChange={(e) => setFormTitle(e.target.value)}
+                        placeholder="e.g., Recent Community Ride"
+                        className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      />
+                    </div>
+
+                    {/* Priority Selector */}
+                    <div>
+                      <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                        Priority Category
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1">
+                        {(['General', 'Important', 'Event', 'Emergency'] as AnnouncementPriority[]).map(
+                          (p) => (
+                            <button
+                              key={p}
+                              type="button"
+                              onClick={() => setFormPriority(p)}
+                              className={`py-0.5 px-1.5 rounded-md border text-[9.5px] sm:text-[10.5px] font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                                formPriority === p
+                                  ? 'bg-[#1b4332] text-white border-[#1b4332]'
+                                  : 'bg-[#f7f9f7] text-[#52605d] border-[#e2ece2] hover:bg-[#e2ece2]'
+                              }`}
+                            >
+                              <span>{p}</span>
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Content */}
+                    <div>
+                      <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                        Description / Body <span className="text-rose-600">*</span>
+                      </label>
+                      <textarea
+                        required
+                        rows={2}
+                        value={formContent}
+                        onChange={(e) => setFormContent(e.target.value)}
+                        placeholder="Write details about the update or church event..."
+                        className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] resize-none"
+                      />
+                    </div>
+
+                    {/* Facebook Post Link / Embed URL */}
+                    <div>
+                      <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 flex items-center justify-between">
+                        <span className="flex items-center gap-1">
+                          <img src="/fb.ico" alt="FB" className="w-3 h-3 object-contain" />
+                          <span>Embed FB Link (Optional)</span>
+                        </span>
+                      </label>
+                      <input
+                        type="text"
+                        value={formFacebookUrl}
+                        onChange={(e) => setFormFacebookUrl(e.target.value)}
+                        placeholder="https://facebook.com/..."
+                        className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      />
+                    </div>
+
+                    {/* Author Name & Role Fields */}
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                          Author Name
+                        </label>
+                        <input
+                          type="text"
+                          value={formAuthorName}
+                          onChange={(e) => setFormAuthorName(e.target.value)}
+                          className="w-full px-2 py-1 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332]"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                          Author Role
+                        </label>
+                        <input
+                          type="text"
+                          value={formAuthorRole}
+                          onChange={(e) => setFormAuthorRole(e.target.value)}
+                          className="w-full px-2 py-1 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332]"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Pin Checkbox */}
+                    <label className="flex items-center gap-1.5 p-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] cursor-pointer hover:bg-[#e2ece2]/50 transition-colors">
+                      <input
+                        type="checkbox"
+                        checked={formPinned}
+                        onChange={(e) => setFormPinned(e.target.checked)}
+                        className="w-3 h-3 rounded text-[#2d6a4f] focus:ring-[#2d6a4f] accent-[#1b4332]"
+                      />
+                      <div className="flex items-center gap-1 text-[10px] font-bold text-[#1b4332]">
+                        <Pin className="w-3 h-3 text-amber-600" />
+                        <span>Pin to top as bulletin</span>
+                      </div>
+                    </label>
+                  </div>
+
+                  {/* Form Buttons Footer */}
+                  <div className="p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowModal(false)}
+                      className="px-2.5 py-1 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-[11px] cursor-pointer transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-3 py-1 rounded-lg bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-[11px] shadow-sm cursor-pointer transition-all flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="w-3 h-3 text-[#74c69d]" />
+                      <span>{editingAnn ? 'Save' : 'Publish'}</span>
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
+
+      {/* Modal: Confirm Delete */}
+      <ModalPortal>
+        <AnimatePresence>
+          {deletingId && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-4 border border-[#e2ece2] shadow-2xl relative"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-heading font-extrabold text-[#1b4332] text-base">
+                    Delete Announcement?
+                  </h3>
+                  <p className="text-xs text-[#52605d]">
+                    Are you sure you want to delete this bulletin? This action cannot be undone.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeletingId(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold transition-colors cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
-                    type="submit"
-                    className="px-3 py-1 rounded-lg bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-[11px] shadow-sm cursor-pointer transition-all flex items-center gap-1"
+                    type="button"
+                    onClick={() => handleDelete(deletingId)}
+                    className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm"
                   >
-                    <CheckCircle2 className="w-3 h-3 text-[#74c69d]" />
-                    <span>{editingAnn ? 'Save' : 'Publish'}</span>
+                    Yes, Delete
                   </button>
                 </div>
-              </form>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Modal: Confirm Delete */}
-      <AnimatePresence>
-        {deletingId && (
-          <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-3xl p-6 max-w-sm w-full text-center space-y-4 border border-[#e2ece2] shadow-2xl relative"
-            >
-              <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto">
-                <Trash2 className="w-6 h-6" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="font-heading font-extrabold text-[#1b4332] text-base">
-                  Delete Announcement?
-                </h3>
-                <p className="text-xs text-[#52605d]">
-                  Are you sure you want to delete this bulletin? This action cannot be undone.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setDeletingId(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(deletingId)}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm"
-                >
-                  Yes, Delete
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
     </div>
   );
 };

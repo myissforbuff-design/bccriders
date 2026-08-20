@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 
 type ModalEntry = {
   id: string;
@@ -7,15 +7,28 @@ type ModalEntry = {
 };
 
 const modalStack: ModalEntry[] = [];
+const listeners = new Set<() => void>();
 let isGlobalListenerAttached = false;
 let isProgrammaticBack = false;
+
+function notify() {
+  listeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
 
 function handleGlobalKeyDown(e: KeyboardEvent) {
   if ((e.key === 'Escape' || e.key === 'Esc') && modalStack.length > 0) {
     e.preventDefault();
     e.stopPropagation();
     const top = modalStack[modalStack.length - 1];
-    top.onClose();
+    if (top && top.onClose) {
+      top.onClose();
+    }
   }
 }
 
@@ -26,6 +39,7 @@ function handleGlobalPopState(_e: PopStateEvent) {
   }
   if (modalStack.length > 0) {
     const top = modalStack.pop();
+    notify();
     if (top) {
       top.pushedHistory = false;
       top.onClose();
@@ -33,8 +47,19 @@ function handleGlobalPopState(_e: PopStateEvent) {
   }
 }
 
+export function subscribeModalState(callback: () => void) {
+  listeners.add(callback);
+  return () => {
+    listeners.delete(callback);
+  };
+}
+
 export function isModalOpen(): boolean {
   return modalStack.length > 0;
+}
+
+export function useIsAnyModalOpen(): boolean {
+  return useSyncExternalStore(subscribeModalState, isModalOpen, () => false);
 }
 
 export function useModalDismiss(isOpen: boolean, onClose: () => void) {
@@ -65,11 +90,13 @@ export function useModalDismiss(isOpen: boolean, onClose: () => void) {
     };
 
     modalStack.push(entry);
+    notify();
 
     return () => {
       const index = modalStack.findIndex((item) => item.id === id);
       if (index !== -1) {
         const [removed] = modalStack.splice(index, 1);
+        notify();
         if (removed.pushedHistory) {
           setTimeout(() => {
             if (window.history.state?.modalId === id) {
@@ -86,3 +113,4 @@ export function useModalDismiss(isOpen: boolean, onClose: () => void) {
     };
   }, [isOpen]);
 }
+

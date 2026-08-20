@@ -18,6 +18,7 @@ import { store } from '../lib/db';
 import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 
 interface TreasurerAuthModalProps {
   isOpen: boolean;
@@ -200,7 +201,8 @@ export const TreasurerAuthModal: React.FC<TreasurerAuthModalProps> = ({
       : 'text-rose-800 bg-rose-50 border-rose-300';
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto animate-fadeIn">
+    <ModalPortal>
+      <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto animate-fadeIn">
       <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full shadow-2xl border border-stone-200 overflow-hidden my-auto flex flex-col max-h-[92vh] animate-scaleUp">
         {/* Header */}
         <div className="bg-gradient-to-r from-[#1b4332] to-[#2d6a4f] p-3.5 sm:p-5 text-white relative shrink-0">
@@ -517,6 +519,7 @@ export const TreasurerAuthModal: React.FC<TreasurerAuthModalProps> = ({
         </div>
       </div>
     </div>
-  );
+  </ModalPortal>
+);
 };
 

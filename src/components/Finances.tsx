@@ -10,6 +10,7 @@ import { YearlyArchiveModal } from './YearlyArchiveModal';
 import { ArchiveExportModal } from './ArchiveExportModal';
 import { TreasurerAuthModal } from './TreasurerAuthModal';
 import { TreasurerRequestsManagerModal } from './TreasurerRequestsManagerModal';
+import { ModalPortal } from './ModalPortal';
 import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import {
   Wallet,
@@ -3438,185 +3439,437 @@ export const Finances: React.FC = () => {
       )}
 
       {/* MODAL: RECORD PAYMENT (FUNDS) */}
-      {showAddRecordModal && (
-        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative flex flex-col my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            {/* Header */}
-            <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
-              <button
-                type="button"
-                onClick={() => setShowAddRecordModal(false)}
-                className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <div className="min-w-0 pr-6">
-                <h3 className="font-heading text-xs sm:text-sm font-black text-[#1b4332] leading-tight truncate">
-                  {editingRecord ? 'Edit Payment Record' : 'Record Member Payment'}
-                </h3>
-                <p className="text-[9px] sm:text-[10px] text-[#52605d] truncate">
-                  Log payment collections for fees, dues, or items
-                </p>
+      <ModalPortal>
+        {showAddRecordModal && (
+          <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative flex flex-col my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              {/* Header */}
+              <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
+                <button
+                  type="button"
+                  onClick={() => setShowAddRecordModal(false)}
+                  className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <div className="min-w-0 pr-6">
+                  <h3 className="font-heading text-xs sm:text-sm font-black text-[#1b4332] leading-tight truncate">
+                    {editingRecord ? 'Edit Payment Record' : 'Record Member Payment'}
+                  </h3>
+                  <p className="text-[9px] sm:text-[10px] text-[#52605d] truncate">
+                    Log payment collections for fees, dues, or items
+                  </p>
+                </div>
               </div>
-            </div>
 
-            <form onSubmit={handleInitiateSaveRecord} className="flex flex-col min-h-0 flex-1 overflow-hidden">
-              <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 pr-1.5 text-xs">
-                {/* No Members Warning Banner */}
-                {!hasMembers && (
-                  <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-1.5 text-amber-900 shadow-2xs">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600 mt-0.5" />
-                    <div className="space-y-0.5 text-[9.5px]">
-                      <p className="font-bold">No Registered Members Found</p>
-                      <p className="text-amber-800 leading-snug">
-                        Please add members in the <strong>Members Directory</strong> first.
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Select Member */}
-                <div>
-                  <CustomSelect
-                    label="Select Club Member"
-                    value={recUserId}
-                    onChange={handleRecUserIdChange}
-                    disabled={!hasMembers}
-                    options={
-                      !hasMembers
-                        ? [{ value: '', label: 'No members registered yet', disabled: true }]
-                        : registeredMembersList.map(u => ({
-                            value: u.id,
-                            label: `${u.name} (${u.memberNumber || 'BRC Member'})`,
-                          }))
-                    }
-                    required
-                  />
-                </div>
-
-                {/* Item Type */}
-                <div>
-                  <CustomSelect
-                    label="Item / Payment Type"
-                    value={recOptionKey}
-                    onChange={handleSelectPaymentOption}
-                    options={paymentOptionsList}
-                    disabled={!hasMembers}
-                    required
-                  />
-                </div>
-
-                {/* Covered Month if Monthly Due */}
-                {recItemType === 'Monthly Due' && (
-                  <div className="p-2 bg-[#f7f9f7] rounded-lg border border-[#e2ece2] space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332]">
-                        Covered Month &amp; Year
-                      </label>
-                      {monthlyDuesList.length === 0 && (
-                        <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded-full border border-amber-200">
-                          No Dues
-                        </span>
-                      )}
-                    </div>
-
-                    {monthlyDuesList.length === 0 ? (
-                      <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-[9.5px] flex items-start gap-1.5">
-                        <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
-                        <div className="space-y-0.5">
-                          <p className="font-bold text-amber-950">No Dues Configured Yet</p>
-                          <p className="text-amber-800 leading-snug">
-                            Configure dues in <strong>Settings &gt; Finance</strong> first.
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <>
-                        <div className="grid grid-cols-2 gap-1">
-                          <CustomSelect
-                            value={recMonth}
-                            onChange={handleRecMonthChange}
-                            options={recMonthOptions}
-                            disabled={!hasMembers}
-                          />
-
-                          <CustomSelect
-                            value={recYear}
-                            onChange={handleRecYearChange}
-                            options={YEARS_LIST}
-                            disabled={!hasMembers}
-                          />
-                        </div>
-
-                        {isSelectedMonthAlreadyPaid && (
-                          <div className="p-1.5 bg-amber-50 border border-amber-200 rounded-md text-amber-900 text-[9.5px] flex items-center gap-1">
-                            <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
-                            <span>
-                              <strong>{recMonth} {recYear}</strong> is already paid.
-                            </span>
-                          </div>
-                        )}
-
-                        {!monthlyDuesList.some(d => String(d.year) === String(recYear)) && (
-                          <div className="p-1.5 bg-amber-50 border border-amber-200 rounded-md text-amber-900 text-[9.5px] flex items-center gap-1">
-                            <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
-                            <span>
-                              No dues created for {recYear}.
-                            </span>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </div>
-                )}
-
-                {/* Annual Upfront Promo Banner */}
-                {recItemType === 'Annual Upfront Promo' && (
-                  isPromoEnabled ? (
-                    <div className="p-2 bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-50 rounded-lg border border-emerald-200 space-y-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="bg-amber-400 text-slate-950 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full">
-                          Promo Active
-                        </span>
-                        <span className="text-[10px] font-bold text-[#1b4332]">₱1,000.00 Upfront</span>
-                      </div>
-                      <p className="text-[9.5px] text-emerald-900 leading-snug">
-                        Covers all 12 monthly dues in advance (save ₱200)!
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="p-2 bg-stone-100 rounded-lg border border-stone-300 space-y-0.5 opacity-80">
-                      <div className="flex items-center gap-1.5">
-                        <span className="bg-stone-300 text-stone-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full">
-                          Promo Disabled
-                        </span>
-                        <span className="text-[10px] font-bold text-stone-600">Disabled in Settings</span>
+              <form onSubmit={handleInitiateSaveRecord} className="flex flex-col min-h-0 flex-1 overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 pr-1.5 text-xs">
+                  {/* No Members Warning Banner */}
+                  {!hasMembers && (
+                    <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-1.5 text-amber-900 shadow-2xs">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0 text-amber-600 mt-0.5" />
+                      <div className="space-y-0.5 text-[9.5px]">
+                        <p className="font-bold">No Registered Members Found</p>
+                        <p className="text-amber-800 leading-snug">
+                          Please add members in the <strong>Members Directory</strong> first.
+                        </p>
                       </div>
                     </div>
-                  )
-                )}
+                  )}
 
-                {/* Custom Item Name if Other */}
-                {recItemType === 'Other' && (
+                  {/* Select Member */}
                   <div>
-                    <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                      Custom Item Name
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Dinner Ticket"
-                      value={recCustomItemName}
-                      onChange={e => setRecCustomItemName(e.target.value)}
+                    <CustomSelect
+                      label="Select Club Member"
+                      value={recUserId}
+                      onChange={handleRecUserIdChange}
                       disabled={!hasMembers}
-                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      options={
+                        !hasMembers
+                          ? [{ value: '', label: 'No members registered yet', disabled: true }]
+                          : registeredMembersList.map(u => ({
+                              value: u.id,
+                              label: `${u.name} (${u.memberNumber || 'BRC Member'})`,
+                            }))
+                      }
                       required
                     />
                   </div>
-                )}
 
-                {/* Amount & Status (hidden for Monthly Due) */}
-                {recItemType !== 'Monthly Due' && (
-                  <div className="grid grid-cols-2 gap-1.5">
+                  {/* Item Type */}
+                  <div>
+                    <CustomSelect
+                      label="Item / Payment Type"
+                      value={recOptionKey}
+                      onChange={handleSelectPaymentOption}
+                      options={paymentOptionsList}
+                      disabled={!hasMembers}
+                      required
+                    />
+                  </div>
+
+                  {/* Covered Month if Monthly Due */}
+                  {recItemType === 'Monthly Due' && (
+                    <div className="p-2 bg-[#f7f9f7] rounded-lg border border-[#e2ece2] space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332]">
+                          Covered Month &amp; Year
+                        </label>
+                        {monthlyDuesList.length === 0 && (
+                          <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.2 rounded-full border border-amber-200">
+                            No Dues
+                          </span>
+                        )}
+                      </div>
+
+                      {monthlyDuesList.length === 0 ? (
+                        <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 text-[9.5px] flex items-start gap-1.5">
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5">
+                            <p className="font-bold text-amber-950">No Dues Configured Yet</p>
+                            <p className="text-amber-800 leading-snug">
+                              Configure dues in <strong>Settings &gt; Finance</strong> first.
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="grid grid-cols-2 gap-1">
+                            <CustomSelect
+                              value={recMonth}
+                              onChange={handleRecMonthChange}
+                              options={recMonthOptions}
+                              disabled={!hasMembers}
+                            />
+
+                            <CustomSelect
+                              value={recYear}
+                              onChange={handleRecYearChange}
+                              options={YEARS_LIST}
+                              disabled={!hasMembers}
+                            />
+                          </div>
+
+                          {isSelectedMonthAlreadyPaid && (
+                            <div className="p-1.5 bg-amber-50 border border-amber-200 rounded-md text-amber-900 text-[9.5px] flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span>
+                                <strong>{recMonth} {recYear}</strong> is already paid.
+                              </span>
+                            </div>
+                          )}
+
+                          {!monthlyDuesList.some(d => String(d.year) === String(recYear)) && (
+                            <div className="p-1.5 bg-amber-50 border border-amber-200 rounded-md text-amber-900 text-[9.5px] flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3 text-amber-600 shrink-0" />
+                              <span>
+                                No dues created for {recYear}.
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Annual Upfront Promo Banner */}
+                  {recItemType === 'Annual Upfront Promo' && (
+                    isPromoEnabled ? (
+                      <div className="p-2 bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-50 rounded-lg border border-emerald-200 space-y-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="bg-amber-400 text-slate-950 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full">
+                            Promo Active
+                          </span>
+                          <span className="text-[10px] font-bold text-[#1b4332]">₱1,000.00 Upfront</span>
+                        </div>
+                        <p className="text-[9.5px] text-emerald-900 leading-snug">
+                          Covers all 12 monthly dues in advance (save ₱200)!
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="p-2 bg-stone-100 rounded-lg border border-stone-300 space-y-0.5 opacity-80">
+                        <div className="flex items-center gap-1.5">
+                          <span className="bg-stone-300 text-stone-700 text-[9px] font-black uppercase px-1.5 py-0.5 rounded-full">
+                            Promo Disabled
+                          </span>
+                          <span className="text-[10px] font-bold text-stone-600">Disabled in Settings</span>
+                        </div>
+                      </div>
+                    )
+                  )}
+
+                  {/* Custom Item Name if Other */}
+                  {recItemType === 'Other' && (
+                    <div>
+                      <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
+                        Custom Item Name
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Dinner Ticket"
+                        value={recCustomItemName}
+                        onChange={e => setRecCustomItemName(e.target.value)}
+                        disabled={!hasMembers}
+                        className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        required
+                      />
+                    </div>
+                  )}
+
+                  {/* Amount & Status (hidden for Monthly Due) */}
+                  {recItemType !== 'Monthly Due' && (
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <div>
+                        <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
+                          Amount (₱)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="any"
+                          value={recAmount}
+                          onChange={e => setRecAmount(e.target.value)}
+                          disabled={!hasMembers}
+                          className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs font-black text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <CustomSelect
+                          label="Payment Status"
+                          value={recStatus}
+                          onChange={val => setRecStatus(val as any)}
+                          options={['Paid', 'Pending', 'Overdue', 'Waived']}
+                          disabled={!hasMembers}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Payment Method */}
+                  <div>
+                    <CustomSelect
+                      label="Payment Method"
+                      value={recMethod}
+                      onChange={val => setRecMethod(val as any)}
+                      disabled={!hasMembers}
+                      options={[
+                        { value: 'GCash', label: 'GCash' },
+                        { value: 'Cash', label: 'Cash' },
+                        { value: 'Bank Transfer', label: 'Bank Transfer' },
+                        { value: 'Credit Card', label: 'Credit / Debit Card' },
+                        { value: 'Other', label: 'Other' },
+                      ]}
+                    />
+                  </div>
+
+                  {/* Date Paid */}
+                  <div>
+                    <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
+                      Date Paid
+                    </label>
+                    <input
+                      type="date"
+                      value={recDueDate}
+                      onChange={e => setRecDueDate(e.target.value)}
+                      disabled={!hasMembers}
+                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white"
+                    />
+                  </div>
+
+                  {/* Notes (hidden for Monthly Due) */}
+                  {recItemType !== 'Monthly Due' && (
+                    <div>
+                      <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
+                        Notes / Remarks
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Size L vest, verified"
+                        value={recNotes}
+                        onChange={e => setRecNotes(e.target.value)}
+                        disabled={!hasMembers}
+                        className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-1 p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] shrink-0">
+                  {recordFormInvalidReason && (
+                    <div className="text-[9.5px] font-medium text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 flex items-center gap-1 shadow-2xs">
+                      <AlertCircle className="w-3 h-3 shrink-0 text-amber-600" />
+                      <span className="truncate">{recordFormInvalidReason}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddRecordModal(false)}
+                      className="px-2.5 py-1 bg-white hover:bg-[#e2ece2] text-stone-700 rounded-lg text-[11px] font-bold border border-stone-200 transition-all cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={!isRecordFormValid}
+                      className="px-3 py-1 bg-[#1b4332] hover:bg-[#2d6a4f] disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shadow-sm flex items-center gap-1 whitespace-nowrap"
+                    >
+                      <Check className="w-3 h-3 text-[#74c69d]" />
+                      <span>{editingRecord ? 'Save' : 'Record'}</span>
+                    </button>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+      </ModalPortal>
+
+      {/* CONFIRM RECORD TRANSACTION MODAL */}
+      <ModalPortal>
+        {showConfirmRecordModal && (
+          <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+            <div className="bg-white rounded-2xl max-w-[320px] sm:max-w-[360px] w-[94vw] p-3.5 sm:p-4 shadow-2xl border border-[#e2ece2] space-y-2.5 my-auto text-center animate-in zoom-in-95 duration-200">
+              <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center mx-auto text-emerald-700 shadow-inner">
+                <CheckCircle2 className="w-4.5 h-4.5" />
+              </div>
+
+              <div className="space-y-0.5">
+                <h3 className="font-heading text-sm font-extrabold text-[#1b4332]">
+                  {editingRecord ? 'Confirm Update?' : 'Confirm Payment?'}
+                </h3>
+                <p className="text-[10px] text-[#52605d] leading-tight">
+                  Review payment details before saving.
+                </p>
+              </div>
+
+              <div className="p-2.5 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] text-left space-y-1.5 text-[10px] sm:text-[11px]">
+                <div className="flex items-center justify-between gap-1">
+                  <span className="text-[9px] font-bold uppercase text-[#52605d]">Member</span>
+                  <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-200 truncate">
+                    {recItemType}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs font-black text-[#1b4332] truncate">
+                    {users.find(u => u.id === recUserId)?.name || 'Club Member'}
+                  </p>
+                </div>
+
+                <div className="pt-1.5 border-t border-[#e2ece2] space-y-1">
+                  {recItemType === 'Monthly Due' && (
+                    <div className="flex items-center justify-between text-[#52605d]">
+                      <span>Period:</span>
+                      <span className="font-bold text-[#1b4332]">{recMonth} {recYear}</span>
+                    </div>
+                  )}
+                  {recItemType === 'Annual Upfront Promo' && (
+                    <div className="flex items-center justify-between text-[#52605d]">
+                      <span>Coverage:</span>
+                      <span className="font-bold text-[#1b4332]">Full Year {recYear || '2026'}</span>
+                    </div>
+                  )}
+                  {(recItemType === 'Donation Collection' || recItemType === 'Other') && recCustomItemName && (
+                    <div className="flex items-center justify-between text-[#52605d]">
+                      <span>Item:</span>
+                      <span className="font-bold text-[#1b4332] truncate max-w-[140px]">{recCustomItemName}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between text-[#52605d]">
+                    <span>Method:</span>
+                    <span className="font-bold text-[#1b4332]">{recMethod}</span>
+                  </div>
+                  <div className="flex items-center justify-between text-[#52605d]">
+                    <span>Date:</span>
+                    <span className="font-bold text-[#1b4332]">{recDueDate || 'Today'}</span>
+                  </div>
+                </div>
+
+                <div className="pt-1.5 border-t border-[#e2ece2] flex items-center justify-between">
+                  <span className="font-bold text-[#52605d]">Total:</span>
+                  <span className="text-xs font-black text-[#1b4332]">
+                    ₱{(parseFloat(recAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-[#e2ece2]">
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmRecordModal(false)}
+                  className="w-full px-2.5 py-1.5 rounded-lg border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-bold text-[11px] transition-colors cursor-pointer text-center"
+                >
+                  Back
+                </button>
+                <button
+                  type="button"
+                  onClick={handleProceedSaveRecord}
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-[11px] transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1 text-center"
+                >
+                  <Check className="w-3 h-3 text-[#74c69d] shrink-0" />
+                  <span>{editingRecord ? 'Save' : 'Confirm'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </ModalPortal>
+
+      {/* MODAL: LIQUIDATE EXPENSE */}
+      <ModalPortal>
+        {showExpenseModal && (
+          <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative flex flex-col my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+              {/* Header */}
+              <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
+                <button
+                  type="button"
+                  onClick={() => setShowExpenseModal(false)}
+                  className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+                <div className="min-w-0 pr-6">
+                  <h3 className="font-heading text-xs sm:text-sm font-black text-[#1b4332] leading-tight truncate">
+                    {editingExpense ? 'Edit Expense Liquidation' : 'Liquidate Club Expense'}
+                  </h3>
+                  <p className="text-[9px] sm:text-[10px] text-[#52605d] truncate">
+                    Log disbursements &amp; official expenditures
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveExpense} className="flex flex-col min-h-0 flex-1 overflow-hidden">
+                <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 pr-1.5 text-xs">
+                  {/* Expense Title */}
+                  <div>
+                    <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
+                      Expense Title / Particulars
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. Food & Refreshments"
+                      value={expTitle}
+                      onChange={e => setExpTitle(e.target.value)}
+                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] font-semibold"
+                      required
+                    />
+                  </div>
+
+                  {/* Category & Amount */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <div>
+                      <CustomSelect
+                        label="Category"
+                        value={expCategory}
+                        onChange={val => setExpCategory(val as ExpenseCategory)}
+                        options={EXPENSE_CATEGORIES.map(cat => ({ value: cat, label: cat }))}
+                        required
+                      />
+                    </div>
+
                     <div>
                       <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
                         Amount (₱)
@@ -3625,413 +3878,169 @@ export const Finances: React.FC = () => {
                         type="number"
                         min="0"
                         step="any"
-                        value={recAmount}
-                        onChange={e => setRecAmount(e.target.value)}
-                        disabled={!hasMembers}
-                        className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs font-black text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        placeholder="e.g. 2500"
+                        value={expAmount}
+                        onChange={e => setExpAmount(e.target.value)}
+                        className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs font-black text-rose-800 focus:outline-none focus:border-[#2d6a4f]"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {/* Date & Receipt Reference */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <div>
+                      <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
+                        Disbursement Date
+                      </label>
+                      <input
+                        type="date"
+                        value={expDate}
+                        onChange={e => setExpDate(e.target.value)}
+                        className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                         required
                       />
                     </div>
 
                     <div>
-                      <CustomSelect
-                        label="Payment Status"
-                        value={recStatus}
-                        onChange={val => setRecStatus(val as any)}
-                        options={['Paid', 'Pending', 'Overdue', 'Waived']}
-                        disabled={!hasMembers}
+                      <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
+                        OR / Receipt #
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. OR-88219"
+                        value={expReceiptRef}
+                        onChange={e => setExpReceiptRef(e.target.value)}
+                        className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] font-mono"
                       />
                     </div>
                   </div>
-                )}
 
-                {/* Payment Method */}
-                <div>
-                  <CustomSelect
-                    label="Payment Method"
-                    value={recMethod}
-                    onChange={val => setRecMethod(val as any)}
-                    disabled={!hasMembers}
-                    options={[
-                      { value: 'GCash', label: 'GCash' },
-                      { value: 'Cash', label: 'Cash' },
-                      { value: 'Bank Transfer', label: 'Bank Transfer' },
-                      { value: 'Credit Card', label: 'Credit / Debit Card' },
-                      { value: 'Other', label: 'Other' },
-                    ]}
-                  />
-                </div>
+                  {/* Disbursed To & Logged By */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                    <div>
+                      <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
+                        Payee / Vendor
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Shell Gas Station"
+                        value={expPayee}
+                        onChange={e => setExpPayee(e.target.value)}
+                        className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                      />
+                    </div>
 
-                {/* Date Paid */}
-                <div>
-                  <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                    Date Paid
-                  </label>
-                  <input
-                    type="date"
-                    value={recDueDate}
-                    onChange={e => setRecDueDate(e.target.value)}
-                    disabled={!hasMembers}
-                    className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white"
-                  />
-                </div>
+                    <div>
+                      <CustomSelect
+                        label="Logged By"
+                        value={expLoggedBy}
+                        onChange={val => setExpLoggedBy(val)}
+                        options={officerOptions}
+                        placeholder="Select Officer..."
+                        searchable
+                        required
+                      />
+                    </div>
+                  </div>
 
-                {/* Notes (hidden for Monthly Due) */}
-                {recItemType !== 'Monthly Due' && (
+                  {/* Notes */}
                   <div>
                     <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                      Notes / Remarks
+                      Purpose / Notes
                     </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Size L vest, verified"
-                      value={recNotes}
-                      onChange={e => setRecNotes(e.target.value)}
-                      disabled={!hasMembers}
-                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white"
+                    <textarea
+                      rows={2}
+                      placeholder="Context on this expenditure..."
+                      value={expNotes}
+                      onChange={e => setExpNotes(e.target.value)}
+                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                     />
                   </div>
-                )}
-              </div>
+                </div>
 
-              <div className="flex flex-col gap-1 p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] shrink-0">
-                {recordFormInvalidReason && (
-                  <div className="text-[9.5px] font-medium text-amber-800 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200 flex items-center gap-1 shadow-2xs">
-                    <AlertCircle className="w-3 h-3 shrink-0 text-amber-600" />
-                    <span className="truncate">{recordFormInvalidReason}</span>
-                  </div>
-                )}
-                <div className="flex items-center justify-end gap-1.5">
+                <div className="p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-1.5 shrink-0">
                   <button
                     type="button"
-                    onClick={() => setShowAddRecordModal(false)}
+                    onClick={() => setShowExpenseModal(false)}
                     className="px-2.5 py-1 bg-white hover:bg-[#e2ece2] text-stone-700 rounded-lg text-[11px] font-bold border border-stone-200 transition-all cursor-pointer"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    disabled={!isRecordFormValid}
-                    className="px-3 py-1 bg-[#1b4332] hover:bg-[#2d6a4f] disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shadow-sm flex items-center gap-1 whitespace-nowrap"
+                    className="px-3 py-1 bg-rose-800 hover:bg-rose-900 text-white rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shadow-sm flex items-center gap-1"
                   >
-                    <Check className="w-3 h-3 text-[#74c69d]" />
-                    <span>{editingRecord ? 'Save' : 'Record'}</span>
+                    <Check className="w-3 h-3 text-rose-200" />
+                    <span>{editingExpense ? 'Save' : 'Liquidate'}</span>
                   </button>
                 </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* CONFIRM RECORD TRANSACTION MODAL */}
-      {showConfirmRecordModal && (
-        <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
-          <div className="bg-white rounded-2xl max-w-[320px] sm:max-w-[360px] w-[94vw] p-3.5 sm:p-4 shadow-2xl border border-[#e2ece2] space-y-2.5 my-auto text-center animate-in zoom-in-95 duration-200">
-            <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center mx-auto text-emerald-700 shadow-inner">
-              <CheckCircle2 className="w-4.5 h-4.5" />
-            </div>
-
-            <div className="space-y-0.5">
-              <h3 className="font-heading text-sm font-extrabold text-[#1b4332]">
-                {editingRecord ? 'Confirm Update?' : 'Confirm Payment?'}
-              </h3>
-              <p className="text-[10px] text-[#52605d] leading-tight">
-                Review payment details before saving.
-              </p>
-            </div>
-
-            <div className="p-2.5 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] text-left space-y-1.5 text-[10px] sm:text-[11px]">
-              <div className="flex items-center justify-between gap-1">
-                <span className="text-[9px] font-bold uppercase text-[#52605d]">Member</span>
-                <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-200 truncate">
-                  {recItemType}
-                </span>
-              </div>
-              <div>
-                <p className="text-xs font-black text-[#1b4332] truncate">
-                  {users.find(u => u.id === recUserId)?.name || 'Club Member'}
-                </p>
-              </div>
-
-              <div className="pt-1.5 border-t border-[#e2ece2] space-y-1">
-                {recItemType === 'Monthly Due' && (
-                  <div className="flex items-center justify-between text-[#52605d]">
-                    <span>Period:</span>
-                    <span className="font-bold text-[#1b4332]">{recMonth} {recYear}</span>
-                  </div>
-                )}
-                {recItemType === 'Annual Upfront Promo' && (
-                  <div className="flex items-center justify-between text-[#52605d]">
-                    <span>Coverage:</span>
-                    <span className="font-bold text-[#1b4332]">Full Year {recYear || '2026'}</span>
-                  </div>
-                )}
-                {(recItemType === 'Donation Collection' || recItemType === 'Other') && recCustomItemName && (
-                  <div className="flex items-center justify-between text-[#52605d]">
-                    <span>Item:</span>
-                    <span className="font-bold text-[#1b4332] truncate max-w-[140px]">{recCustomItemName}</span>
-                  </div>
-                )}
-                <div className="flex items-center justify-between text-[#52605d]">
-                  <span>Method:</span>
-                  <span className="font-bold text-[#1b4332]">{recMethod}</span>
-                </div>
-                <div className="flex items-center justify-between text-[#52605d]">
-                  <span>Date:</span>
-                  <span className="font-bold text-[#1b4332]">{recDueDate || 'Today'}</span>
-                </div>
-              </div>
-
-              <div className="pt-1.5 border-t border-[#e2ece2] flex items-center justify-between">
-                <span className="font-bold text-[#52605d]">Total:</span>
-                <span className="text-xs font-black text-[#1b4332]">
-                  ₱{(parseFloat(recAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-[#e2ece2]">
-              <button
-                type="button"
-                onClick={() => setShowConfirmRecordModal(false)}
-                className="w-full px-2.5 py-1.5 rounded-lg border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-bold text-[11px] transition-colors cursor-pointer text-center"
-              >
-                Back
-              </button>
-              <button
-                type="button"
-                onClick={handleProceedSaveRecord}
-                className="w-full px-2.5 py-1.5 rounded-lg bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-[11px] transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1 text-center"
-              >
-                <Check className="w-3 h-3 text-[#74c69d] shrink-0" />
-                <span>{editingRecord ? 'Save' : 'Confirm'}</span>
-              </button>
+              </form>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </ModalPortal>
 
-      {/* MODAL: LIQUIDATE EXPENSE */}
-      {showExpenseModal && (
-        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative flex flex-col my-auto overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            {/* Header */}
-            <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
-              <button
-                type="button"
-                onClick={() => setShowExpenseModal(false)}
-                className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-              <div className="min-w-0 pr-6">
-                <h3 className="font-heading text-xs sm:text-sm font-black text-[#1b4332] leading-tight truncate">
-                  {editingExpense ? 'Edit Expense Liquidation' : 'Liquidate Club Expense'}
+      {/* DELETE TRANSACTION CONFIRMATION MODAL */}
+      <ModalPortal>
+        {deleteTarget && (
+          <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
+            <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-[#e2ece2] space-y-5 my-auto text-center animate-in zoom-in-95 duration-200">
+              <div className="w-14 h-14 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
+                <Trash2 className="w-7 h-7" />
+              </div>
+
+              <div className="space-y-1.5">
+                <h3 className="font-heading text-lg font-extrabold text-[#1b4332]">
+                  Delete {deleteTarget.type === 'fund' ? 'Payment' : 'Expense'} Record?
                 </h3>
-                <p className="text-[9px] sm:text-[10px] text-[#52605d] truncate">
-                  Log disbursements &amp; official expenditures
+                <p className="text-xs text-[#52605d] leading-relaxed">
+                  Are you sure you want to delete this {deleteTarget.type === 'fund' ? 'payment' : 'expense liquidation'} record? This action will remove it permanently from both local storage and MongoDB.
                 </p>
               </div>
-            </div>
 
-            <form onSubmit={handleSaveExpense} className="flex flex-col min-h-0 flex-1 overflow-hidden">
-              <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 pr-1.5 text-xs">
-                {/* Expense Title */}
-                <div>
-                  <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                    Expense Title / Particulars
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="e.g. Food & Refreshments"
-                    value={expTitle}
-                    onChange={e => setExpTitle(e.target.value)}
-                    className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] font-semibold"
-                    required
-                  />
+              <div className="p-3.5 bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] text-left space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#52605d]">
+                    {deleteTarget.type === 'fund' ? 'Member / Payee' : 'Title'}
+                  </span>
+                  <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100">
+                    {deleteTarget.type === 'fund' ? 'Payment Record' : 'Expense Liquidation'}
+                  </span>
                 </div>
-
-                {/* Category & Amount */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  <div>
-                    <CustomSelect
-                      label="Category"
-                      value={expCategory}
-                      onChange={val => setExpCategory(val as ExpenseCategory)}
-                      options={EXPENSE_CATEGORIES.map(cat => ({ value: cat, label: cat }))}
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                      Amount (₱)
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      step="any"
-                      placeholder="e.g. 2500"
-                      value={expAmount}
-                      onChange={e => setExpAmount(e.target.value)}
-                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs font-black text-rose-800 focus:outline-none focus:border-[#2d6a4f]"
-                      required
-                    />
-                  </div>
-                </div>
-
-                {/* Date & Receipt Reference */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  <div>
-                    <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                      Disbursement Date
-                    </label>
-                    <input
-                      type="date"
-                      value={expDate}
-                      onChange={e => setExpDate(e.target.value)}
-                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                      OR / Receipt #
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. OR-88219"
-                      value={expReceiptRef}
-                      onChange={e => setExpReceiptRef(e.target.value)}
-                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] font-mono"
-                    />
-                  </div>
-                </div>
-
-                {/* Disbursed To & Logged By */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                  <div>
-                    <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                      Payee / Vendor
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="e.g. Shell Gas Station"
-                      value={expPayee}
-                      onChange={e => setExpPayee(e.target.value)}
-                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                    />
-                  </div>
-
-                  <div>
-                    <CustomSelect
-                      label="Logged By"
-                      value={expLoggedBy}
-                      onChange={val => setExpLoggedBy(val)}
-                      options={officerOptions}
-                      placeholder="Select Officer..."
-                      searchable
-                      required
-                    />
-                  </div>
-                </div>
-
-                {/* Notes */}
-                <div>
-                  <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                    Purpose / Notes
-                  </label>
-                  <textarea
-                    rows={2}
-                    placeholder="Context on this expenditure..."
-                    value={expNotes}
-                    onChange={e => setExpNotes(e.target.value)}
-                    className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                  />
+                <p className="text-xs font-black text-[#1b4332] truncate">{deleteTarget.title}</p>
+                {deleteTarget.subtitle && (
+                  <p className="text-[11px] font-medium text-[#52605d] truncate">{deleteTarget.subtitle}</p>
+                )}
+                <div className="pt-2 border-t border-[#e2ece2] flex items-center justify-between">
+                  <span className="text-xs font-bold text-[#52605d]">Record Amount:</span>
+                  <span className="text-sm font-black text-rose-700">
+                    ₱{(Number(deleteTarget?.amount) || 0).toLocaleString()}.00
+                  </span>
                 </div>
               </div>
 
-              <div className="p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-1.5 shrink-0">
+              <div className="flex items-center justify-end gap-3 pt-2 border-t border-[#e2ece2]">
                 <button
                   type="button"
-                  onClick={() => setShowExpenseModal(false)}
-                  className="px-2.5 py-1 bg-white hover:bg-[#e2ece2] text-stone-700 rounded-lg text-[11px] font-bold border border-stone-200 transition-all cursor-pointer"
+                  onClick={() => setDeleteTarget(null)}
+                  className="flex-1 px-4 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
-                  type="submit"
-                  className="px-3 py-1 bg-rose-800 hover:bg-rose-900 text-white rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shadow-sm flex items-center gap-1"
+                  type="button"
+                  onClick={handleConfirmDelete}
+                  className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
                 >
-                  <Check className="w-3 h-3 text-rose-200" />
-                  <span>{editingExpense ? 'Save' : 'Liquidate'}</span>
+                  <Trash2 className="w-4 h-4" />
+                  <span>Delete Record</span>
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* DELETE TRANSACTION CONFIRMATION MODAL */}
-      {deleteTarget && (
-        <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-[#e2ece2] space-y-5 my-auto text-center animate-in zoom-in-95 duration-200">
-            <div className="w-14 h-14 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
-              <Trash2 className="w-7 h-7" />
-            </div>
-
-            <div className="space-y-1.5">
-              <h3 className="font-heading text-lg font-extrabold text-[#1b4332]">
-                Delete {deleteTarget.type === 'fund' ? 'Payment' : 'Expense'} Record?
-              </h3>
-              <p className="text-xs text-[#52605d] leading-relaxed">
-                Are you sure you want to delete this {deleteTarget.type === 'fund' ? 'payment' : 'expense liquidation'} record? This action will remove it permanently from both local storage and MongoDB.
-              </p>
-            </div>
-
-            <div className="p-3.5 bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] text-left space-y-1">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-[#52605d]">
-                  {deleteTarget.type === 'fund' ? 'Member / Payee' : 'Title'}
-                </span>
-                <span className="text-[10px] font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-100">
-                  {deleteTarget.type === 'fund' ? 'Payment Record' : 'Expense Liquidation'}
-                </span>
-              </div>
-              <p className="text-xs font-black text-[#1b4332] truncate">{deleteTarget.title}</p>
-              {deleteTarget.subtitle && (
-                <p className="text-[11px] font-medium text-[#52605d] truncate">{deleteTarget.subtitle}</p>
-              )}
-              <div className="pt-2 border-t border-[#e2ece2] flex items-center justify-between">
-                <span className="text-xs font-bold text-[#52605d]">Record Amount:</span>
-                <span className="text-sm font-black text-rose-700">
-                  ₱{(Number(deleteTarget?.amount) || 0).toLocaleString()}.00
-                </span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-3 pt-2 border-t border-[#e2ece2]">
-              <button
-                type="button"
-                onClick={() => setDeleteTarget(null)}
-                className="flex-1 px-4 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmDelete}
-                className="flex-1 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
-              >
-                <Trash2 className="w-4 h-4" />
-                <span>Delete Record</span>
-              </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </ModalPortal>
 
       {/* Yearly Archive Modal */}
       <YearlyArchiveModal

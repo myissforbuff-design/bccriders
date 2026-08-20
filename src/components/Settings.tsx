@@ -19,6 +19,7 @@ import {
 } from '../types';
 import { YearlyArchiveModal } from './YearlyArchiveModal';
 import { ArchiveExportModal } from './ArchiveExportModal';
+import { ModalPortal } from './ModalPortal';
 import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import { InboundEmailViewer } from './InboundEmailViewer';
 import {
@@ -3550,599 +3551,609 @@ export const Settings: React.FC = () => {
       {/* MODAL: CREATE / EDIT MONTHLY DUE */}
       <AnimatePresence>
         {showMonthlyDueModal && (
-          <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative my-auto flex flex-col overflow-hidden"
-            >
-              <form onSubmit={handleSubmitDue} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                {/* Header (Fixed) */}
-                <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
-                  <button
-                    type="button"
-                    onClick={() => setShowMonthlyDueModal(false)}
-                    className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+          <ModalPortal>
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative my-auto flex flex-col overflow-hidden"
+              >
+                <form onSubmit={handleSubmitDue} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                  {/* Header (Fixed) */}
+                  <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
+                    <button
+                      type="button"
+                      onClick={() => setShowMonthlyDueModal(false)}
+                      className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
 
-                  <div className="flex items-center gap-2 pr-6">
-                    <div className="w-7 h-7 rounded-lg bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
-                      <Calendar className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="font-heading font-extrabold text-[#1b4332] text-xs sm:text-sm leading-tight truncate">
-                        {editingDue ? 'Edit Monthly Due' : 'Set Monthly Due'}
-                      </h3>
-                      <p className="text-[9px] sm:text-[10px] text-[#52605d] leading-tight truncate">
-                        Configure due amount for selected period
-                      </p>
+                    <div className="flex items-center gap-2 pr-6">
+                      <div className="w-7 h-7 rounded-lg bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+                        <Calendar className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-heading font-extrabold text-[#1b4332] text-xs sm:text-sm leading-tight truncate">
+                          {editingDue ? 'Edit Monthly Due' : 'Set Monthly Due'}
+                        </h3>
+                        <p className="text-[9px] sm:text-[10px] text-[#52605d] leading-tight truncate">
+                          Configure due amount for selected period
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Body (Scrollable) */}
-                <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 text-xs pr-1.5">
-                  {/* Amount Due */}
-                  <div>
-                    <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                      Due Per Member (₱) <span className="text-rose-600">*</span>
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="number"
+                  {/* Body (Scrollable) */}
+                  <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 text-xs pr-1.5">
+                    {/* Amount Due */}
+                    <div>
+                      <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                        Due Per Member (₱) <span className="text-rose-600">*</span>
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="number"
+                          required
+                          min="0"
+                          step="any"
+                          value={dueAmount}
+                          onChange={(e) => setDueAmount(Number(e.target.value))}
+                          className="w-full pl-5 pr-2 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        />
+                        <span className="absolute left-2 top-1 sm:top-1.5 text-xs font-bold text-[#52605d]">₱</span>
+                      </div>
+                    </div>
+
+                    {/* Amount Due Period: Month & Year Dropdown Selection */}
+                    <div className="grid grid-cols-2 gap-1 bg-[#f0f9f1] p-1.5 rounded-lg border border-[#c8e6c9]">
+                      <CustomSelect
+                        label="Month"
                         required
-                        min="0"
-                        step="any"
-                        value={dueAmount}
-                        onChange={(e) => setDueAmount(Number(e.target.value))}
-                        className="w-full pl-5 pr-2 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        value={dueMonth}
+                        onChange={(val) => setDueMonth(val)}
+                        options={MONTH_OPTIONS}
                       />
-                      <span className="absolute left-2 top-1 sm:top-1.5 text-xs font-bold text-[#52605d]">₱</span>
+
+                      <CustomSelect
+                        label="Year"
+                        required
+                        value={dueYear}
+                        onChange={(val) => setDueYear(val)}
+                        options={YEAR_OPTIONS}
+                      />
+                    </div>
+
+                    {/* Live Calculated Pending Collection Preview */}
+                    <div className="p-2 bg-[#1b4332] text-white rounded-lg space-y-0.5">
+                      <span className="text-[8.5px] text-[#74c69d] font-bold uppercase tracking-wider block">
+                        Expected Total ({approvedMemberCount} members)
+                      </span>
+                      <div className="text-xs font-black text-white">
+                        ₱{(approvedMemberCount * (Number(dueAmount) || 0)).toLocaleString()}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Amount Due Period: Month & Year Dropdown Selection */}
-                  <div className="grid grid-cols-2 gap-1 bg-[#f0f9f1] p-1.5 rounded-lg border border-[#c8e6c9]">
-                    <CustomSelect
-                      label="Month"
-                      required
-                      value={dueMonth}
-                      onChange={(val) => setDueMonth(val)}
-                      options={MONTH_OPTIONS}
-                    />
-
-                    <CustomSelect
-                      label="Year"
-                      required
-                      value={dueYear}
-                      onChange={(val) => setDueYear(val)}
-                      options={YEAR_OPTIONS}
-                    />
+                  {/* Fixed Footer Buttons */}
+                  <div className="p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowMonthlyDueModal(false)}
+                      className="px-2.5 py-1 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-[11px] cursor-pointer transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-3 py-1 rounded-lg bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-[11px] shadow-sm cursor-pointer transition-all flex items-center gap-1"
+                    >
+                      <CheckCircle2 className="w-3 h-3 text-[#74c69d] shrink-0" />
+                      <span>{editingDue ? 'Save' : 'Save Due'}</span>
+                    </button>
                   </div>
-
-                  {/* Live Calculated Pending Collection Preview */}
-                  <div className="p-2 bg-[#1b4332] text-white rounded-lg space-y-0.5">
-                    <span className="text-[8.5px] text-[#74c69d] font-bold uppercase tracking-wider block">
-                      Expected Total ({approvedMemberCount} members)
-                    </span>
-                    <div className="text-xs font-black text-white">
-                      ₱{(approvedMemberCount * (Number(dueAmount) || 0)).toLocaleString()}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Fixed Footer Buttons */}
-                <div className="p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setShowMonthlyDueModal(false)}
-                    className="px-2.5 py-1 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-[11px] cursor-pointer transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-3 py-1 rounded-lg bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-[11px] shadow-sm cursor-pointer transition-all flex items-center gap-1"
-                  >
-                    <CheckCircle2 className="w-3 h-3 text-[#74c69d] shrink-0" />
-                    <span>{editingDue ? 'Save' : 'Save Due'}</span>
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
+                </form>
+              </motion.div>
+            </div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 
       {/* MODAL: CREATE / EDIT DYNAMIC COLLECTION */}
       <AnimatePresence>
         {showCollectionModal && (
-          <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative my-auto flex flex-col overflow-hidden"
-            >
-              <form onSubmit={handleSubmitCollection} className="flex flex-col flex-1 min-h-0 overflow-hidden">
-                {/* Header (Fixed) */}
-                <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
-                  <button
-                    type="button"
-                    onClick={() => setShowCollectionModal(false)}
-                    className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+          <ModalPortal>
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-2 sm:p-3 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                className="bg-white rounded-2xl max-w-[340px] sm:max-w-[390px] w-[94vw] max-h-[66dvh] sm:max-h-[70dvh] shadow-2xl border border-[#e2ece2] relative my-auto flex flex-col overflow-hidden"
+              >
+                <form onSubmit={handleSubmitCollection} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+                  {/* Header (Fixed) */}
+                  <div className="p-2.5 sm:p-3 pb-2 border-b border-[#e2ece2] relative shrink-0 bg-white">
+                    <button
+                      type="button"
+                      onClick={() => setShowCollectionModal(false)}
+                      className="absolute top-2 right-2 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
 
-                  <div className="flex items-center gap-2 pr-6">
-                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                      colType === 'Donation' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      {colType === 'Donation' ? <HeartHandshake className="w-3.5 h-3.5 text-emerald-700" /> : <PiggyBank className="w-3.5 h-3.5 text-amber-700" />}
+                    <div className="flex items-center gap-2 pr-6">
+                      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                        colType === 'Donation' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                      }`}>
+                        {colType === 'Donation' ? <HeartHandshake className="w-3.5 h-3.5 text-emerald-700" /> : <PiggyBank className="w-3.5 h-3.5 text-amber-700" />}
+                      </div>
+                      <div className="min-w-0">
+                        <h3 className="font-heading font-extrabold text-[#1b4332] text-xs sm:text-sm leading-tight truncate">
+                          {editingCollection
+                            ? (colType === 'Donation' ? 'Edit Donation' : 'Edit Collection')
+                            : (colType === 'Donation' ? 'Add Donation' : 'New Collection')}
+                        </h3>
+                        <p className="text-[9px] sm:text-[10px] text-[#52605d] leading-tight truncate">
+                          {colType === 'Donation'
+                            ? 'Voluntary fund for Net Treasury'
+                            : 'Set custom collection drive'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <h3 className="font-heading font-extrabold text-[#1b4332] text-xs sm:text-sm leading-tight truncate">
-                        {editingCollection
-                          ? (colType === 'Donation' ? 'Edit Donation' : 'Edit Collection')
-                          : (colType === 'Donation' ? 'Add Donation' : 'New Collection')}
-                      </h3>
-                      <p className="text-[9px] sm:text-[10px] text-[#52605d] leading-tight truncate">
-                        {colType === 'Donation'
-                          ? 'Voluntary fund for Net Treasury'
-                          : 'Set custom collection drive'}
-                      </p>
+
+                    {/* Type Switcher */}
+                    <div className="grid grid-cols-2 gap-1 p-0.5 bg-[#f7f9f7] rounded-lg border border-[#e2ece2] mt-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setColType('Standard')}
+                        className={`py-0.5 px-1.5 rounded-md font-extrabold text-[9.5px] sm:text-[10.5px] transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                          colType === 'Standard'
+                            ? 'bg-white text-[#1b4332] shadow-2xs border border-[#e2ece2]'
+                            : 'text-[#52605d] hover:text-[#1b4332]'
+                        }`}
+                      >
+                        <Receipt className="w-3 h-3 shrink-0" />
+                        <span className="truncate">Standard Drive</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setColType('Donation')}
+                        className={`py-0.5 px-1.5 rounded-md font-extrabold text-[9.5px] sm:text-[10.5px] transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                          colType === 'Donation'
+                            ? 'bg-emerald-700 text-white shadow-2xs'
+                            : 'text-[#52605d] hover:text-emerald-700'
+                        }`}
+                      >
+                        <HeartHandshake className="w-3 h-3 shrink-0" />
+                        <span className="truncate">Donation</span>
+                      </button>
                     </div>
                   </div>
 
-                  {/* Type Switcher */}
-                  <div className="grid grid-cols-2 gap-1 p-0.5 bg-[#f7f9f7] rounded-lg border border-[#e2ece2] mt-1.5">
+                  {/* Scrollable Form Body */}
+                  <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 text-xs pr-1.5">
+                    {colType === 'Donation' ? (
+                      <>
+                        {/* Donation Collection Name */}
+                        <div>
+                          <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                            Donation Drive / Purpose <span className="text-rose-600">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={colName}
+                            onChange={(e) => setColName(e.target.value)}
+                            placeholder="e.g., Medical Relief Fund"
+                            className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          />
+                        </div>
+
+                        {/* Donor / Contributor Name */}
+                        <div>
+                          <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                            Donor / Contributor <span className="text-[9px] font-normal text-[#52605d]">(Optional)</span>
+                          </label>
+                          <input
+                            type="text"
+                            value={colDonorName}
+                            onChange={(e) => setColDonorName(e.target.value)}
+                            placeholder="e.g., Anonymous Sponsor"
+                            className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          />
+                        </div>
+
+                        {/* Donation Amount */}
+                        <div>
+                          <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                            Donation Amount (₱) <span className="text-rose-600">*</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              required
+                              min="1"
+                              step="any"
+                              value={colAmount}
+                              onChange={(e) => setColAmount(Number(e.target.value) || 0)}
+                              className="w-full pl-5 pr-2 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                            />
+                            <span className="absolute left-2 top-1 sm:top-1.5 text-xs font-bold text-[#52605d]">₱</span>
+                          </div>
+                          <p className="text-[9px] text-emerald-800 font-semibold mt-0.5">
+                            Directly credited to Net Treasury upon creation.
+                          </p>
+                        </div>
+
+                        {/* Educational Info Box */}
+                        <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-emerald-950 space-y-0.5">
+                          <div className="flex items-center gap-1 text-[9.5px] font-extrabold text-emerald-900">
+                            <Sparkles className="w-3 h-3 text-emerald-700 shrink-0" />
+                            <span>Treasury Impact</span>
+                          </div>
+                          <p className="text-[9px] leading-tight text-emerald-800">
+                            This donation is logged as paid revenue and immediately increases the Net Treasury.
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        {/* Collection Name */}
+                        <div>
+                          <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                            Collection Title <span className="text-rose-600">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            value={colName}
+                            onChange={(e) => setColName(e.target.value)}
+                            placeholder="e.g., Club Shirt / Uniform"
+                            className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                          />
+                        </div>
+
+                        {/* Amount */}
+                        <div>
+                          <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                            Amount Per Member (₱) <span className="text-rose-600">*</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              required
+                              min="0"
+                              step="any"
+                              value={colAmount}
+                              onChange={(e) => {
+                                const valStr = e.target.value;
+                                const numVal = Number(valStr);
+                                setColAmount(numVal);
+                                const count = approvedMembers.length;
+                                if (valStr !== '' && !isNaN(numVal) && numVal >= 0) {
+                                  setColTargetAmount(String(Math.round(numVal * count * 100) / 100));
+                                } else {
+                                  setColTargetAmount('');
+                                }
+                              }}
+                              className="w-full pl-5 pr-2 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                            />
+                            <span className="absolute left-2 top-1 sm:top-1.5 text-xs font-bold text-[#52605d]">₱</span>
+                          </div>
+                        </div>
+
+                        {/* Expected Target Collection */}
+                        <div>
+                          <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                            Target Goal (₱) <span className="text-[9px] font-normal text-[#52605d]">(Optional)</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min="0"
+                              step="any"
+                              value={colTargetAmount}
+                              onChange={(e) => {
+                                const targetValStr = e.target.value;
+                                setColTargetAmount(targetValStr);
+                                const count = approvedMembers.length;
+                                const targetNum = Number(targetValStr);
+                                if (targetValStr !== '' && !isNaN(targetNum) && targetNum >= 0) {
+                                  const calculatedAmount = count > 0 ? Math.round((targetNum / count) * 100) / 100 : 0;
+                                  setColAmount(calculatedAmount);
+                                }
+                              }}
+                              placeholder={approvedMembers.length > 0 ? `Auto: ₱${(approvedMembers.length * (Number(colAmount) || 0)).toLocaleString()}` : 'Auto: ₱0.00'}
+                              className="w-full pl-5 pr-2 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                            />
+                            <span className="absolute left-2 top-1 sm:top-1.5 text-xs font-bold text-[#52605d]">₱</span>
+                          </div>
+                          <p className="text-[9px] text-[#52605d] mt-0.5">
+                            For {approvedMembers.length} active member(s).
+                          </p>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Description */}
+                    <div>
+                      <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
+                        Description / Notes
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={colDescription}
+                        onChange={(e) => setColDescription(e.target.value)}
+                        placeholder={colType === 'Donation' ? 'Notes on donation...' : 'Details on drive...'}
+                        className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] resize-none"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Fixed Footer Buttons */}
+                  <div className="p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-1.5 shrink-0">
                     <button
                       type="button"
-                      onClick={() => setColType('Standard')}
-                      className={`py-0.5 px-1.5 rounded-md font-extrabold text-[9.5px] sm:text-[10.5px] transition-all flex items-center justify-center gap-1 cursor-pointer ${
-                        colType === 'Standard'
-                          ? 'bg-white text-[#1b4332] shadow-2xs border border-[#e2ece2]'
-                          : 'text-[#52605d] hover:text-[#1b4332]'
-                      }`}
+                      onClick={() => setShowCollectionModal(false)}
+                      className="px-2.5 py-1 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-[11px] cursor-pointer transition-colors"
                     >
-                      <Receipt className="w-3 h-3 shrink-0" />
-                      <span className="truncate">Standard Drive</span>
+                      Cancel
                     </button>
                     <button
-                      type="button"
-                      onClick={() => setColType('Donation')}
-                      className={`py-0.5 px-1.5 rounded-md font-extrabold text-[9.5px] sm:text-[10.5px] transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                      type="submit"
+                      className={`px-3 py-1 rounded-lg text-white font-extrabold text-[11px] shadow-sm cursor-pointer transition-all flex items-center gap-1 ${
                         colType === 'Donation'
-                          ? 'bg-emerald-700 text-white shadow-2xs'
-                          : 'text-[#52605d] hover:text-emerald-700'
+                          ? 'bg-emerald-700 hover:bg-emerald-800'
+                          : 'bg-[#1b4332] hover:bg-[#2d6a4f]'
                       }`}
                     >
-                      <HeartHandshake className="w-3 h-3 shrink-0" />
-                      <span className="truncate">Donation</span>
+                      <CheckCircle2 className="w-3 h-3 text-emerald-200 shrink-0" />
+                      <span className="truncate">
+                        {editingCollection
+                          ? (colType === 'Donation' ? 'Save' : 'Save Drive')
+                          : (colType === 'Donation' ? 'Log Donation' : 'Create')}
+                      </span>
                     </button>
                   </div>
-                </div>
-
-                {/* Scrollable Form Body */}
-                <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 text-xs pr-1.5">
-                  {colType === 'Donation' ? (
-                    <>
-                      {/* Donation Collection Name */}
-                      <div>
-                        <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                          Donation Drive / Purpose <span className="text-rose-600">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={colName}
-                          onChange={(e) => setColName(e.target.value)}
-                          placeholder="e.g., Medical Relief Fund"
-                          className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                        />
-                      </div>
-
-                      {/* Donor / Contributor Name */}
-                      <div>
-                        <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                          Donor / Contributor <span className="text-[9px] font-normal text-[#52605d]">(Optional)</span>
-                        </label>
-                        <input
-                          type="text"
-                          value={colDonorName}
-                          onChange={(e) => setColDonorName(e.target.value)}
-                          placeholder="e.g., Anonymous Sponsor"
-                          className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                        />
-                      </div>
-
-                      {/* Donation Amount */}
-                      <div>
-                        <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                          Donation Amount (₱) <span className="text-rose-600">*</span>
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            required
-                            min="1"
-                            step="any"
-                            value={colAmount}
-                            onChange={(e) => setColAmount(Number(e.target.value) || 0)}
-                            className="w-full pl-5 pr-2 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                          />
-                          <span className="absolute left-2 top-1 sm:top-1.5 text-xs font-bold text-[#52605d]">₱</span>
-                        </div>
-                        <p className="text-[9px] text-emerald-800 font-semibold mt-0.5">
-                          Directly credited to Net Treasury upon creation.
-                        </p>
-                      </div>
-
-                      {/* Educational Info Box */}
-                      <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-2 text-emerald-950 space-y-0.5">
-                        <div className="flex items-center gap-1 text-[9.5px] font-extrabold text-emerald-900">
-                          <Sparkles className="w-3 h-3 text-emerald-700 shrink-0" />
-                          <span>Treasury Impact</span>
-                        </div>
-                        <p className="text-[9px] leading-tight text-emerald-800">
-                          This donation is logged as paid revenue and immediately increases the Net Treasury.
-                        </p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {/* Collection Name */}
-                      <div>
-                        <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                          Collection Title <span className="text-rose-600">*</span>
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={colName}
-                          onChange={(e) => setColName(e.target.value)}
-                          placeholder="e.g., Club Shirt / Uniform"
-                          className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                        />
-                      </div>
-
-                      {/* Amount */}
-                      <div>
-                        <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                          Amount Per Member (₱) <span className="text-rose-600">*</span>
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            required
-                            min="0"
-                            step="any"
-                            value={colAmount}
-                            onChange={(e) => {
-                              const valStr = e.target.value;
-                              const numVal = Number(valStr);
-                              setColAmount(numVal);
-                              const count = approvedMembers.length;
-                              if (valStr !== '' && !isNaN(numVal) && numVal >= 0) {
-                                setColTargetAmount(String(Math.round(numVal * count * 100) / 100));
-                              } else {
-                                setColTargetAmount('');
-                              }
-                            }}
-                            className="w-full pl-5 pr-2 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                          />
-                          <span className="absolute left-2 top-1 sm:top-1.5 text-xs font-bold text-[#52605d]">₱</span>
-                        </div>
-                      </div>
-
-                      {/* Expected Target Collection */}
-                      <div>
-                        <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                          Target Goal (₱) <span className="text-[9px] font-normal text-[#52605d]">(Optional)</span>
-                        </label>
-                        <div className="relative">
-                          <input
-                            type="number"
-                            min="0"
-                            step="any"
-                            value={colTargetAmount}
-                            onChange={(e) => {
-                              const targetValStr = e.target.value;
-                              setColTargetAmount(targetValStr);
-                              const count = approvedMembers.length;
-                              const targetNum = Number(targetValStr);
-                              if (targetValStr !== '' && !isNaN(targetNum) && targetNum >= 0) {
-                                const calculatedAmount = count > 0 ? Math.round((targetNum / count) * 100) / 100 : 0;
-                                setColAmount(calculatedAmount);
-                              }
-                            }}
-                            placeholder={approvedMembers.length > 0 ? `Auto: ₱${(approvedMembers.length * (Number(colAmount) || 0)).toLocaleString()}` : 'Auto: ₱0.00'}
-                            className="w-full pl-5 pr-2 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                          />
-                          <span className="absolute left-2 top-1 sm:top-1.5 text-xs font-bold text-[#52605d]">₱</span>
-                        </div>
-                        <p className="text-[9px] text-[#52605d] mt-0.5">
-                          For {approvedMembers.length} active member(s).
-                        </p>
-                      </div>
-                    </>
-                  )}
-
-                  {/* Description */}
-                  <div>
-                    <label className="text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5 block">
-                      Description / Notes
-                    </label>
-                    <textarea
-                      rows={2}
-                      value={colDescription}
-                      onChange={(e) => setColDescription(e.target.value)}
-                      placeholder={colType === 'Donation' ? 'Notes on donation...' : 'Details on drive...'}
-                      className="w-full px-2.5 py-1 sm:py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] resize-none"
-                    />
-                  </div>
-                </div>
-
-                {/* Fixed Footer Buttons */}
-                <div className="p-2 sm:p-2.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setShowCollectionModal(false)}
-                    className="px-2.5 py-1 rounded-lg border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-[11px] cursor-pointer transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className={`px-3 py-1 rounded-lg text-white font-extrabold text-[11px] shadow-sm cursor-pointer transition-all flex items-center gap-1 ${
-                      colType === 'Donation'
-                        ? 'bg-emerald-700 hover:bg-emerald-800'
-                        : 'bg-[#1b4332] hover:bg-[#2d6a4f]'
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3 h-3 text-emerald-200 shrink-0" />
-                    <span className="truncate">
-                      {editingCollection
-                        ? (colType === 'Donation' ? 'Save' : 'Save Drive')
-                        : (colType === 'Donation' ? 'Log Donation' : 'Create')}
-                    </span>
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          </div>
+                </form>
+              </motion.div>
+            </div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 
       {/* CUSTOM CONFIRMATION DELETE MODAL */}
       <AnimatePresence>
         {deleteTarget && (
-          <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full text-center space-y-3.5 border border-[#e2ece2] shadow-2xl relative"
-            >
-              <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto">
-                <Trash2 className="w-5 h-5" />
-              </div>
-              <div className="space-y-1">
-                <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base">
-                  Delete Item?
-                </h3>
-                <p className="text-xs text-[#52605d] leading-relaxed">
-                  Permanently delete <strong className="text-rose-700">"{deleteTarget.name}"</strong>?
-                  This item will be removed from system records.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 pt-1.5">
-                <button
-                  type="button"
-                  onClick={() => setDeleteTarget(null)}
-                  className="flex-1 py-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmDeleteAction}
-                  className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
-                >
-                  Delete
-                </button>
-              </div>
-            </motion.div>
-          </div>
+          <ModalPortal>
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full text-center space-y-3.5 border border-[#e2ece2] shadow-2xl relative"
+              >
+                <div className="w-11 h-11 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center mx-auto">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div className="space-y-1">
+                  <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base">
+                    Delete Item?
+                  </h3>
+                  <p className="text-xs text-[#52605d] leading-relaxed">
+                    Permanently delete <strong className="text-rose-700">"{deleteTarget.name}"</strong>?
+                    This item will be removed from system records.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 pt-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTarget(null)}
+                    className="flex-1 py-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmDeleteAction}
+                    className="flex-1 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-xs"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 
       {/* SIGN OUT CONFIRMATION MODAL */}
       <AnimatePresence>
         {showLogoutModal && (
-          <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full text-center space-y-4 border border-[#e2ece2] shadow-2xl relative"
-            >
-              <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
-                <LogOut className="w-6 h-6" />
-              </div>
+          <ModalPortal>
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full text-center space-y-4 border border-[#e2ece2] shadow-2xl relative"
+              >
+                <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
+                  <LogOut className="w-6 h-6" />
+                </div>
 
-              <div className="space-y-1">
-                <h3 className="font-heading text-base sm:text-lg font-extrabold text-[#1b4332]">
-                  Sign Out?
-                </h3>
-                <p className="text-xs text-[#52605d] leading-relaxed">
-                  Are you sure you want to sign out of your account?
-                </p>
-              </div>
+                <div className="space-y-1">
+                  <h3 className="font-heading text-base sm:text-lg font-extrabold text-[#1b4332]">
+                    Sign Out?
+                  </h3>
+                  <p className="text-xs text-[#52605d] leading-relaxed">
+                    Are you sure you want to sign out of your account?
+                  </p>
+                </div>
 
-              <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#e2ece2]">
-                <button
-                  type="button"
-                  onClick={() => setShowLogoutModal(false)}
-                  className="flex-1 px-3.5 py-2 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowLogoutModal(false);
-                    logout();
-                  }}
-                  className="flex-1 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Sign Out</span>
-                </button>
-              </div>
-            </motion.div>
-          </div>
+                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#e2ece2]">
+                  <button
+                    type="button"
+                    onClick={() => setShowLogoutModal(false)}
+                    className="flex-1 px-3.5 py-2 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowLogoutModal(false);
+                      logout();
+                    }}
+                    className="flex-1 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Sign Out</span>
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 
       {/* DELETE A YEAR'S TRANSACTIONS CONFIRMATION MODAL */}
       <AnimatePresence>
         {showDeleteYearModal && (
-          <div className="fixed inset-0 z-[110] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 15 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 15 }}
-              className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full shadow-2xl border border-rose-200 relative my-auto overflow-hidden text-left"
-            >
-              {/* Header */}
-              <div className="p-3.5 sm:p-4 border-b border-rose-100 bg-rose-50/70 relative">
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteYearModal(false)}
-                  className="absolute top-3 right-3 p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-white transition-colors cursor-pointer"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-
-                <div className="flex items-center gap-2.5 pr-6">
-                  <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
-                    <Trash2 className="w-4 h-4 text-rose-600" />
-                  </div>
-                  <div className="min-w-0">
-                    <h3 className="font-heading font-black text-rose-950 text-sm sm:text-base leading-tight truncate">
-                      Delete FY {deleteYearInput} Records
-                    </h3>
-                    <p className="text-[11px] text-rose-700 leading-tight mt-0.5">
-                      Irreversible Fiscal Year Purge
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Body Content */}
-              <div className="p-3.5 sm:p-4 space-y-3 text-xs">
-                {/* Mandatory Archiving Instructions Callout */}
-                <div className="p-3 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 space-y-1.5">
-                  <div className="flex items-center gap-1.5 text-amber-900 font-black text-xs">
-                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                    <span>Important Instruction</span>
-                  </div>
-                  <p className="font-black text-amber-950 text-xs leading-snug">
-                    "Make sure to Archive the Year and download the Zip file first"
-                  </p>
-                  <p className="text-amber-900 text-[10.5px] sm:text-[11px] leading-relaxed">
-                    Permanently deletes all active collection records & expense vouchers for FY <strong>{deleteYearInput}</strong>.
-                  </p>
+          <ModalPortal>
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 15 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 15 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full shadow-2xl border border-rose-200 relative my-auto overflow-hidden text-left"
+              >
+                {/* Header */}
+                <div className="p-3.5 sm:p-4 border-b border-rose-100 bg-rose-50/70 relative">
                   <button
                     type="button"
-                    onClick={() => {
-                      setShowDeleteYearModal(false);
-                      setShowYearlyArchiveModal(true);
-                    }}
-                    className="mt-1 w-full py-1.5 px-3 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-black text-[11px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    onClick={() => setShowDeleteYearModal(false)}
+                    className="absolute top-3 right-3 p-1.5 text-stone-400 hover:text-stone-700 rounded-full hover:bg-white transition-colors cursor-pointer"
                   >
-                    <FolderArchive className="w-3.5 h-3.5 text-amber-800" />
-                    <span>Archive FY {deleteYearInput} & Download .ZIP First</span>
+                    <X className="w-4 h-4" />
                   </button>
-                </div>
 
-                {/* Match Summary */}
-                <div className="p-2.5 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] space-y-1">
-                  <span className="text-[10px] font-bold text-[#52605d] uppercase tracking-wider block">
-                    Records to be deleted
-                  </span>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div className="p-2 bg-white rounded-lg border border-[#e2ece2]">
-                      <span className="text-[#52605d] text-[10px] block">Collections</span>
-                      <strong className="text-[#1b4332] text-xs sm:text-sm">{matchedYearRecords.length} records</strong>
+                  <div className="flex items-center gap-2.5 pr-6">
+                    <div className="w-9 h-9 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                      <Trash2 className="w-4 h-4 text-rose-600" />
                     </div>
-                    <div className="p-2 bg-white rounded-lg border border-[#e2ece2]">
-                      <span className="text-[#52605d] text-[10px] block">Expenses</span>
-                      <strong className="text-rose-700 text-xs sm:text-sm">{matchedYearExpenses.length} vouchers</strong>
+                    <div className="min-w-0">
+                      <h3 className="font-heading font-black text-rose-950 text-sm sm:text-base leading-tight truncate">
+                        Delete FY {deleteYearInput} Records
+                      </h3>
+                      <p className="text-[11px] text-rose-700 leading-tight mt-0.5">
+                        Irreversible Fiscal Year Purge
+                      </p>
                     </div>
                   </div>
                 </div>
 
-                {/* 10-Second Countdown Indicator */}
-                <div className="p-2.5 bg-stone-50 rounded-xl border border-stone-200 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <Clock className={`w-3.5 h-3.5 shrink-0 ${deleteCountdown > 0 ? 'text-amber-600 animate-pulse' : 'text-emerald-600'}`} />
-                    <span className="text-[11px] font-bold text-stone-700 truncate">
-                      {deleteCountdown > 0 ? `Safety delay (${deleteCountdown}s)` : 'Delay complete. Ready.'}
+                {/* Body Content */}
+                <div className="p-3.5 sm:p-4 space-y-3 text-xs">
+                  {/* Mandatory Archiving Instructions Callout */}
+                  <div className="p-3 rounded-xl bg-amber-50 border-2 border-amber-300 text-amber-950 space-y-1.5">
+                    <div className="flex items-center gap-1.5 text-amber-900 font-black text-xs">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                      <span>Important Instruction</span>
+                    </div>
+                    <p className="font-black text-amber-950 text-xs leading-snug">
+                      "Make sure to Archive the Year and download the Zip file first"
+                    </p>
+                    <p className="text-amber-900 text-[10.5px] sm:text-[11px] leading-relaxed">
+                      Permanently deletes all active collection records & expense vouchers for FY <strong>{deleteYearInput}</strong>.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowDeleteYearModal(false);
+                        setShowYearlyArchiveModal(true);
+                      }}
+                      className="mt-1 w-full py-1.5 px-3 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-950 font-black text-[11px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-xs"
+                    >
+                      <FolderArchive className="w-3.5 h-3.5 text-amber-800" />
+                      <span>Archive FY {deleteYearInput} & Download .ZIP First</span>
+                    </button>
+                  </div>
+
+                  {/* Match Summary */}
+                  <div className="p-2.5 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] space-y-1">
+                    <span className="text-[10px] font-bold text-[#52605d] uppercase tracking-wider block">
+                      Records to be deleted
+                    </span>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      <div className="p-2 bg-white rounded-lg border border-[#e2ece2]">
+                        <span className="text-[#52605d] text-[10px] block">Collections</span>
+                        <strong className="text-[#1b4332] text-xs sm:text-sm">{matchedYearRecords.length} records</strong>
+                      </div>
+                      <div className="p-2 bg-white rounded-lg border border-[#e2ece2]">
+                        <span className="text-[#52605d] text-[10px] block">Expenses</span>
+                        <strong className="text-rose-700 text-xs sm:text-sm">{matchedYearExpenses.length} vouchers</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 10-Second Countdown Indicator */}
+                  <div className="p-2.5 bg-stone-50 rounded-xl border border-stone-200 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <Clock className={`w-3.5 h-3.5 shrink-0 ${deleteCountdown > 0 ? 'text-amber-600 animate-pulse' : 'text-emerald-600'}`} />
+                      <span className="text-[11px] font-bold text-stone-700 truncate">
+                        {deleteCountdown > 0 ? `Safety delay (${deleteCountdown}s)` : 'Delay complete. Ready.'}
+                      </span>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-full text-[11px] font-black shrink-0 ${
+                      deleteCountdown > 0
+                        ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                        : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
+                    }`}>
+                      {deleteCountdown > 0 ? `${deleteCountdown}s` : 'Ready'}
                     </span>
                   </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[11px] font-black shrink-0 ${
-                    deleteCountdown > 0
-                      ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                      : 'bg-emerald-100 text-emerald-900 border border-emerald-300'
-                  }`}>
-                    {deleteCountdown > 0 ? `${deleteCountdown}s` : 'Ready'}
-                  </span>
                 </div>
-              </div>
 
-              {/* Footer Buttons */}
-              <div className="p-3 sm:p-3.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-2 shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteYearModal(false)}
-                  disabled={isDeletingYear}
-                  className="px-3.5 py-1.5 sm:py-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmDeleteYear}
-                  disabled={deleteCountdown > 0 || isDeletingYear}
-                  className={`px-4 py-1.5 sm:py-2 rounded-xl font-black text-xs shadow-xs transition-all flex items-center gap-1.5 ${
-                    deleteCountdown > 0 || isDeletingYear
-                      ? 'bg-stone-200 text-stone-400 cursor-not-allowed opacity-60'
-                      : 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer active:scale-95'
-                  }`}
-                >
-                  {isDeletingYear ? (
-                    <>
-                      <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />
-                      <span>Deleting...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Trash2 className="w-3.5 h-3.5 shrink-0" />
-                      <span>
-                        {deleteCountdown > 0 ? `Confirm (${deleteCountdown}s)` : 'Confirm'}
-                      </span>
-                    </>
-                  )}
-                </button>
-              </div>
-            </motion.div>
-          </div>
+                {/* Footer Buttons */}
+                <div className="p-3 sm:p-3.5 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteYearModal(false)}
+                    disabled={isDeletingYear}
+                    className="px-3.5 py-1.5 sm:py-2 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmDeleteYear}
+                    disabled={deleteCountdown > 0 || isDeletingYear}
+                    className={`px-4 py-1.5 sm:py-2 rounded-xl font-black text-xs shadow-xs transition-all flex items-center gap-1.5 ${
+                      deleteCountdown > 0 || isDeletingYear
+                        ? 'bg-stone-200 text-stone-400 cursor-not-allowed opacity-60'
+                        : 'bg-rose-600 hover:bg-rose-700 text-white cursor-pointer active:scale-95'
+                    }`}
+                  >
+                    {isDeletingYear ? (
+                      <>
+                        <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin shrink-0" />
+                        <span>Deleting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Trash2 className="w-3.5 h-3.5 shrink-0" />
+                        <span>
+                          {deleteCountdown > 0 ? `Confirm (${deleteCountdown}s)` : 'Confirm'}
+                        </span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          </ModalPortal>
         )}
       </AnimatePresence>
 

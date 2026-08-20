@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 import { store } from '../lib/db';
 import { OfficialLoader } from './OfficialLoader';
 import {
@@ -89,9 +90,10 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   };
 
   return (
-    <AnimatePresence>
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md overflow-y-auto">
-        <motion.div
+    <ModalPortal>
+      <AnimatePresence>
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md overflow-y-auto">
+          <motion.div
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
@@ -344,5 +346,6 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         <OfficialLoader isLoading={loading} message="Processing Secure Payment..." />
       </div>
     </AnimatePresence>
-  );
+  </ModalPortal>
+);
 };

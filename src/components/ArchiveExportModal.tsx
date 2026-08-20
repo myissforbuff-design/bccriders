@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { ArchivePackageData } from '../types';
 import { exportArchiveToMultiTabXLSX, exportArchiveToIncomeStatementPDF } from '../lib/yearlyArchiveUtils';
+import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 
 interface ArchiveExportModalProps {
   isOpen: boolean;
@@ -25,6 +27,7 @@ export const ArchiveExportModal: React.FC<ArchiveExportModalProps> = ({
   onClose,
   data,
 }) => {
+  useModalDismiss(isOpen, onClose);
   const [activeCategory, setActiveCategory] = useState<string>('summary');
 
   if (!isOpen || !data) return null;
@@ -50,8 +53,9 @@ export const ArchiveExportModal: React.FC<ArchiveExportModalProps> = ({
   ];
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-md overflow-y-auto animate-fadeIn">
-      <div className="bg-white rounded-2xl sm:rounded-3xl max-w-4xl w-full p-3.5 sm:p-5 md:p-6 shadow-2xl border border-[#e2ece2] space-y-3 sm:space-y-4 my-auto max-h-[94dvh] flex flex-col">
+    <ModalPortal>
+      <div className="fixed inset-0 z-[9999] flex items-center justify-center p-2 sm:p-4 bg-black/70 backdrop-blur-md overflow-y-auto animate-fadeIn">
+        <div className="bg-white rounded-2xl sm:rounded-3xl max-w-4xl w-full p-3.5 sm:p-5 md:p-6 shadow-2xl border border-[#e2ece2] space-y-3 sm:space-y-4 my-auto max-h-[94dvh] flex flex-col">
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-[#e2ece2] pb-2.5 sm:pb-3 shrink-0 gap-2">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -507,5 +511,6 @@ export const ArchiveExportModal: React.FC<ArchiveExportModalProps> = ({
         </div>
       </div>
     </div>
-  );
+  </ModalPortal>
+);
 };

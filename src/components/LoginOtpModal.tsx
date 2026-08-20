@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { OfficialDotSpinner } from './OfficialLoader';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 
 interface LoginOtpModalProps {
   isOpen: boolean;
@@ -212,110 +213,112 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="my-auto max-w-full flex items-center justify-center"
-      >
-        <form onSubmit={handleVerify} className="otp-Form">
-          <button
-            type="button"
-            onClick={onClose}
-            className="exitBtn"
-            aria-label="Close"
-          >
-            ×
-          </button>
-
-          <span className="mainHeading">Enter OTP</span>
-          <p className="otpSubheading">
-            We have sent a verification code to{' '}
-            <strong className="text-[#1b4332] font-semibold break-all">
-              {maskedEmail || email || 'your email'}
-            </strong>
-          </p>
-
-          {error && (
-            <div className="w-full p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-semibold flex items-start gap-1.5 text-left">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
-              <span>{error}</span>
-            </div>
-          )}
-
-          <div className="inputContainer">
-            {digits.map((digit, index) => (
-              <input
-                key={index}
-                id={`otp-input${index + 1}`}
-                ref={(el) => {
-                  inputRefs.current[index] = el;
-                }}
-                required
-                maxLength={1}
-                type="text"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={digit}
-                onChange={(e) => handleDigitChange(index, e.target.value)}
-                onKeyDown={(e) => handleKeyDown(index, e)}
-                onPaste={handlePaste}
-                className="otp-input"
-                aria-label={`Digit ${index + 1}`}
-              />
-            ))}
-          </div>
-
-          <div className="text-[11px] text-[#52605d] text-center w-full -mt-1">
-            {expiryCountdown > 0 ? (
-              <span>
-                Code expires in{' '}
-                <span className="font-mono font-bold text-[#1b4332]">
-                  {formatExpiryTime(expiryCountdown)}
-                </span>
-              </span>
-            ) : (
-              <span className="text-rose-600 font-semibold">
-                Code expired. Please resend code.
-              </span>
-            )}
-          </div>
-
-          <button
-            className="verifyButton"
-            type="submit"
-            disabled={loading || otp.length < 6}
-          >
-            {loading ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                <span>Verifying...</span>
-              </>
-            ) : (
-              'Verify'
-            )}
-          </button>
-
-          <p className="resendNote">
-            Didn't receive the code?{' '}
+    <ModalPortal>
+      <div className="fixed inset-0 z-[9999] bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 15 }}
+          className="my-auto max-w-full flex items-center justify-center"
+        >
+          <form onSubmit={handleVerify} className="otp-Form">
             <button
               type="button"
-              className="resendBtn"
-              onClick={handleResend}
-              disabled={countdown > 0 || resending}
+              onClick={onClose}
+              className="exitBtn"
+              aria-label="Close"
             >
-              {resending ? (
-                'Resending...'
-              ) : countdown > 0 ? (
-                `Resend in ${countdown}s`
+              ×
+            </button>
+
+            <span className="mainHeading">Enter OTP</span>
+            <p className="otpSubheading">
+              We have sent a verification code to{' '}
+              <strong className="text-[#1b4332] font-semibold break-all">
+                {maskedEmail || email || 'your email'}
+              </strong>
+            </p>
+
+            {error && (
+              <div className="w-full p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-semibold flex items-start gap-1.5 text-left">
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <div className="inputContainer">
+              {digits.map((digit, index) => (
+                <input
+                  key={index}
+                  id={`otp-input${index + 1}`}
+                  ref={(el) => {
+                    inputRefs.current[index] = el;
+                  }}
+                  required
+                  maxLength={1}
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  value={digit}
+                  onChange={(e) => handleDigitChange(index, e.target.value)}
+                  onKeyDown={(e) => handleKeyDown(index, e)}
+                  onPaste={handlePaste}
+                  className="otp-input"
+                  aria-label={`Digit ${index + 1}`}
+                />
+              ))}
+            </div>
+
+            <div className="text-[11px] text-[#52605d] text-center w-full -mt-1">
+              {expiryCountdown > 0 ? (
+                <span>
+                  Code expires in{' '}
+                  <span className="font-mono font-bold text-[#1b4332]">
+                    {formatExpiryTime(expiryCountdown)}
+                  </span>
+                </span>
               ) : (
-                'Resend Code'
+                <span className="text-rose-600 font-semibold">
+                  Code expired. Please resend code.
+                </span>
+              )}
+            </div>
+
+            <button
+              className="verifyButton"
+              type="submit"
+              disabled={loading || otp.length < 6}
+            >
+              {loading ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>Verifying...</span>
+                </>
+              ) : (
+                'Verify'
               )}
             </button>
-          </p>
-        </form>
-      </motion.div>
-    </div>
+
+            <p className="resendNote">
+              Didn't receive the code?{' '}
+              <button
+                type="button"
+                className="resendBtn"
+                onClick={handleResend}
+                disabled={countdown > 0 || resending}
+              >
+                {resending ? (
+                  'Resending...'
+                ) : countdown > 0 ? (
+                  `Resend in ${countdown}s`
+                ) : (
+                  'Resend Code'
+                )}
+              </button>
+            </p>
+          </form>
+        </motion.div>
+      </div>
+    </ModalPortal>
   );
 };

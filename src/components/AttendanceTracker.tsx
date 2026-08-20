@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { User } from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 import { OfficialDotSpinner } from './OfficialLoader';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -83,6 +84,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
   const [performanceFilter, setPerformanceFilter] = useState<'All' | 'Perfect' | 'High' | 'Low' | 'Needs Attention'>('All');
   const [sortBy, setSortBy] = useState<'name' | 'id' | 'present' | 'absent' | 'rate'>('present');
   const [selectedMember, setSelectedMember] = useState<User | null>(null);
+  useModalDismiss(selectedMember !== null, () => setSelectedMember(null));
   const [modalEventFilter, setModalEventFilter] = useState<'All' | 'Present' | 'Absent' | 'Upcoming'>('All');
   const [modalSearchTerm, setModalSearchTerm] = useState('');
 
@@ -701,12 +703,13 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
 
       {/* MEMBER ATTENDANCE BREAKDOWN MODAL */}
       {selectedMember && selectedMemberStats && (
-        <div
-          className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[100] p-3 sm:p-5 animate-fadeIn"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setSelectedMember(null);
-          }}
-        >
+        <ModalPortal>
+          <div
+            className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[9999] p-3 sm:p-5 animate-fadeIn"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedMember(null);
+            }}
+          >
           <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] w-full max-w-2xl lg:max-w-3xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
             {/* Modal Header */}
             <div className="p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3 shrink-0">
@@ -917,7 +920,8 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
             </div>
           </div>
         </div>
-      )}
-    </div>
-  );
+      </ModalPortal>
+    )}
+  </div>
+);
 };

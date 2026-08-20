@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
-import { useModalDismiss } from '../hooks/useModalDismiss';
+import { useModalDismiss, useIsAnyModalOpen } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 import {
   LayoutDashboard,
   Users,
@@ -53,6 +54,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   const { currentUser, isAdmin } = useAuth();
   const [showOfficerAlert, setShowOfficerAlert] = useState(false);
   const [showTreasurerAlert, setShowTreasurerAlert] = useState(false);
+  const isAnyModalOpen = useIsAnyModalOpen();
 
   useModalDismiss(showOfficerAlert, () => setShowOfficerAlert(false));
   useModalDismiss(showTreasurerAlert, () => setShowTreasurerAlert(false));
@@ -105,85 +107,93 @@ export const Navigation: React.FC<NavigationProps> = ({
     <>
       {/* Officer Permission Alert Modal */}
       {showOfficerAlert && (
-        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
-            <button
-              type="button"
-              onClick={() => setShowOfficerAlert(false)}
-              className="absolute top-4 right-4 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+        <ModalPortal>
+          <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
+              <button
+                type="button"
+                onClick={() => setShowOfficerAlert(false)}
+                className="absolute top-4 right-4 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
 
-            <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center mx-auto mb-4 shadow-sm">
-              <ShieldAlert className="w-8 h-8" />
+              <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center mx-auto mb-4 shadow-sm">
+                <ShieldAlert className="w-8 h-8" />
+              </div>
+
+              <h3 className="font-heading text-xl font-extrabold text-[#1b4332] mb-2">
+                Access Restricted
+              </h3>
+
+              <p className="text-stone-800 font-extrabold text-sm sm:text-base mb-2">
+                You are not an officer and not allowed to scan
+              </p>
+
+              <p className="text-stone-500 text-xs mb-6 leading-relaxed">
+                Only designated club officers are authorized to scan member attendance QR codes for events.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setShowOfficerAlert(false)}
+                className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-2xl font-bold text-sm shadow-md transition-all cursor-pointer active:scale-95"
+              >
+                Understood
+              </button>
             </div>
-
-            <h3 className="font-heading text-xl font-extrabold text-[#1b4332] mb-2">
-              Access Restricted
-            </h3>
-
-            <p className="text-stone-800 font-extrabold text-sm sm:text-base mb-2">
-              You are not an officer and not allowed to scan
-            </p>
-
-            <p className="text-stone-500 text-xs mb-6 leading-relaxed">
-              Only designated club officers are authorized to scan member attendance QR codes for events.
-            </p>
-
-            <button
-              type="button"
-              onClick={() => setShowOfficerAlert(false)}
-              className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-2xl font-bold text-sm shadow-md transition-all cursor-pointer active:scale-95"
-            >
-              Understood
-            </button>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* Treasurer Permission Alert Modal */}
       {showTreasurerAlert && (
-        <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
-            <button
-              type="button"
-              onClick={() => setShowTreasurerAlert(false)}
-              className="absolute top-4 right-4 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+        <ModalPortal>
+          <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-4 animate-fadeIn">
+            <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-sm w-full shadow-2xl border border-stone-200 text-center relative animate-scaleUp">
+              <button
+                type="button"
+                onClick={() => setShowTreasurerAlert(false)}
+                className="absolute top-4 right-4 p-2 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
 
-            <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center mx-auto mb-4 shadow-sm">
-              <ShieldAlert className="w-8 h-8" />
+              <div className="w-16 h-16 rounded-2xl bg-amber-100 text-amber-800 border border-amber-300 flex items-center justify-center mx-auto mb-4 shadow-sm">
+                <ShieldAlert className="w-8 h-8" />
+              </div>
+
+              <h3 className="font-heading text-xl font-extrabold text-[#1b4332] mb-2">
+                Access Restricted
+              </h3>
+
+              <p className="text-stone-800 font-extrabold text-sm sm:text-base mb-2">
+                Finances is handled by the Treasurer only
+              </p>
+
+              <p className="text-stone-500 text-xs mb-6 leading-relaxed">
+                Only the designated Club Treasurer and System Administrator are authorized to manage club finances, log collections, and liquidate disbursements.
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setShowTreasurerAlert(false)}
+                className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-2xl font-bold text-sm shadow-md transition-all cursor-pointer active:scale-95"
+              >
+                Understood
+              </button>
             </div>
-
-            <h3 className="font-heading text-xl font-extrabold text-[#1b4332] mb-2">
-              Access Restricted
-            </h3>
-
-            <p className="text-stone-800 font-extrabold text-sm sm:text-base mb-2">
-              Finances is handled by the Treasurer only
-            </p>
-
-            <p className="text-stone-500 text-xs mb-6 leading-relaxed">
-              Only the designated Club Treasurer and System Administrator are authorized to manage club finances, log collections, and liquidate disbursements.
-            </p>
-
-            <button
-              type="button"
-              onClick={() => setShowTreasurerAlert(false)}
-              className="w-full py-3.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-2xl font-bold text-sm shadow-md transition-all cursor-pointer active:scale-95"
-            >
-              Understood
-            </button>
           </div>
-        </div>
+        </ModalPortal>
       )}
 
       {/* Mobile & Tablet Top Header */}
       {activeTab !== 'qr' && (
-        <div className="lg:hidden sticky top-0 z-50 bg-[#1b4332] border-b border-[#2d6a4f] px-3.5 sm:px-4 py-2 flex items-center justify-between text-white shadow-xs min-h-[52px]">
+        <div
+          className={`lg:hidden sticky top-0 z-50 bg-[#1b4332] border-b border-[#2d6a4f] px-3.5 sm:px-4 py-2 flex items-center justify-between text-white shadow-xs min-h-[52px] transition-[filter] duration-200 ${
+            isAnyModalOpen ? 'blur-sm pointer-events-none' : ''
+          }`}
+        >
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-1 sm:p-1.5 rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center shrink-0 w-8 h-8 sm:w-9 sm:h-9">
               <img src="/logo.png" alt="BCC Logo" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
@@ -202,7 +212,11 @@ export const Navigation: React.FC<NavigationProps> = ({
 
       {/* Mobile & Tablet Bottom Navigation Bar (Hierarchy of Green) */}
       {activeTab !== 'qr' && (
-        <div className="lg:hidden fixed bottom-3 left-3 right-3 z-40 max-w-md mx-auto font-sans">
+        <div
+          className={`lg:hidden fixed bottom-3 left-3 right-3 z-40 max-w-md mx-auto font-sans transition-[filter] duration-200 ${
+            isAnyModalOpen ? 'blur-sm pointer-events-none' : ''
+          }`}
+        >
           <div className="relative bg-white/98 backdrop-blur-xl rounded-[28px] shadow-2xl shadow-[#1b4332]/15 border border-[#e2ece2] px-2 pt-3 pb-1.5">
             <div className="flex items-center justify-between relative px-2">
               {navItems.map((item) => {

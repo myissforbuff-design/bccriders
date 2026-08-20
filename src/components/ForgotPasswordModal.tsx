@@ -12,6 +12,8 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import { store } from '../lib/db';
+import { useModalDismiss } from '../hooks/useModalDismiss';
+import { ModalPortal } from './ModalPortal';
 
 interface ForgotPasswordModalProps {
   isOpen: boolean;
@@ -24,6 +26,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   onClose,
   onSuccess,
 }) => {
+  useModalDismiss(isOpen, onClose);
   const [step, setStep] = useState<'request' | 'verify' | 'new-password' | 'success'>('request');
   const [email, setEmail] = useState('');
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
@@ -288,13 +291,14 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 15 }}
-        className="my-auto max-w-full flex items-center justify-center"
-      >
+    <ModalPortal>
+      <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 15 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 15 }}
+          className="my-auto max-w-full flex items-center justify-center"
+        >
         {/* STEP 1: REQUEST OTP */}
         {step === 'request' && (
           <form onSubmit={handleRequestOtp} className="otp-Form">
@@ -595,5 +599,6 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
         )}
       </motion.div>
     </div>
-  );
+  </ModalPortal>
+);
 };
