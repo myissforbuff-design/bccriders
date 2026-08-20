@@ -90,9 +90,80 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   const [showEventModal, setShowEventModal] = useState<boolean>(false);
   const [manualInputId, setManualInputId] = useState<string>('');
 
+  // Synchronous set of member keys per activity ID to guarantee instant duplicate detection even between rapid continuous scans
+  const scannedKeysByActivityRef = useRef<Map<string, Set<string>>>(new Map());
+
+  // Helper to extract all identifiable keys for a member
+  const getMemberKeys = (data: Attendance, matchedUser?: any): Set<string> => {
+    const keys = new Set<string>();
+    if (data.memberId) {
+      const k = String(data.memberId).trim().toLowerCase();
+      keys.add(k);
+      const digits = k.replace(/[^a-z0-9]/g, '');
+      if (digits) keys.add(digits);
+    }
+    if (data.name && data.name.trim().toLowerCase() !== 'unregistered member') {
+      const k = String(data.name).trim().toLowerCase();
+      keys.add(k);
+      const clean = k.replace(/[^a-z0-9]/g, '');
+      if (clean) keys.add(clean);
+    }
+    if (matchedUser) {
+      if (matchedUser.id) {
+        const k = String(matchedUser.id).trim().toLowerCase();
+        keys.add(k);
+        const digits = k.replace(/[^a-z0-9]/g, '');
+        if (digits) keys.add(digits);
+      }
+      if (matchedUser.memberNumber) {
+        const k = String(matchedUser.memberNumber).trim().toLowerCase();
+        keys.add(k);
+        const digits = k.replace(/[^a-z0-9]/g, '');
+        if (digits) keys.add(digits);
+      }
+      if (matchedUser.username) {
+        keys.add(String(matchedUser.username).trim().toLowerCase());
+      }
+      if (matchedUser.name) {
+        const k = String(matchedUser.name).trim().toLowerCase();
+        keys.add(k);
+        const clean = k.replace(/[^a-z0-9]/g, '');
+        if (clean) keys.add(clean);
+      }
+      if (matchedUser.email) {
+        keys.add(String(matchedUser.email).trim().toLowerCase());
+      }
+    }
+    return keys;
+  };
+
   // Synchronous references to prevent race conditions during rapid continuous frame scanning
   const activitiesRef = useRef<Activity[]>(activities);
   activitiesRef.current = activities;
+
+  // Sync scanned keys from loaded activities
+  const syncScannedKeys = (acts: Activity[]) => {
+    const users = store.getUsers();
+    acts.forEach((act) => {
+      let actKeys = scannedKeysByActivityRef.current.get(act.id);
+      if (!actKeys) {
+        actKeys = new Set<string>();
+        scannedKeysByActivityRef.current.set(act.id, actKeys);
+      }
+      if (Array.isArray(act.attendance)) {
+        act.attendance.forEach((att) => {
+          const matchedUser = users.find(
+            (u) =>
+              (u.memberNumber && u.memberNumber.toLowerCase() === (att.memberId || '').toLowerCase()) ||
+              (u.id && u.id.toLowerCase() === (att.memberId || '').toLowerCase()) ||
+              (u.name && u.name.toLowerCase() === (att.name || '').toLowerCase())
+          );
+          const keys = getMemberKeys(att, matchedUser);
+          keys.forEach((k) => actKeys?.add(k));
+        });
+      }
+    });
+  };
 
   const selectedActivityIdRef = useRef<string>(selectedActivityId);
   selectedActivityIdRef.current = selectedActivityId;
@@ -186,6 +257,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
       .then(data => {
         const loaded: Activity[] = data.data || [];
         activitiesRef.current = loaded;
+        syncScannedKeys(loaded);
         setActivities(loaded);
         if (loaded.length > 0 && !selectedActivityIdRef.current) {
           const openOne = loaded.find(a => a.status === 'Open' && !isEventDone(a)) || loaded[0];
@@ -201,11 +273,12 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
     const handleActivitiesUpdate = (e: CustomEvent) => {
       if (e.detail?.activity) {
+        const act = e.detail.activity;
         setActivities(prev => {
-          const act = e.detail.activity;
           const exists = prev.some(a => a.id === act.id);
           const updated = exists ? prev.map(a => a.id === act.id ? act : a) : [act, ...prev];
           activitiesRef.current = updated;
+          syncScannedKeys(updated);
           return updated;
         });
       } else {
@@ -372,34 +445,76 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
       return;
     }
 
-    // Check duplicate SYNCHRONOUSLY using current activities state & ref
-    const memIdClean = (parsedData.memberId || '').toLowerCase().trim();
-    const memIdDigits = memIdClean.replace(/[^a-z0-9]/g, '');
-    const memNameClean = (parsedData.name || '').toLowerCase().trim();
+    // Find matched registered user
+    const matchedUser = store.getUsers().find(u =>
+      (u.memberNumber && u.memberNumber.toLowerCase() === parsedData.memberId.toLowerCase()) ||
+      (u.id && u.id.toLowerCase() === parsedData.memberId.toLowerCase()) ||
+      (u.name && u.name.toLowerCase() === parsedData.name.toLowerCase()) ||
+      (u.username && u.username.toLowerCase() === parsedData.memberId.toLowerCase())
+    );
+
+    // Compute all identifier keys for this member
+    const currentMemberKeys = getMemberKeys(parsedData, matchedUser);
+    const rawDecodedClean = decodedText.trim().toLowerCase();
+    currentMemberKeys.add(rawDecodedClean);
+    const rawDigits = rawDecodedClean.replace(/[^a-z0-9]/g, '');
+    if (rawDigits) currentMemberKeys.add(rawDigits);
+
+    // Check duplicate SYNCHRONOUSLY using Set tracking + activity attendance array
+    let actKeys = scannedKeysByActivityRef.current.get(currentActId);
+    if (!actKeys) {
+      actKeys = new Set<string>();
+      scannedKeysByActivityRef.current.set(currentActId, actKeys);
+    }
+
+    let isAlreadyScanned = false;
+    for (const key of currentMemberKeys) {
+      if (actKeys.has(key)) {
+        isAlreadyScanned = true;
+        break;
+      }
+    }
 
     const existingAttendance = activeAct?.attendance || [];
-    const isAlreadyScanned = existingAttendance.some(att => {
-      const attIdClean = (att.memberId || '').toLowerCase().trim();
-      const attIdDigits = attIdClean.replace(/[^a-z0-9]/g, '');
-      const attNameClean = (att.name || '').toLowerCase().trim();
+    if (!isAlreadyScanned && existingAttendance.length > 0) {
+      const memIdClean = (parsedData.memberId || '').toLowerCase().trim();
+      const memIdDigits = memIdClean.replace(/[^a-z0-9]/g, '');
+      const memNameClean = (parsedData.name || '').toLowerCase().trim();
 
-      // 1. Direct ID matching or normalized alphanumeric match (e.g. BRC-0002 vs brc0002)
-      if (memIdClean && attIdClean && memIdClean === attIdClean) return true;
-      if (memIdDigits && attIdDigits && memIdDigits === attIdDigits) return true;
+      isAlreadyScanned = existingAttendance.some(att => {
+        const attIdClean = (att.memberId || '').toLowerCase().trim();
+        const attIdDigits = attIdClean.replace(/[^a-z0-9]/g, '');
+        const attNameClean = (att.name || '').toLowerCase().trim();
 
-      // 2. Direct name matching
-      if (memNameClean && attNameClean && attNameClean !== 'member' && attNameClean !== 'unregistered member' && memNameClean === attNameClean) return true;
+        if (memIdClean && attIdClean && memIdClean === attIdClean) return true;
+        if (memIdDigits && attIdDigits && memIdDigits === attIdDigits) return true;
+        if (memNameClean && attNameClean && attNameClean !== 'member' && attNameClean !== 'unregistered member' && memNameClean === attNameClean) return true;
 
-      return false;
-    });
+        const attMatchedUser = store.getUsers().find(u =>
+          (u.memberNumber && u.memberNumber.toLowerCase() === attIdClean) ||
+          (u.id && u.id.toLowerCase() === attIdClean) ||
+          (u.name && u.name.toLowerCase() === attNameClean)
+        );
+        const attKeys = getMemberKeys(att, attMatchedUser);
+        for (const k of currentMemberKeys) {
+          if (attKeys.has(k)) return true;
+        }
+        return false;
+      });
+    }
 
     if (isAlreadyScanned) {
+      // Ensure all keys are populated in the Set for fast subsequent checks
+      currentMemberKeys.forEach(k => actKeys?.add(k));
       setScannedMemberModal(null);
       setAlreadyScannedMemberModal(parsedData);
-      setScanSuccessMessage(`⚠️ Member has already been scanned for this event (${parsedData.name}).`);
+      setScanSuccessMessage(`⚠️ Member is already scanned (${parsedData.name}).`);
       setTimeout(() => setScanSuccessMessage(null), 4000);
       return;
     }
+
+    // Register all keys in the synchronous Set immediately BEFORE any async operations
+    currentMemberKeys.forEach(k => actKeys?.add(k));
 
     // Build updated activity with newly logged attendance
     const updatedAttendance = [parsedData, ...existingAttendance];
@@ -433,12 +548,6 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     // Save entry to MongoDB "attendanceLogs" collection table
     const eventName = activeAct?.name || 'No event created';
     const eventDate = activeAct?.date || new Date().toISOString().split('T')[0];
-
-    const matchedUser = store.getUsers().find(u =>
-      u.memberNumber?.toLowerCase() === parsedData.memberId.toLowerCase() ||
-      u.id.toLowerCase() === parsedData.memberId.toLowerCase() ||
-      u.name.toLowerCase() === parsedData.name.toLowerCase()
-    );
 
     let firstName = matchedUser?.firstName || '';
     let lastName = matchedUser?.lastName || '';
@@ -1166,10 +1275,10 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
                   Duplicate Scan
                 </span>
                 <h3 className="text-base sm:text-lg font-extrabold text-[#1b4332] mt-1 leading-tight">
-                  Member has already been scanned
+                  Member is already scanned
                 </h3>
                 <p className="text-[10px] sm:text-[11px] text-[#52605d] mt-0.5">
-                  This member's attendance is already recorded for this event.
+                  This member's attendance has already been recorded for this event.
                 </p>
               </div>
 

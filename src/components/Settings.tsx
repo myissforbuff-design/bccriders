@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
 import { store } from '../lib/db';
+import { loadFromSession, saveToSession } from '../lib/storageSecurity';
 import { CustomSelect } from './CustomSelect';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { OfficialLoader } from './OfficialLoader';
@@ -1715,8 +1716,7 @@ export const Settings: React.FC = () => {
         // If it's a Donation Collection, record it directly as Paid funds so it's added to Total Funds and Net Treasury (and NOT included in Pending collections)
         if (isDonation) {
           const todayStr = new Date().toISOString().split('T')[0];
-          const recItem = localStorage.getItem('bcc_finance_records_v3');
-          let recs: any[] = recItem ? JSON.parse(recItem) : [];
+          let recs: any[] = loadFromSession<any[]>('bcc_finance_records_v3', []);
           const donationRecId = `rec_donation_${savedCol.id}`;
           const existingIdx = recs.findIndex(r => r.id === donationRecId);
 
@@ -1742,7 +1742,7 @@ export const Settings: React.FC = () => {
           } else {
             recs.unshift(donationRecord);
           }
-          localStorage.setItem('bcc_finance_records_v3', JSON.stringify(recs));
+          saveToSession('bcc_finance_records_v3', recs);
           fetch('/api/mongodb/financeLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },

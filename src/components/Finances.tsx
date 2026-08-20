@@ -3,6 +3,7 @@ import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store, safeFetchJson } from '../lib/db';
+import { loadFromSession, saveToSession } from '../lib/storageSecurity';
 import { User, FinanceYearArchive, ArchivePackageData, TreasurerActionRequest } from '../types';
 import { CustomSelect } from './CustomSelect';
 import { OfficialLoader } from './OfficialLoader';
@@ -142,12 +143,12 @@ export const Finances: React.FC = () => {
 
   // Main Mode Toggle: "funds", "expenses", or "accounts"
   const [activeTab, setActiveTab] = useState<'funds' | 'expenses' | 'accounts'>(() => {
-    const saved = localStorage.getItem('bcc_finances_tab');
-    return (saved === 'funds' || saved === 'expenses' || saved === 'accounts') ? saved : 'funds';
+    const saved = loadFromSession<string>('bcc_finances_tab', 'funds');
+    return (saved === 'funds' || saved === 'expenses' || saved === 'accounts') ? (saved as any) : 'funds';
   });
 
   useEffect(() => {
-    localStorage.setItem('bcc_finances_tab', activeTab);
+    saveToSession('bcc_finances_tab', activeTab);
   }, [activeTab]);
 
   // Filters & Search for Accounts
@@ -288,6 +289,8 @@ export const Finances: React.FC = () => {
 
   // Load Users, Funds, and Expenses
   useEffect(() => {
+    if (!currentUser) return;
+
     const loadedUsers = store.getUsers().filter(u => {
       const isUserAdmin =
         u.role === 'admin' ||
@@ -302,13 +305,7 @@ export const Finances: React.FC = () => {
     setUsers(loadedUsers);
 
     // 1. Load Funds Records
-    let savedRecs: FinanceRecord[] = [];
-    try {
-      const recItem = localStorage.getItem(LOCAL_STORAGE_REC_KEY);
-      if (recItem) savedRecs = JSON.parse(recItem);
-    } catch (e) {
-      console.error(e);
-    }
+    let savedRecs: FinanceRecord[] = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, []);
 
     const ensureApprovedMembersHaveFeesAndMonthlyDues = (currentRecs: FinanceRecord[]) => {
       let updatedList = [...currentRecs];
@@ -432,16 +429,14 @@ export const Finances: React.FC = () => {
       // 0.7. Clean up / purge any records that were permanently deleted by Admin/Treasurer
       let deletedFeeUserIds: string[] = [];
       try {
-        const dItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
-        if (dItem) deletedFeeUserIds = JSON.parse(dItem);
+        deletedFeeUserIds = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
       } catch (e) {
         console.error(e);
       }
 
       let deletedRecordIds: string[] = [];
       try {
-        const dRecItem = localStorage.getItem('bcc_deleted_finance_record_ids');
-        if (dRecItem) deletedRecordIds = JSON.parse(dRecItem);
+        deletedRecordIds = loadFromSession<string[]>('bcc_deleted_finance_record_ids', []);
       } catch (e) {
         console.error(e);
       }
@@ -470,7 +465,7 @@ export const Finances: React.FC = () => {
       if (approvedUsers.length === 0) {
         if (hasNew) {
           setRecords(updatedList);
-          localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(updatedList));
+          saveToSession(LOCAL_STORAGE_REC_KEY, updatedList);
         }
         return;
       }
@@ -707,7 +702,7 @@ export const Finances: React.FC = () => {
   // Save Funds Records
   const saveRecordsToStorage = (updatedRecs: FinanceRecord[]) => {
     setRecords(updatedRecs);
-    localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(updatedRecs));
+    saveToSession(LOCAL_STORAGE_REC_KEY, updatedRecs);
   };
 
   const syncRecordToMongo = (rec: FinanceRecord) => {
@@ -727,7 +722,7 @@ export const Finances: React.FC = () => {
   // Save Expense Records
   const saveExpensesToStorage = (updatedExpenses: ExpenseRecord[]) => {
     setExpenses(updatedExpenses);
-    localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(updatedExpenses));
+    saveToSession(LOCAL_STORAGE_EXPENSE_KEY, updatedExpenses);
   };
 
   const syncExpenseToMongo = (exp: ExpenseRecord) => {
@@ -1352,11 +1347,10 @@ export const Finances: React.FC = () => {
 
         if (editingRecord) {
           try {
-            const dRecItem = localStorage.getItem('bcc_deleted_finance_record_ids');
-            if (dRecItem) {
-              const current: string[] = JSON.parse(dRecItem);
+            const current = loadFromSession<string[]>('bcc_deleted_finance_record_ids', []);
+            if (current && Array.isArray(current)) {
               const filtered = current.filter(id => id !== editingRecord.id);
-              localStorage.setItem('bcc_deleted_finance_record_ids', JSON.stringify(filtered));
+              saveToSession('bcc_deleted_finance_record_ids', filtered);
             }
           } catch (e) {
             console.error(e);
@@ -1731,10 +1725,10 @@ export const Finances: React.FC = () => {
             const feeUserId = targetRec?.userId || deleteTarget.id.replace('rec_mf_', '');
             if (feeUserId) {
               try {
-                const currentDel: string[] = JSON.parse(localStorage.getItem('bcc_deleted_membership_fee_user_ids') || '[]');
+                const currentDel = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
                 if (!currentDel.includes(feeUserId)) {
                   currentDel.push(feeUserId);
-                  localStorage.setItem('bcc_deleted_membership_fee_user_ids', JSON.stringify(currentDel));
+                  saveToSession('bcc_deleted_membership_fee_user_ids', currentDel);
                 }
               } catch (e) {
                 console.error(e);
@@ -1746,10 +1740,10 @@ export const Finances: React.FC = () => {
 
           // Always record the deleted record ID so it cannot be resurrected
           try {
-            const currentDelIds: string[] = JSON.parse(localStorage.getItem('bcc_deleted_finance_record_ids') || '[]');
+            const currentDelIds = loadFromSession<string[]>('bcc_deleted_finance_record_ids', []);
             if (!currentDelIds.includes(deleteTarget.id)) {
               currentDelIds.push(deleteTarget.id);
-              localStorage.setItem('bcc_deleted_finance_record_ids', JSON.stringify(currentDelIds));
+              saveToSession('bcc_deleted_finance_record_ids', currentDelIds);
             }
           } catch (e) {
             console.error(e);

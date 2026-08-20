@@ -129,18 +129,24 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
   // Helper to determine single member's status for a given activity
   const getMemberRecordForActivity = (activity: Activity, user: User) => {
     const memNo = (user.memberNumber || '').toLowerCase().trim();
+    const memNoDigits = memNo.replace(/[^a-z0-9]/g, '');
     const userId = (user.id || '').toLowerCase().trim();
+    const userIdDigits = userId.replace(/[^a-z0-9]/g, '');
     const userName = (user.name || '').toLowerCase().trim();
     const userUsername = (user.username || '').toLowerCase().trim();
     const actNameLower = activity.name.toLowerCase().trim();
 
     // 1. Search in MongoDB attendanceLogs
     const logMatch = attendanceLogs.find((log) => {
+      const logActId = (log.activityId || log['Activity ID'] || '').trim();
       const eName = (log['Event Name'] || log.eventName || '').toLowerCase().trim();
-      if (eName !== actNameLower) return false;
+      const isActMatch = (logActId && logActId === activity.id) || (eName && eName === actNameLower);
+      if (!isActMatch) return false;
 
       const logMemId = (log['Member ID'] || log.memberId || '').toLowerCase().trim();
+      const logMemIdDigits = logMemId.replace(/[^a-z0-9]/g, '');
       if (logMemId && (logMemId === memNo || logMemId === userId)) return true;
+      if (logMemIdDigits && (logMemIdDigits === memNoDigits || logMemIdDigits === userIdDigits)) return true;
 
       const firstName = (log['First Name'] || log.firstName || '').toLowerCase().trim();
       const lastName = (log['Last Name'] || log.lastName || '').toLowerCase().trim();
@@ -166,7 +172,9 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
     if (activity.attendance && activity.attendance.length > 0) {
       const attMatch = activity.attendance.find((att) => {
         const attMemId = (att.memberId || '').toLowerCase().trim();
+        const attMemIdDigits = attMemId.replace(/[^a-z0-9]/g, '');
         if (attMemId && (attMemId === memNo || attMemId === userId)) return true;
+        if (attMemIdDigits && (attMemIdDigits === memNoDigits || attMemIdDigits === userIdDigits)) return true;
 
         const attName = (att.name || '').toLowerCase().trim();
         if (attName && (attName === userName || attName === userUsername)) return true;

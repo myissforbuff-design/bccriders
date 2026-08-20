@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { store, safeFetchJson } from '../lib/db';
+import { loadFromSession } from '../lib/storageSecurity';
 import { TabType } from './Navigation';
 import {
   Users,
@@ -32,24 +33,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Treasury stats state
   const [financeRecords, setFinanceRecords] = useState<any[]>(() => {
-    try {
-      const item = localStorage.getItem('bcc_finance_records_v3');
-      return item ? JSON.parse(item) : [];
-    } catch {
-      return [];
-    }
+    return loadFromSession<any[]>('bcc_finance_records_v3', []);
   });
 
   const [expenseRecords, setExpenseRecords] = useState<any[]>(() => {
-    try {
-      const item = localStorage.getItem('bcc_expense_records_v1');
-      return item ? JSON.parse(item) : [];
-    } catch {
-      return [];
-    }
+    return loadFromSession<any[]>('bcc_expense_records_v1', []);
   });
 
   useEffect(() => {
+    if (!currentUser) return;
+
     safeFetchJson('/api/mongodb/financeLogs')
       .then((data) => {
         if (data.success && Array.isArray(data.data) && data.data.length > 0) {

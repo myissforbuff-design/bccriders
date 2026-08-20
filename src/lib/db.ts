@@ -30,8 +30,15 @@ import {
   TreasurerActionType,
   TreasurerRequestStatus,
 } from '../types';
+import {
+  clearSensitiveStorage,
+  loadFromSession,
+  saveToSession,
+  removeFromSession,
+  hasActiveUserSession,
+} from './storageSecurity';
 
-// Storage Keys for local state persistence
+// Storage Keys for session state persistence
 const STORAGE_KEYS = {
   USERS: 'bcc_users_v2',
   EVENTS: 'bcc_events_v2',
@@ -50,29 +57,13 @@ const STORAGE_KEYS = {
   CURRENT_USER: 'bcc_current_user_id_v2',
 };
 
-// Helper for local state fallback
+// Helper for session storage fallback
 function loadFromStorage<T>(key: string, initialFallback: T): T {
-  try {
-    const item = localStorage.getItem(key);
-    if (item) {
-      const parsed = JSON.parse(item);
-      if (Array.isArray(parsed) && parsed.length === 0 && Array.isArray(initialFallback) && initialFallback.length > 0) {
-        return initialFallback;
-      }
-      return parsed;
-    }
-  } catch (err) {
-    console.error(`Error reading ${key} from localStorage:`, err);
-  }
-  return initialFallback;
+  return loadFromSession<T>(key, initialFallback);
 }
 
 function saveToStorage<T>(key: string, data: T): void {
-  try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch (err) {
-    console.error(`Error saving ${key} to localStorage:`, err);
-  }
+  saveToSession<T>(key, data);
 }
 
 // MongoDB Status Helper
@@ -246,9 +237,8 @@ export class DataStoreService {
   private currentUserId: string;
 
   constructor() {
-    this.users = loadFromStorage(STORAGE_KEYS.USERS, INITIAL_USERS);
+    const hasSession = hasActiveUserSession();
     this.events = loadFromStorage(STORAGE_KEYS.EVENTS, INITIAL_EVENTS);
-    this.payments = loadFromStorage(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS);
     this.posts = loadFromStorage(STORAGE_KEYS.POSTS, INITIAL_POSTS);
     this.logs = loadFromStorage(STORAGE_KEYS.LOGS, INITIAL_RIDE_LOGS);
     this.routes = loadFromStorage(STORAGE_KEYS.ROUTES, INITIAL_ROUTES);
@@ -260,36 +250,53 @@ export class DataStoreService {
       STORAGE_KEYS.ANNOUNCEMENTS,
       INITIAL_ANNOUNCEMENTS
     );
-    this.financeSettings = loadFromStorage(
-      STORAGE_KEYS.FINANCE_SETTINGS,
-      INITIAL_FINANCE_SETTINGS
-    );
-    this.monthlyDues = loadFromStorage(
-      STORAGE_KEYS.MONTHLY_DUES,
-      INITIAL_MONTHLY_DUES
-    );
-    this.dynamicCollections = loadFromStorage(
-      STORAGE_KEYS.DYNAMIC_COLLECTIONS,
-      INITIAL_DYNAMIC_COLLECTIONS
-    );
-    this.securitySettings = loadFromStorage(
-      STORAGE_KEYS.SECURITY_SETTINGS,
-      INITIAL_SECURITY_SETTINGS
-    );
-    this.financeArchives = loadFromStorage(
-      STORAGE_KEYS.FINANCE_ARCHIVES,
-      []
-    );
-    this.treasurerRequests = loadFromStorage(
-      STORAGE_KEYS.TREASURER_REQUESTS,
-      []
-    );
-    this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
 
-    // Init MongoDB background synchronization
-    this.initMongoDb().catch((err) =>
-      console.warn('MongoDB background sync notice:', err)
-    );
+    if (hasSession) {
+      this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
+      this.users = loadFromStorage(STORAGE_KEYS.USERS, INITIAL_USERS);
+      this.payments = loadFromStorage(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS);
+      this.financeSettings = loadFromStorage(
+        STORAGE_KEYS.FINANCE_SETTINGS,
+        INITIAL_FINANCE_SETTINGS
+      );
+      this.monthlyDues = loadFromStorage(
+        STORAGE_KEYS.MONTHLY_DUES,
+        INITIAL_MONTHLY_DUES
+      );
+      this.dynamicCollections = loadFromStorage(
+        STORAGE_KEYS.DYNAMIC_COLLECTIONS,
+        INITIAL_DYNAMIC_COLLECTIONS
+      );
+      this.securitySettings = loadFromStorage(
+        STORAGE_KEYS.SECURITY_SETTINGS,
+        INITIAL_SECURITY_SETTINGS
+      );
+      this.financeArchives = loadFromStorage(
+        STORAGE_KEYS.FINANCE_ARCHIVES,
+        []
+      );
+      this.treasurerRequests = loadFromStorage(
+        STORAGE_KEYS.TREASURER_REQUESTS,
+        []
+      );
+
+      // Background synchronization only for active session
+      this.initMongoDb().catch((err) =>
+        console.warn('MongoDB background sync notice:', err)
+      );
+    } else {
+      // Unauthenticated / Landing state: Secure storage by not loading or storing sensitive data
+      this.currentUserId = '';
+      this.users = [...INITIAL_USERS]; // In-memory only for local credential fallback
+      this.payments = [];
+      this.financeSettings = INITIAL_FINANCE_SETTINGS;
+      this.monthlyDues = [];
+      this.dynamicCollections = [];
+      this.securitySettings = INITIAL_SECURITY_SETTINGS;
+      this.financeArchives = [];
+      this.treasurerRequests = [];
+      clearSensitiveStorage();
+    }
   }
 
   async initMongoDb(): Promise<MongoStatusResponse> {
@@ -307,7 +314,9 @@ export class DataStoreService {
         if (activeMembers.length > 0 || pendingRegistrations.length > 0) {
           // Merge active members and pending registration forms with guaranteed usernames
           this.users = [...activeMembers, ...pendingRegistrations].map((u) => this.sanitizeUser(u));
-          saveToStorage(STORAGE_KEYS.USERS, this.users);
+          if (this.currentUserId || hasActiveUserSession()) {
+            saveToStorage(STORAGE_KEYS.USERS, this.users);
+          }
         } else {
           // Seed initial data into MongoDB if collection is empty
           await safeFetchJson('/api/mongodb/seed', {
@@ -339,7 +348,9 @@ export class DataStoreService {
               annualFee: Number(finSettingsDoc.annualFee) || 1200,
               annualPromoEnabled: finSettingsDoc.annualPromoEnabled !== undefined ? Boolean(finSettingsDoc.annualPromoEnabled) : true,
             };
-            saveToStorage(STORAGE_KEYS.FINANCE_SETTINGS, this.financeSettings);
+            if (this.currentUserId || hasActiveUserSession()) {
+              saveToStorage(STORAGE_KEYS.FINANCE_SETTINGS, this.financeSettings);
+            }
           }
 
           const duesDocs = dataSettings.data.filter((s: any) => s.category === 'monthly_due' || (s.id && s.id.startsWith('md_')));
@@ -354,7 +365,9 @@ export class DataStoreService {
               createdAt: d.createdAt || new Date().toISOString().split('T')[0],
               status: (d.status === 'Inactive' ? 'Inactive' : 'Active') as 'Active' | 'Inactive',
             }));
-            saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
+            if (this.currentUserId || hasActiveUserSession()) {
+              saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
+            }
           }
 
           const dynamicColDocs = dataSettings.data.filter((s: any) => s.category === 'dynamic_collection' || (s.id && s.id.startsWith('dc_')));
@@ -368,7 +381,9 @@ export class DataStoreService {
               createdAt: c.createdAt || new Date().toISOString().split('T')[0],
               status: (c.status || 'Active') as 'Active' | 'Completed' | 'Archived',
             }));
-            saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
+            if (this.currentUserId || hasActiveUserSession()) {
+              saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
+            }
           }
 
           const secSettingsDoc = dataSettings.data.find((s: any) => s.id === 'security_settings' || s.category === 'security');
@@ -376,7 +391,9 @@ export class DataStoreService {
             this.securitySettings = {
               adminOtpEnabled: secSettingsDoc.adminOtpEnabled !== undefined ? Boolean(secSettingsDoc.adminOtpEnabled) : true,
             };
-            saveToStorage(STORAGE_KEYS.SECURITY_SETTINGS, this.securitySettings);
+            if (this.currentUserId || hasActiveUserSession()) {
+              saveToStorage(STORAGE_KEYS.SECURITY_SETTINGS, this.securitySettings);
+            }
           }
         }
       } catch (err) {
@@ -386,9 +403,33 @@ export class DataStoreService {
     return status;
   }
 
+  // Explicitly fetch and initialize data upon successful authentication
+  async fetchAuthenticatedData(): Promise<void> {
+    await this.initMongoDb().catch((err) =>
+      console.warn('MongoDB authenticated fetch notice:', err)
+    );
+  }
+
+  // Clear all sensitive storage when unauthenticated
+  clearStorageOnUnauthenticated(): void {
+    this.currentUserId = '';
+    this.users = [...INITIAL_USERS];
+    this.payments = [];
+    this.financeArchives = [];
+    this.treasurerRequests = [];
+    clearSensitiveStorage();
+  }
+
   // Current User Session
   getCurrentUser(): User | null {
-    if (!this.currentUserId) return null;
+    if (!this.currentUserId) {
+      const activeSessionId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
+      if (activeSessionId) {
+        this.currentUserId = activeSessionId;
+      } else {
+        return null;
+      }
+    }
     return this.users.find((u) => u.id === this.currentUserId) || null;
   }
 
@@ -396,23 +437,20 @@ export class DataStoreService {
     this.currentUserId = userId || '';
     if (userId) {
       saveToStorage(STORAGE_KEYS.CURRENT_USER, userId);
+      this.initMongoDb().catch(() => {});
     } else {
-      try {
-        localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-      } catch (e) {
-        // ignore
-      }
+      this.logout();
     }
     return this.getCurrentUser();
   }
 
   logout(): void {
     this.currentUserId = '';
-    try {
-      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
-    } catch (e) {
-      // ignore
-    }
+    this.users = [...INITIAL_USERS];
+    this.payments = [];
+    this.financeArchives = [];
+    this.treasurerRequests = [];
+    clearSensitiveStorage();
   }
 
   // Helper to ensure all required User fields are present and clean
@@ -553,11 +591,10 @@ export class DataStoreService {
     if (wasNotApproved && isNowApproved) {
       // Clear from deleted tracking on fresh approval
       try {
-        const delItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
-        if (delItem) {
-          const current: string[] = JSON.parse(delItem);
-          const filtered = current.filter((id) => id !== sanitized.id);
-          localStorage.setItem('bcc_deleted_membership_fee_user_ids', JSON.stringify(filtered));
+        const delItem = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
+        if (delItem && Array.isArray(delItem)) {
+          const filtered = delItem.filter((id) => id !== sanitized.id);
+          saveToSession('bcc_deleted_membership_fee_user_ids', filtered);
         }
       } catch (e) {
         console.error(e);
@@ -624,22 +661,13 @@ export class DataStoreService {
   recordMembershipFeePayment(approvedUser: User): void {
     const todayStr = new Date().toISOString().split('T')[0];
     const recKey = 'bcc_finance_records_v3';
-    let savedRecs: any[] = [];
-    try {
-      const item = localStorage.getItem(recKey);
-      if (item) savedRecs = JSON.parse(item);
-    } catch (e) {
-      console.error(e);
-    }
+    let savedRecs: any[] = loadFromSession<any[]>(recKey, []);
 
     // Check if membership fee was permanently deleted by admin/treasurer
     try {
-      const delItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
-      if (delItem) {
-        const deletedUserIds: string[] = JSON.parse(delItem);
-        if (deletedUserIds.includes(approvedUser.id)) {
-          return;
-        }
+      const deletedUserIds = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
+      if (deletedUserIds && deletedUserIds.includes(approvedUser.id)) {
+        return;
       }
     } catch (e) {
       console.error(e);
@@ -685,7 +713,7 @@ export class DataStoreService {
 
       savedRecs.unshift(newRec);
       try {
-        localStorage.setItem(recKey, JSON.stringify(savedRecs));
+        saveToSession(recKey, savedRecs);
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('bcc_finance_updated'));
         }
@@ -711,11 +739,10 @@ export class DataStoreService {
 
     // Clear from deleted tracking on approval
     try {
-      const delItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
-      if (delItem) {
-        const current: string[] = JSON.parse(delItem);
-        const filtered = current.filter((id) => id !== sanitized.id);
-        localStorage.setItem('bcc_deleted_membership_fee_user_ids', JSON.stringify(filtered));
+      const delItem = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
+      if (delItem && Array.isArray(delItem)) {
+        const filtered = delItem.filter((id) => id !== sanitized.id);
+        saveToSession('bcc_deleted_membership_fee_user_ids', filtered);
       }
     } catch (e) {
       console.error(e);
@@ -1128,8 +1155,7 @@ export class DataStoreService {
   // Finance Settings & Configs
   getFinanceRecords(): any[] {
     try {
-      const item = localStorage.getItem('bcc_finance_records_v3');
-      if (item) return JSON.parse(item);
+      return loadFromSession<any[]>('bcc_finance_records_v3', []);
     } catch (e) {
       console.error('Failed to parse finance records:', e);
     }
@@ -1281,12 +1307,9 @@ export class DataStoreService {
   // Finance Yearly Archives
   getFinanceArchives(): FinanceYearArchive[] {
     try {
-      const item = localStorage.getItem(STORAGE_KEYS.FINANCE_ARCHIVES);
-      if (item) {
-        const parsed = JSON.parse(item);
-        if (Array.isArray(parsed)) {
-          this.financeArchives = parsed;
-        }
+      const parsed = loadFromSession<FinanceYearArchive[]>(STORAGE_KEYS.FINANCE_ARCHIVES, []);
+      if (Array.isArray(parsed)) {
+        this.financeArchives = parsed;
       }
     } catch {}
     return this.financeArchives;
@@ -1331,12 +1354,9 @@ export class DataStoreService {
   // Treasurer Security & Anti-Tampering Authorization Requests
   getTreasurerRequests(): TreasurerActionRequest[] {
     try {
-      const item = localStorage.getItem(STORAGE_KEYS.TREASURER_REQUESTS);
-      if (item) {
-        const parsed = JSON.parse(item);
-        if (Array.isArray(parsed)) {
-          this.treasurerRequests = parsed;
-        }
+      const parsed = loadFromSession<TreasurerActionRequest[]>(STORAGE_KEYS.TREASURER_REQUESTS, []);
+      if (Array.isArray(parsed)) {
+        this.treasurerRequests = parsed;
       }
     } catch {}
     return this.treasurerRequests;

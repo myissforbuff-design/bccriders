@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
  */
 export interface UseFormAutoSaveOptions<T> {
   /**
-   * Unique localStorage key to store the draft.
+   * Unique sessionStorage key to store the draft.
    */
   key: string;
   /**
@@ -17,7 +17,7 @@ export interface UseFormAutoSaveOptions<T> {
    */
   excludeKeys?: (keyof T | string)[];
   /**
-   * Debounce delay in milliseconds for saving to localStorage (default: 400ms).
+   * Debounce delay in milliseconds for saving to sessionStorage (default: 400ms).
    */
   debounceMs?: number;
   /**
@@ -28,7 +28,7 @@ export interface UseFormAutoSaveOptions<T> {
 
 export interface UseFormAutoSaveReturn<T> {
   /**
-   * Restored draft data loaded from localStorage on mount (or null if none/invalid).
+   * Restored draft data loaded from sessionStorage on mount (or null if none/invalid).
    */
   restoredData: Partial<T> | null;
   /**
@@ -40,7 +40,7 @@ export interface UseFormAutoSaveReturn<T> {
    */
   lastSavedAt: string | null;
   /**
-   * Clears the draft key from localStorage (call this upon successful form submission).
+   * Clears the draft key from sessionStorage (call this upon successful form submission).
    */
   clearDraft: () => void;
   /**
@@ -50,9 +50,9 @@ export interface UseFormAutoSaveReturn<T> {
 }
 
 /**
- * Custom React Hook for Form Auto-Save / State Persistence in localStorage.
- * Automatically saves user form inputs in real-time, excludes sensitive keys like passwords,
- * safely handles JSON parsing errors, and provides a clearDraft method on form submission.
+ * Custom React Hook for Form Auto-Save / State Persistence in sessionStorage.
+ * Automatically saves user form inputs in real-time in session memory, excludes sensitive keys like passwords,
+ * safely handles JSON parsing errors, and provides a clearDraft method on form submission or logout.
  */
 export function useFormAutoSave<T extends Record<string, any>>({
   key,
@@ -66,38 +66,47 @@ export function useFormAutoSave<T extends Record<string, any>>({
 
   const isMounted = useRef<boolean>(false);
 
-  // 1. Initial Load / Restoration on Component Mount
+  // 1. Initial Load / Restoration on Component Mount (checks sessionStorage and cleans legacy localStorage)
   useEffect(() => {
     if (!key) return;
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        const savedJson = localStorage.getItem(key);
-        if (savedJson) {
-          const parsed = JSON.parse(savedJson);
-          if (parsed && typeof parsed === 'object') {
-            const { _savedAt, ...draftFields } = parsed;
+      if (typeof window !== 'undefined') {
+        // Clean any legacy localStorage draft for security
+        try {
+          if (window.localStorage && window.localStorage.getItem(key)) {
+            window.localStorage.removeItem(key);
+          }
+        } catch {}
 
-            // Check if draft has any non-empty properties
-            const hasContent = Object.values(draftFields).some((val) => {
-              if (val === null || val === undefined) return false;
-              if (typeof val === 'string') return val.trim().length > 0;
-              if (typeof val === 'object') return Object.keys(val).length > 0;
-              if (typeof val === 'boolean') return val;
-              return true;
-            });
+        if (window.sessionStorage) {
+          const savedJson = window.sessionStorage.getItem(key);
+          if (savedJson) {
+            const parsed = JSON.parse(savedJson);
+            if (parsed && typeof parsed === 'object') {
+              const { _savedAt, ...draftFields } = parsed;
 
-            if (hasContent) {
-              setRestoredData(draftFields as Partial<T>);
-              setHasRestoredDraft(true);
-              if (_savedAt) {
-                setLastSavedAt(_savedAt);
+              // Check if draft has any non-empty properties
+              const hasContent = Object.values(draftFields).some((val) => {
+                if (val === null || val === undefined) return false;
+                if (typeof val === 'string') return val.trim().length > 0;
+                if (typeof val === 'object') return Object.keys(val).length > 0;
+                if (typeof val === 'boolean') return val;
+                return true;
+              });
+
+              if (hasContent) {
+                setRestoredData(draftFields as Partial<T>);
+                setHasRestoredDraft(true);
+                if (_savedAt) {
+                  setLastSavedAt(_savedAt);
+                }
               }
             }
           }
         }
       }
     } catch (err) {
-      console.warn(`[useFormAutoSave] Error reading draft for key "${key}" from localStorage:`, err);
+      console.warn(`[useFormAutoSave] Error reading draft for key "${key}" from sessionStorage:`, err);
     }
   }, [key]);
 
@@ -118,7 +127,7 @@ export function useFormAutoSave<T extends Record<string, any>>({
     [excludeKeys]
   );
 
-  // 2. Real-Time Auto Save with Debounce
+  // 2. Real-Time Auto Save with Debounce to sessionStorage
   useEffect(() => {
     // Skip initial render save to avoid overwriting stored draft with blank initial state before restoration
     if (!isMounted.current) {
@@ -130,7 +139,7 @@ export function useFormAutoSave<T extends Record<string, any>>({
 
     const timer = setTimeout(() => {
       try {
-        if (typeof window !== 'undefined' && window.localStorage) {
+        if (typeof window !== 'undefined' && window.sessionStorage) {
           const sanitized = getSanitizedData(formData);
 
           // Check if there is actual user input to save
@@ -151,26 +160,31 @@ export function useFormAutoSave<T extends Record<string, any>>({
               ...sanitized,
               _savedAt: `Today at ${nowFormatted}`,
             };
-            localStorage.setItem(key, JSON.stringify(payload));
+            window.sessionStorage.setItem(key, JSON.stringify(payload));
             setLastSavedAt(`Today at ${nowFormatted}`);
           }
         }
       } catch (err) {
-        console.warn(`[useFormAutoSave] Error saving draft to localStorage for key "${key}":`, err);
+        console.warn(`[useFormAutoSave] Error saving draft to sessionStorage for key "${key}":`, err);
       }
     }, debounceMs);
 
     return () => clearTimeout(timer);
   }, [formData, key, debounceMs, getSanitizedData]);
 
-  // 3. Clear Draft on Successful Submission
+  // 3. Clear Draft on Successful Submission / Discard
   const clearDraft = useCallback(() => {
     try {
-      if (typeof window !== 'undefined' && window.localStorage && key) {
-        localStorage.removeItem(key);
+      if (typeof window !== 'undefined') {
+        if (window.sessionStorage && key) {
+          window.sessionStorage.removeItem(key);
+        }
+        if (window.localStorage && key) {
+          window.localStorage.removeItem(key);
+        }
       }
     } catch (err) {
-      console.warn(`[useFormAutoSave] Error removing draft key "${key}" from localStorage:`, err);
+      console.warn(`[useFormAutoSave] Error removing draft key "${key}":`, err);
     }
     setRestoredData(null);
     setHasRestoredDraft(false);

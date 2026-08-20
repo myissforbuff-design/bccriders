@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '../types';
 import { store } from '../lib/db';
+import { clearSensitiveStorage } from '../lib/storageSecurity';
 
 interface AuthContextType {
   currentUser: User | null;
@@ -19,6 +20,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(() => store.getCurrentUser());
 
+  useEffect(() => {
+    // If no authenticated user session exists, ensure local and session storage are sanitized
+    if (!currentUser) {
+      store.clearStorageOnUnauthenticated();
+    }
+  }, [currentUser]);
+
   const refreshUserData = () => {
     const user = store.getCurrentUser();
     setCurrentUser(user ? { ...user } : null);
@@ -28,6 +36,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const user = store.login(usernameOrEmail, passwordAttempt);
     if (user) {
       setCurrentUser({ ...user });
+      store.fetchAuthenticatedData().catch(() => {});
       return true;
     }
     return false;
@@ -37,6 +46,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const user = store.loginWithUserId(userId);
     if (user) {
       setCurrentUser({ ...user });
+      store.fetchAuthenticatedData().catch(() => {});
       return true;
     }
     return false;
@@ -44,6 +54,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = () => {
     store.logout();
+    clearSensitiveStorage();
     setCurrentUser(null);
   };
 
@@ -83,3 +94,4 @@ export const useAuth = () => {
   if (!context) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 };
+
