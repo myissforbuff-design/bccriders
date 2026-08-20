@@ -31,6 +31,8 @@ import {
   RotateCcw,
   Award,
   Crop,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { ImageCropperModal } from './ImageCropperModal';
 
@@ -170,6 +172,9 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
   const [username, setUsername] = useState(initialData?.username || '');
   const [email, setEmail] = useState(initialData?.email || '');
   const [password, setPassword] = useState(initialData?.password || '');
+  const [confirmPassword, setConfirmPassword] = useState(initialData?.password || '');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [membershipType, setMembershipType] = useState<MembershipType>(initialData?.membershipType || 'Standard');
 
   // Avatar State
@@ -325,7 +330,7 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
   } = useFormAutoSave({
     key: 'bcc_member_form_draft',
     formData: memberFormDataToSave,
-    excludeKeys: ['password', 'applicantSignature', 'avatarDataUrl'],
+    excludeKeys: ['password', 'confirmPassword', 'applicantSignature', 'avatarDataUrl'],
   });
 
   useModalDismiss(hasRestoredDraft && !initialData, dismissDraftNotification);
@@ -622,6 +627,11 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
     if (!username.trim() || !email.trim() || !password.trim()) {
       setFormError('Please provide a valid Username, Active Email Address, and Password for Portal Account access.');
+      return;
+    }
+
+    if (!isReadOnly && password !== confirmPassword) {
+      setFormError('Passwords do not match. Please confirm your password accurately.');
       return;
     }
 
@@ -1200,10 +1210,25 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
 
         {/* Account Credentials (Username & Password) */}
         <div className="p-3.5 sm:p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3 pt-2">
-          <h3 className="text-xs font-extrabold text-[#1b4332] uppercase tracking-wider">
-            Portal Account Login Credentials
-          </h3>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-xs font-extrabold text-[#1b4332] uppercase tracking-wider flex items-center gap-1.5">
+              <Lock className="w-3.5 h-3.5 text-[#2d6a4f]" />
+              Portal Account Login Credentials
+            </h3>
+            {!isReadOnly && password && confirmPassword && (
+              <span
+                className={`text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  password === confirmPassword
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-rose-100 text-rose-700'
+                }`}
+              >
+                {password === confirmPassword ? '✓ Passwords Match' : '✗ Passwords do not match'}
+              </span>
+            )}
+          </div>
+
+          <div className={`grid grid-cols-1 ${isReadOnly ? 'sm:grid-cols-2' : 'sm:grid-cols-3'} gap-3`}>
             <div>
               <label className="font-bold text-[#1b4332] block mb-1">Username (Portal Account) *</label>
               <input
@@ -1216,18 +1241,67 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
                 className={inputStyle}
               />
             </div>
+
             <div>
               <label className="font-bold text-[#1b4332] block mb-1">Portal Account Password *</label>
-              <input
-                type={isReadOnly ? 'text' : 'password'}
-                required
-                disabled={isReadOnly}
-                value={isReadOnly ? '••••••••' : password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••••••"
-                className="w-full px-3.5 py-2.5 rounded-xl bg-white border border-[#e2ece2] focus:outline-none focus:border-[#2d6a4f]"
-              />
+              <div className="relative">
+                <input
+                  type={isReadOnly ? 'password' : (showPassword ? 'text' : 'password')}
+                  required
+                  disabled={isReadOnly}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••••••"
+                  className={`w-full ${!isReadOnly ? 'pl-3.5 pr-9 py-2.5' : 'px-3.5 py-2.5'} rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-xs font-medium focus:outline-none focus:border-[#2d6a4f]`}
+                />
+                {!isReadOnly && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#1b4332] transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                )}
+              </div>
             </div>
+
+            {!isReadOnly && (
+              <div>
+                <label className="font-bold text-[#1b4332] block mb-1">Confirm Password *</label>
+                <div className="relative">
+                  <input
+                    type={showConfirmPassword ? 'text' : 'password'}
+                    required
+                    disabled={isReadOnly}
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••••••"
+                    className={`w-full pl-3.5 pr-9 py-2.5 rounded-xl bg-white border text-[#1b4332] text-xs font-medium focus:outline-none ${
+                      confirmPassword && password !== confirmPassword
+                        ? 'border-rose-400 focus:border-rose-500'
+                        : confirmPassword && password === confirmPassword
+                        ? 'border-emerald-400 focus:border-emerald-500'
+                        : 'border-[#e2ece2] focus:border-[#2d6a4f]'
+                    }`}
+                  />
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-[#1b4332] transition-colors"
+                  >
+                    {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                {confirmPassword && password !== confirmPassword && (
+                  <p className="text-[10px] text-rose-600 font-semibold mt-1">
+                    Passwords do not match.
+                  </p>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -36,6 +36,9 @@ import {
   saveToSession,
   removeFromSession,
   hasActiveUserSession,
+  getAuthToken,
+  setAuthToken,
+  clearAuthToken,
 } from './storageSecurity';
 
 // Storage Keys for session state persistence
@@ -66,6 +69,63 @@ function saveToStorage<T>(key: string, data: T): void {
   saveToSession<T>(key, data);
 }
 
+// Check whether a route is protected and requires an authenticated session
+export function isProtectedApiUrl(url: string, method = 'GET'): boolean {
+  if (!url) return false;
+  const cleanUrl = url.split('?')[0].trim();
+  if (cleanUrl === '/api/health' || cleanUrl === '/api/resend/status') return false;
+  if (cleanUrl.startsWith('/api/auth/')) return false;
+  if (cleanUrl === '/api/mongodb/registration' && method.toUpperCase() === 'POST') return false;
+  if (
+    cleanUrl.startsWith('/api/resend/webhook') ||
+    cleanUrl.startsWith('/api/webhook') ||
+    cleanUrl.startsWith('/api/events')
+  ) {
+    return false;
+  }
+  return (
+    cleanUrl.startsWith('/api/mongodb') ||
+    cleanUrl.startsWith('/api/settings') ||
+    cleanUrl.startsWith('/api/members') ||
+    cleanUrl.startsWith('/api/inbound-emails')
+  );
+}
+
+// Authenticated fetch wrapper injecting Bearer token and guarding against unauthenticated pre-fetches
+export async function authFetch(url: string, options?: RequestInit): Promise<Response> {
+  const method = (options?.method || 'GET').toUpperCase();
+  const token = getAuthToken();
+  const hasSession = hasActiveUserSession() || Boolean(token && token.length > 0);
+
+  // If unauthenticated and calling a protected route, prevent network request and return a 401 response
+  if (isProtectedApiUrl(url, method) && !hasSession) {
+    return new Response(
+      JSON.stringify({
+        success: false,
+        error: 'Unauthorized: Authentication required',
+        code: 'UNAUTHORIZED',
+        data: [],
+      }),
+      { status: 401, headers: { 'Content-Type': 'application/json' } }
+    );
+  }
+
+  const existingHeaders = (options?.headers as Record<string, string>) || {};
+  const authHeaders: Record<string, string> = {
+    ...existingHeaders,
+  };
+
+  if (token) {
+    authHeaders['Authorization'] = `Bearer ${token}`;
+    authHeaders['x-session-token'] = token;
+  }
+
+  return fetch(url, {
+    ...options,
+    headers: authHeaders,
+  });
+}
+
 // MongoDB Status Helper
 export interface MongoStatusResponse {
   status: 'connected' | 'not_configured' | 'error';
@@ -80,7 +140,7 @@ export async function safeFetchJson<T = any>(
   options?: RequestInit
 ): Promise<{ success: boolean; data?: T; [key: string]: any }> {
   try {
-    const res = await fetch(url, options);
+    const res = await authFetch(url, options);
     const contentType = res.headers.get('content-type') || '';
     if (!res.ok || !contentType.includes('application/json')) {
       return { success: false, data: [] as any };
@@ -92,8 +152,19 @@ export async function safeFetchJson<T = any>(
 }
 
 export async function checkMongoDbStatus(): Promise<MongoStatusResponse> {
+  const token = getAuthToken();
+  const hasSession = hasActiveUserSession() || Boolean(token);
+  if (!hasSession) {
+    return {
+      status: 'not_configured',
+      uriConfigured: false,
+      message: 'Unauthenticated session',
+      dbName: 'bcc-riders-club-db',
+    };
+  }
+
   try {
-    const res = await fetch('/api/mongodb/status');
+    const res = await authFetch('/api/mongodb/status');
     const contentType = res.headers.get('content-type') || '';
     if (!res.ok || !contentType.includes('application/json')) {
       throw new Error('API server returned non-JSON response');
@@ -279,11 +350,6 @@ export class DataStoreService {
         STORAGE_KEYS.TREASURER_REQUESTS,
         []
       );
-
-      // Background synchronization only for active session
-      this.initMongoDb().catch((err) =>
-        console.warn('MongoDB background sync notice:', err)
-      );
     } else {
       // Unauthenticated / Landing state: Secure storage by not loading or storing sensitive data
       this.currentUserId = '';
@@ -300,6 +366,17 @@ export class DataStoreService {
   }
 
   async initMongoDb(): Promise<MongoStatusResponse> {
+    const token = getAuthToken();
+    const hasSession = hasActiveUserSession() || Boolean(token && token.length > 0) || Boolean(this.currentUserId);
+    if (!hasSession) {
+      return {
+        status: 'not_configured',
+        uriConfigured: false,
+        message: 'Unauthenticated session: sync skipped',
+        dbName: 'bcc-riders-club-db',
+      };
+    }
+
     const status = await checkMongoDbStatus();
     if (status.status === 'connected') {
       try {
@@ -433,9 +510,12 @@ export class DataStoreService {
     return this.users.find((u) => u.id === this.currentUserId) || null;
   }
 
-  setCurrentUser(userId: string | null): User | null {
+  setCurrentUser(userId: string | null, token?: string): User | null {
     this.currentUserId = userId || '';
     if (userId) {
+      if (token) {
+        setAuthToken(token);
+      }
       saveToStorage(STORAGE_KEYS.CURRENT_USER, userId);
       this.initMongoDb().catch(() => {});
     } else {
@@ -510,8 +590,8 @@ export class DataStoreService {
   }
 
   // Authorize sign-in directly after successful 2FA OTP verification
-  loginWithUserId(userId: string): User | null {
-    return this.setCurrentUser(userId);
+  loginWithUserId(userId: string, token?: string): User | null {
+    return this.setCurrentUser(userId, token);
   }
 
   // Auth / Login Simulation strictly by registered Username
@@ -582,7 +662,7 @@ export class DataStoreService {
     const endpoint = sanitized.approvalStatus === 'Pending' ? '/api/mongodb/registration' : '/api/mongodb/members';
 
     // Sync to MongoDB asynchronously
-    fetch(endpoint, {
+    authFetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sanitized),
@@ -644,7 +724,7 @@ export class DataStoreService {
 
     // Save to appropriate MongoDB collection: 'registration' if Pending, 'members' if Approved
     const endpoint = isPending ? '/api/mongodb/registration' : '/api/mongodb/members';
-    fetch(endpoint, {
+    authFetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(finalUser),
@@ -659,6 +739,16 @@ export class DataStoreService {
 
   // Helper to automatically record Membership Fee payment upon member approval
   recordMembershipFeePayment(approvedUser: User): void {
+    if (
+      !approvedUser ||
+      approvedUser.approvalStatus !== 'Approved' ||
+      approvedUser.role === 'admin' ||
+      approvedUser.id === 'usr_admin' ||
+      approvedUser.id.startsWith('reg_')
+    ) {
+      return;
+    }
+
     const todayStr = new Date().toISOString().split('T')[0];
     const recKey = 'bcc_finance_records_v3';
     let savedRecs: any[] = loadFromSession<any[]>(recKey, []);
@@ -695,13 +785,16 @@ export class DataStoreService {
     });
 
     if (!exists) {
+      const configuredFee = Number(this.getFinanceSettings()?.membershipFee);
+      const feeAmount = !isNaN(configuredFee) && configuredFee >= 0 ? configuredFee : 500;
+
       const newRec = {
         id: `rec_mf_${approvedUser.id}`,
         itemType: 'Membership Fee',
         userId: approvedUser.id,
         userName: approvedUser.name,
         userMemberNo: approvedUser.memberNumber || 'BRC-MEMBER',
-        amount: 200,
+        amount: feeAmount,
         dueDate: approvedUser.joinDate || todayStr,
         paidDate: todayStr,
         status: 'Paid',
@@ -722,7 +815,7 @@ export class DataStoreService {
       }
 
       // Sync to MongoDB financeLogs collection
-      fetch('/api/mongodb/financeLogs', {
+      authFetch('/api/mongodb/financeLogs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newRec),
@@ -753,7 +846,7 @@ export class DataStoreService {
     saveToStorage(STORAGE_KEYS.USERS, this.users);
 
     // Call MongoDB transfer endpoint and dispatch approval email from info@bccriders.cc
-    fetch(`/api/mongodb/registration/accept/${sanitized.id}`, {
+    authFetch(`/api/mongodb/registration/accept/${sanitized.id}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sanitized),
@@ -761,7 +854,7 @@ export class DataStoreService {
       .then((res) => {
         if (!res.ok) {
           // Fallback to standalone approval email endpoint if MongoDB accept fails or is offline
-          fetch('/api/members/send-approval-email', {
+          authFetch('/api/members/send-approval-email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(sanitized),
@@ -771,7 +864,7 @@ export class DataStoreService {
       .catch((err) => {
         console.warn('MongoDB approveRegistration transfer error:', err);
         // Fallback standalone dispatch
-        fetch('/api/members/send-approval-email', {
+        authFetch('/api/members/send-approval-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(sanitized),
@@ -789,8 +882,27 @@ export class DataStoreService {
     this.users = this.users.filter((u) => u.id !== userId);
     saveToStorage(STORAGE_KEYS.USERS, this.users);
 
-    // Call MongoDB reject endpoint with applicant data so rejection email is dispatched
-    fetch(`/api/mongodb/registration/reject/${userId}`, {
+    // Ensure any finance logs for this rejected applicant are purged locally
+    try {
+      const recKey = 'bcc_finance_records_v3';
+      const savedRecs = loadFromSession<any[]>(recKey, []);
+      const updatedRecs = savedRecs.filter(
+        (r: any) =>
+          r.userId !== userId &&
+          r.id !== `rec_mf_${userId}` &&
+          r.userMemberNo !== userId &&
+          (!rejectedUser.name || r.userName !== rejectedUser.name)
+      );
+      saveToSession(recKey, updatedRecs);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bcc_finance_updated'));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    // Call MongoDB reject endpoint with applicant data so rejection email is dispatched and logs are deleted
+    authFetch(`/api/mongodb/registration/reject/${userId}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(rejectedUser),
@@ -798,7 +910,7 @@ export class DataStoreService {
       .then((res) => {
         if (!res.ok) {
           // Fallback to standalone rejection email endpoint if needed
-          fetch('/api/members/send-rejection-email', {
+          authFetch('/api/members/send-rejection-email', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(rejectedUser),
@@ -807,24 +919,48 @@ export class DataStoreService {
       })
       .catch((err) => {
         console.warn('MongoDB rejectRegistration error:', err);
-        fetch('/api/members/send-rejection-email', {
+        authFetch('/api/members/send-rejection-email', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(rejectedUser),
         }).catch((e) => console.warn('Rejection email standalone error:', e));
       });
 
-    // Also ensure deleted from MongoDB members if present
-    fetch(`/api/mongodb/members/${userId}`, { method: 'DELETE' }).catch(() => {});
+    // Also ensure deleted from MongoDB members and financeLogs if present
+    authFetch(`/api/mongodb/members/${userId}`, { method: 'DELETE' }).catch(() => {});
+    authFetch(`/api/mongodb/financeLogs/rec_mf_${userId}`, { method: 'DELETE' }).catch(() => {});
+    authFetch(`/api/mongodb/financeLogs?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' }).catch(() => {});
   }
 
   deleteUser(userId: string): void {
+    const targetUser = this.users.find((u) => u.id === userId);
     this.users = this.users.filter((u) => u.id !== userId);
     saveToStorage(STORAGE_KEYS.USERS, this.users);
 
-    // Remove from both 'members' and 'registration' tables in MongoDB
-    fetch(`/api/mongodb/members/${userId}`, { method: 'DELETE' }).catch(() => {});
-    fetch(`/api/mongodb/registration/${userId}`, { method: 'DELETE' }).catch(() => {});
+    // Purge finance records
+    try {
+      const recKey = 'bcc_finance_records_v3';
+      const savedRecs = loadFromSession<any[]>(recKey, []);
+      const updatedRecs = savedRecs.filter(
+        (r: any) =>
+          r.userId !== userId &&
+          r.id !== `rec_mf_${userId}` &&
+          r.userMemberNo !== userId &&
+          (!targetUser?.name || r.userName !== targetUser.name)
+      );
+      saveToSession(recKey, updatedRecs);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bcc_finance_updated'));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+
+    // Remove from both 'members' and 'registration' tables and financeLogs in MongoDB
+    authFetch(`/api/mongodb/members/${userId}`, { method: 'DELETE' }).catch(() => {});
+    authFetch(`/api/mongodb/registration/${userId}`, { method: 'DELETE' }).catch(() => {});
+    authFetch(`/api/mongodb/financeLogs/rec_mf_${userId}`, { method: 'DELETE' }).catch(() => {});
+    authFetch(`/api/mongodb/financeLogs?userId=${encodeURIComponent(userId)}`, { method: 'DELETE' }).catch(() => {});
   }
 
   // Events Management
@@ -841,7 +977,7 @@ export class DataStoreService {
     this.events.unshift(newEvent);
     saveToStorage(STORAGE_KEYS.EVENTS, this.events);
 
-    fetch('/api/mongodb/events', {
+    authFetch('/api/mongodb/events', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newEvent),
@@ -875,7 +1011,7 @@ export class DataStoreService {
 
     saveToStorage(STORAGE_KEYS.EVENTS, this.events);
 
-    fetch('/api/mongodb/events', {
+    authFetch('/api/mongodb/events', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(event),
@@ -918,7 +1054,7 @@ export class DataStoreService {
     this.payments.unshift(newPayment);
     saveToStorage(STORAGE_KEYS.PAYMENTS, this.payments);
 
-    fetch('/api/mongodb/payments', {
+    authFetch('/api/mongodb/payments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newPayment),
@@ -962,7 +1098,7 @@ export class DataStoreService {
     this.posts.unshift(newPost);
     saveToStorage(STORAGE_KEYS.POSTS, this.posts);
 
-    fetch('/api/mongodb/posts', {
+    authFetch('/api/mongodb/posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newPost),
@@ -986,7 +1122,7 @@ export class DataStoreService {
 
     saveToStorage(STORAGE_KEYS.POSTS, this.posts);
 
-    fetch('/api/mongodb/posts', {
+    authFetch('/api/mongodb/posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(post),
@@ -1010,7 +1146,7 @@ export class DataStoreService {
     this.logs.unshift(newLog);
     saveToStorage(STORAGE_KEYS.LOGS, this.logs);
 
-    fetch('/api/mongodb/logs', {
+    authFetch('/api/mongodb/logs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newLog),
@@ -1093,7 +1229,7 @@ export class DataStoreService {
     this.announcements.unshift(newAnn);
     saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
 
-    fetch('/api/mongodb/updates', {
+    authFetch('/api/mongodb/updates', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newAnn),
@@ -1115,7 +1251,7 @@ export class DataStoreService {
       };
       saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
 
-      fetch('/api/mongodb/updates', {
+      authFetch('/api/mongodb/updates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(this.announcements[index]),
@@ -1130,7 +1266,7 @@ export class DataStoreService {
     this.announcements = this.announcements.filter((a) => a.id !== id);
     saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
 
-    fetch(`/api/mongodb/updates/${id}`, {
+    authFetch(`/api/mongodb/updates/${id}`, {
       method: 'DELETE',
     }).catch((err) => console.warn('MongoDB deleteAnnouncement sync error:', err));
   }
@@ -1141,7 +1277,7 @@ export class DataStoreService {
       ann.pinned = !ann.pinned;
       saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
 
-      fetch('/api/mongodb/updates', {
+      authFetch('/api/mongodb/updates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(ann),
@@ -1170,7 +1306,7 @@ export class DataStoreService {
     this.financeSettings = { ...settings };
     saveToStorage(STORAGE_KEYS.FINANCE_SETTINGS, this.financeSettings);
 
-    fetch('/api/mongodb/settings', {
+    authFetch('/api/mongodb/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'finance_settings', category: 'finance', ...this.financeSettings }),
@@ -1193,7 +1329,7 @@ export class DataStoreService {
     this.monthlyDues.unshift(newDue);
     saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
 
-    fetch('/api/mongodb/settings', {
+    authFetch('/api/mongodb/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ category: 'monthly_due', ...newDue }),
@@ -1208,7 +1344,7 @@ export class DataStoreService {
       this.monthlyDues[idx] = { ...due };
       saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
 
-      fetch('/api/mongodb/settings', {
+      authFetch('/api/mongodb/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category: 'monthly_due', ...this.monthlyDues[idx] }),
@@ -1221,7 +1357,7 @@ export class DataStoreService {
     this.monthlyDues = this.monthlyDues.filter((d) => d.id !== id);
     saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
 
-    fetch(`/api/mongodb/settings/${id}`, {
+    authFetch(`/api/mongodb/settings/${id}`, {
       method: 'DELETE',
     }).catch((err) => console.warn('MongoDB monthly dues delete notice:', err));
   }
@@ -1242,7 +1378,7 @@ export class DataStoreService {
     this.dynamicCollections.unshift(newCol);
     saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
 
-    fetch('/api/mongodb/settings', {
+    authFetch('/api/mongodb/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ category: 'dynamic_collection', ...newCol }),
@@ -1257,7 +1393,7 @@ export class DataStoreService {
       this.dynamicCollections[idx] = { ...col };
       saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
 
-      fetch('/api/mongodb/settings', {
+      authFetch('/api/mongodb/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category: 'dynamic_collection', ...this.dynamicCollections[idx] }),
@@ -1272,7 +1408,7 @@ export class DataStoreService {
     );
     saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
 
-    fetch(`/api/mongodb/settings/${id}`, {
+    authFetch(`/api/mongodb/settings/${id}`, {
       method: 'DELETE',
     }).catch((err) => console.warn('MongoDB dynamic collection delete notice:', err));
   }
@@ -1289,13 +1425,13 @@ export class DataStoreService {
     };
     saveToStorage(STORAGE_KEYS.SECURITY_SETTINGS, this.securitySettings);
 
-    fetch('/api/settings/security', {
+    authFetch('/api/settings/security', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(this.securitySettings),
     }).catch((err) => console.warn('Server security settings sync notice:', err));
 
-    fetch('/api/mongodb/settings', {
+    authFetch('/api/mongodb/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: 'security_settings', category: 'security', ...this.securitySettings }),
@@ -1326,7 +1462,7 @@ export class DataStoreService {
     this.financeArchives.sort((a, b) => b.year - a.year);
     saveToStorage(STORAGE_KEYS.FINANCE_ARCHIVES, this.financeArchives);
 
-    fetch('/api/mongodb/financeArchives', {
+    authFetch('/api/mongodb/financeArchives', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(archive),
@@ -1341,7 +1477,7 @@ export class DataStoreService {
     );
     saveToStorage(STORAGE_KEYS.FINANCE_ARCHIVES, this.financeArchives);
 
-    fetch(`/api/mongodb/financeArchives/${idOrYear}`, {
+    authFetch(`/api/mongodb/financeArchives/${idOrYear}`, {
       method: 'DELETE',
     }).catch((err) => console.warn('MongoDB financeArchives delete error:', err));
   }
@@ -1384,7 +1520,7 @@ export class DataStoreService {
       read: false,
     });
 
-    fetch('/api/mongodb/treasurerRequests', {
+    authFetch('/api/mongodb/treasurerRequests', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newReq),
@@ -1421,7 +1557,7 @@ export class DataStoreService {
       userId: req.requesterId,
     });
 
-    fetch('/api/mongodb/treasurerRequests', {
+    authFetch('/api/mongodb/treasurerRequests', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req),
@@ -1462,7 +1598,7 @@ export class DataStoreService {
       // Sync completed status to backend
       const completed = requests.filter((r) => r.targetId === targetId && r.actionType === actionType);
       completed.forEach((r) => {
-        fetch('/api/mongodb/treasurerRequests', {
+        authFetch('/api/mongodb/treasurerRequests', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(r),
@@ -1475,7 +1611,7 @@ export class DataStoreService {
     this.treasurerRequests = this.treasurerRequests.filter((r) => r.id !== id);
     saveToStorage(STORAGE_KEYS.TREASURER_REQUESTS, this.treasurerRequests);
 
-    fetch(`/api/mongodb/treasurerRequests/${id}`, {
+    authFetch(`/api/mongodb/treasurerRequests/${id}`, {
       method: 'DELETE',
     }).catch((err) => console.warn('MongoDB treasurerRequests delete error:', err));
   }

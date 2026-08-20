@@ -244,6 +244,8 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
   const [financeRecords, setFinanceRecords] = useState<any[]>(() => store.getFinanceRecords());
 
   useEffect(() => {
+    if (!currentUser) return;
+
     const refreshRecords = () => {
       const local = store.getFinanceRecords();
       setFinanceRecords(local);
@@ -262,7 +264,12 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
       .catch((err) => console.warn('MongoDB financeLogs fetch in RiderProfile notice:', err));
 
     // Ensure approved active rider has membership fee payment recorded if not deleted
-    if (activeRider && (activeRider.approvalStatus === 'Approved' || activeRider.role !== 'admin')) {
+    if (
+      activeRider &&
+      activeRider.approvalStatus === 'Approved' &&
+      activeRider.role !== 'admin' &&
+      !activeRider.id?.startsWith('reg_')
+    ) {
       store.recordMembershipFeePayment(activeRider);
       setFinanceRecords(store.getFinanceRecords());
     }

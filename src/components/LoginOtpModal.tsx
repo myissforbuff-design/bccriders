@@ -21,7 +21,7 @@ interface LoginOtpModalProps {
   userId?: string;
   usernameOrEmail: string;
   passwordAttempt: string;
-  onSuccess: (userId: string) => void;
+  onSuccess: (userId: string, token?: string) => void;
 }
 
 export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
@@ -171,7 +171,7 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
 
       // Successful verification
       const targetUserId = data.userId || userId;
-      onSuccess(targetUserId);
+      onSuccess(targetUserId, data.token);
     } catch (err: any) {
       setError(err.message || 'Verification failed. Please try again.');
       setLoading(false);

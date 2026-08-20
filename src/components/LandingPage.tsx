@@ -245,7 +245,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
       if (data.requiresOtp === false) {
         const targetId = data.userId || matchedUser?.id;
         if (targetId) {
-          loginWithUserId(targetId);
+          loginWithUserId(targetId, data.token);
         } else {
           login(cleanUsername, cleanPassword);
         }
@@ -273,11 +273,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleLoginOtpSuccess = (verifiedUserId: string) => {
+  const handleLoginOtpSuccess = (verifiedUserId: string, token?: string) => {
     setShowLoginOtpModal(false);
     const targetId = verifiedUserId || loginOtpData.userId;
     if (targetId) {
-      loginWithUserId(targetId);
+      loginWithUserId(targetId, token);
       onLoginSuccess();
       window.location.reload();
     } else {

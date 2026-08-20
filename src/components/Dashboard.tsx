@@ -68,13 +68,18 @@ export const Dashboard: React.FC<DashboardProps> = ({
       .catch(() => {});
   }, []);
 
-  const totalCollected = financeRecords
+  const pendingUserIds = new Set(allUsers.filter((u) => u.approvalStatus === 'Pending').map((u) => u.id));
+  const validFinanceRecords = financeRecords.filter(
+    (r) => !r.userId || (!pendingUserIds.has(r.userId) && !r.userId.startsWith('reg_'))
+  );
+
+  const totalCollected = validFinanceRecords
     .filter((r) => r.status === 'Paid')
     .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
   const totalExpenses = expenseRecords.reduce((sum, x) => sum + (Number(x.amount) || 0), 0);
   const netBalance = totalCollected - totalExpenses;
-  const totalPaidCount = financeRecords.filter((r) => r.status === 'Paid').length;
+  const totalPaidCount = validFinanceRecords.filter((r) => r.status === 'Paid').length;
 
   return (
     <div className="space-y-4 sm:space-y-6 lg:space-y-8 pb-6">

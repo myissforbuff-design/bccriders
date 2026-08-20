@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
-import { store } from '../lib/db';
+import { store, authFetch } from '../lib/db';
 import { loadFromSession, saveToSession } from '../lib/storageSecurity';
 import { CustomSelect } from './CustomSelect';
 import { useModalDismiss } from '../hooks/useModalDismiss';
@@ -410,7 +410,7 @@ export const Settings: React.FC = () => {
     for (const rec of recordsToDelete) {
       if (rec.id) {
         try {
-          await fetch(`/api/mongodb/financeLogs?id=${encodeURIComponent(rec.id)}`, { method: 'DELETE' });
+          await authFetch(`/api/mongodb/financeLogs?id=${encodeURIComponent(rec.id)}`, { method: 'DELETE' });
         } catch (err) {
           console.error(`Failed to delete finance log ${rec.id}:`, err);
         }
@@ -420,7 +420,7 @@ export const Settings: React.FC = () => {
     for (const exp of expensesToDelete) {
       if (exp.id) {
         try {
-          await fetch(`/api/mongodb/liquidationLogs?id=${encodeURIComponent(exp.id)}`, { method: 'DELETE' });
+          await authFetch(`/api/mongodb/liquidationLogs?id=${encodeURIComponent(exp.id)}`, { method: 'DELETE' });
         } catch (err) {
           console.error(`Failed to delete liquidation log ${exp.id}:`, err);
         }
@@ -543,7 +543,7 @@ export const Settings: React.FC = () => {
 
     setReportPayments(filterNonAdminPayments(combinedPayments));
 
-    fetch('/api/mongodb/financeLogs')
+    authFetch('/api/mongodb/financeLogs')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {
@@ -566,7 +566,7 @@ export const Settings: React.FC = () => {
     }
     setReportExpenses(expList);
 
-    fetch('/api/mongodb/liquidationLogs')
+    authFetch('/api/mongodb/liquidationLogs')
       .then((res) => res.json())
       .then((data) => {
         if (data.success && Array.isArray(data.data)) {
@@ -581,8 +581,9 @@ export const Settings: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!currentUser) return;
     loadReportsData();
-  }, []);
+  }, [currentUser]);
 
   const downloadXLSXFile = (filename: string, headers: string[], rows: (string | number)[][], sheetName = 'Sheet1') => {
     const wb = XLSX.utils.book_new();
@@ -1460,7 +1461,7 @@ export const Settings: React.FC = () => {
           };
           recs.push(newRec);
           updated = true;
-          fetch('/api/mongodb/financeLogs', {
+          authFetch('/api/mongodb/financeLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newRec),
@@ -1471,19 +1472,19 @@ export const Settings: React.FC = () => {
           recs[existingIdx].notes = 'Satisfied by Annual Upfront Promo Package';
           recs[existingIdx].updatedAt = todayStr;
           updated = true;
-          fetch('/api/mongodb/financeLogs', {
+          authFetch('/api/mongodb/financeLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(recs[existingIdx]),
           }).catch(err => console.warn('MongoDB update monthly due sync error:', err));
         } else if (!hasAnnualPromo && recs[existingIdx].notes?.includes('Satisfied by Annual Upfront Promo Package')) {
-          fetch(`/api/mongodb/financeLogs/${recs[existingIdx].id}`, { method: 'DELETE' }).catch(() => {});
+          authFetch(`/api/mongodb/financeLogs/${recs[existingIdx].id}`, { method: 'DELETE' }).catch(() => {});
           recs.splice(existingIdx, 1);
           updated = true;
         } else if (!hasAnnualPromo && recs[existingIdx].status === 'Pending' && recs[existingIdx].amount !== due.amount) {
           recs[existingIdx].amount = due.amount;
           updated = true;
-          fetch('/api/mongodb/financeLogs', {
+          authFetch('/api/mongodb/financeLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(recs[existingIdx]),
@@ -1519,7 +1520,7 @@ export const Settings: React.FC = () => {
             (targetDue?.title && r.customItemName === targetDue.title)
           )
         ) {
-          promises.push(fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
+          promises.push(authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
           return false;
         }
         return true;
@@ -1583,7 +1584,7 @@ export const Settings: React.FC = () => {
           };
           recs.push(newRec);
           updated = true;
-          fetch('/api/mongodb/financeLogs', {
+          authFetch('/api/mongodb/financeLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newRec),
@@ -1591,7 +1592,7 @@ export const Settings: React.FC = () => {
         } else if (recs[existingIdx].status === 'Pending' && recs[existingIdx].amount !== perMemberAmount) {
           recs[existingIdx].amount = perMemberAmount;
           updated = true;
-          fetch('/api/mongodb/financeLogs', {
+          authFetch('/api/mongodb/financeLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(recs[existingIdx]),
@@ -1624,12 +1625,12 @@ export const Settings: React.FC = () => {
             (targetCol?.name && (r.customItemName === targetCol.name || r.coveredMonth === targetCol.name))
           )
         ) {
-          promises.push(fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
+          promises.push(authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
           return false;
         }
         // Also remove direct donation entry if created from this collection
         if (r.id === `rec_donation_${colId}` || (r.itemType === 'Donation Collection' && targetCol?.name && r.customItemName === targetCol.name)) {
-          promises.push(fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
+          promises.push(authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {}));
           return false;
         }
         return true;
@@ -1743,7 +1744,7 @@ export const Settings: React.FC = () => {
             recs.unshift(donationRecord);
           }
           saveToSession('bcc_finance_records_v3', recs);
-          fetch('/api/mongodb/financeLogs', {
+          authFetch('/api/mongodb/financeLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(donationRecord),

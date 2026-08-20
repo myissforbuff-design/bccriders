@@ -63,6 +63,7 @@ interface OtpEntry {
   userId?: string;
   name?: string;
   type?: 'reset' | 'login';
+  role?: string;
 }
 const otpCache = new Map<string, OtpEntry>();
 
@@ -137,22 +138,6 @@ const INITIAL_SEED_MEMBERS = [
     bikeInfo: { make: 'Honda', model: 'CRF1100L Africa Twin', year: 2024, engineCc: '1084cc', licensePlate: 'BCC-01' },
     approvalStatus: 'Approved',
   },
-  {
-    id: 'usr_member_1',
-    username: 'elena_r',
-    name: 'Elena Rostova',
-    email: 'elena.rostova@example.com',
-    role: 'Members',
-    memberNumber: 'BRC-0001',
-    password: 'bccriders123',
-    phone: '+63 918 234 5678',
-    avatar: 'https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&q=80&w=250',
-    bio: 'Adventure touring & off-road trail enthusiast.',
-    joinDate: '2026-02-15',
-    emergencyContact: { name: 'Dmitri Rostova', relationship: 'Brother', phone: '+63 918 876 5432' },
-    bikeInfo: { make: 'BMW', model: 'R 1250 GS Adventure', year: 2023, engineCc: '1254cc', licensePlate: 'ELN-88' },
-    approvalStatus: 'Approved',
-  }
 ];
 
 // Helper to sanitize member documents by stripping removed properties and enforcing BRC-0000 format
@@ -341,6 +326,46 @@ async function initMongoIndexes() {
       );
     }
 
+    // Purge any mock/test seed records for Elena Rostova across collections
+    await database.collection('members').deleteMany({
+      $or: [{ id: 'usr_member_1' }, { username: 'elena_r' }, { name: 'Elena Rostova' }],
+    });
+    await database.collection('registration').deleteMany({
+      $or: [{ id: 'usr_member_1' }, { username: 'elena_r' }, { name: 'Elena Rostova' }],
+    });
+    await database.collection('financeLogs').deleteMany({
+      $or: [
+        { id: 'rec_mf_usr_member_1' },
+        { memberId: 'usr_member_1' },
+        { memberName: 'Elena Rostova' },
+        { particulars: { $regex: /Elena Rostova/i } },
+      ],
+    });
+
+    // Purge any stray finance logs for pending applicants in the registration table or non-members
+    const pendingRegs = await database.collection('registration').find({}).toArray();
+    const pendingIds = pendingRegs.map((r: any) => r.id).filter(Boolean);
+    const approvedDocs = await database.collection('members').find({}).toArray();
+    const approvedIds = new Set(approvedDocs.map((m: any) => m.id));
+
+    if (pendingIds.length > 0) {
+      await database.collection('financeLogs').deleteMany({
+        $or: [
+          { userId: { $in: pendingIds } },
+          { id: { $in: pendingIds.map((id: string) => `rec_mf_${id}`) } },
+          { userMemberNo: { $in: pendingIds } },
+        ],
+      });
+    }
+
+    // Also purge any Membership Fee record where the userId is not in approved members (and not usr_admin)
+    const allFinanceLogs = await database.collection('financeLogs').find({ itemType: 'Membership Fee' }).toArray();
+    for (const log of allFinanceLogs) {
+      if (log.userId && !approvedIds.has(log.userId) && log.userId !== 'usr_admin') {
+        await database.collection('financeLogs').deleteOne({ id: log.id });
+      }
+    }
+
     // Auto seed members if empty so the database and collection appear in MongoDB Compass / Atlas immediately
     const count = await database.collection('members').countDocuments();
     if (count === 0) {
@@ -413,6 +438,81 @@ app.get('/api/resend/status', (req, res) => {
   });
 });
 
+// ==========================================
+// Session Token & API Authorization Guard
+// ==========================================
+const SERVER_AUTH_SECRET = process.env.AUTH_SECRET || 'bcc-riders-club-auth-security-key-2026';
+
+function generateSessionToken(userId: string, role = 'user'): string {
+  const payload = {
+    userId: String(userId || ''),
+    role: String(role || 'user'),
+    issuedAt: Date.now(),
+    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+  };
+  const base64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  let hash = 0;
+  for (let i = 0; i < base64.length; i++) {
+    hash = ((hash << 5) - hash + base64.charCodeAt(i) + SERVER_AUTH_SECRET.charCodeAt(i % SERVER_AUTH_SECRET.length)) | 0;
+  }
+  const sig = Math.abs(hash).toString(36);
+  return `${base64}.${sig}`;
+}
+
+function verifySessionToken(token: string): { valid: boolean; userId?: string; role?: string } {
+  if (!token || typeof token !== 'string') return { valid: false };
+  const parts = token.split('.');
+  if (parts.length !== 2) return { valid: false };
+  const [base64, sig] = parts;
+  let hash = 0;
+  for (let i = 0; i < base64.length; i++) {
+    hash = ((hash << 5) - hash + base64.charCodeAt(i) + SERVER_AUTH_SECRET.charCodeAt(i % SERVER_AUTH_SECRET.length)) | 0;
+  }
+  const expectedSig = Math.abs(hash).toString(36);
+  if (sig !== expectedSig) return { valid: false };
+
+  try {
+    const jsonStr = Buffer.from(base64, 'base64url').toString('utf8');
+    const payload = JSON.parse(jsonStr);
+    if (!payload.userId || !payload.expiresAt) return { valid: false };
+    if (Date.now() > payload.expiresAt) return { valid: false };
+    return { valid: true, userId: payload.userId, role: payload.role };
+  } catch {
+    return { valid: false };
+  }
+}
+
+// Authentication middleware to reject unauthorized requests with a 401 status
+function requireAuth(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const authHeader = (req.headers.authorization || '').trim();
+  const token = authHeader.startsWith('Bearer ')
+    ? authHeader.substring(7).trim()
+    : ((req.headers['x-session-token'] as string) || '').trim();
+
+  if (!token) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Authentication session token required.',
+      code: 'UNAUTHORIZED',
+      data: [],
+    });
+  }
+
+  const result = verifySessionToken(token);
+  if (!result.valid) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: Session token is invalid or expired. Please sign in.',
+      code: 'UNAUTHORIZED',
+      data: [],
+    });
+  }
+
+  (req as any).authUserId = result.userId;
+  (req as any).authUserRole = result.role;
+  next();
+}
+
 // In-memory & MongoDB Server Security Settings
 let serverSecuritySettings = {
   adminOtpEnabled: true,
@@ -431,6 +531,19 @@ async function loadServerSecuritySettings() {
     }
   }
 }
+
+// Protected route middleware for internal endpoints
+app.use('/api/mongodb', (req, res, next) => {
+  // Allow public registration POST from prospective member onboarding form
+  if (req.path === '/registration' && req.method === 'POST') {
+    return next();
+  }
+  return requireAuth(req, res, next);
+});
+
+app.use('/api/settings', requireAuth);
+app.use('/api/members', requireAuth);
+app.use('/api/inbound-emails', requireAuth);
 
 // Security Settings Endpoints
 app.get('/api/settings/security', async (req, res) => {
@@ -558,11 +671,13 @@ app.post('/api/auth/login-otp', async (req, res) => {
 
   // If Admin OTP is disabled in Security Settings, bypass OTP
   if (isAdminUser && !serverSecuritySettings.adminOtpEnabled) {
+    const token = generateSessionToken(memberId, matchedUser.role || 'admin');
     return res.json({
       success: true,
       requiresOtp: false,
       isAdmin: true,
       userId: memberId,
+      token,
       message: 'Admin credentials verified. Bypassing OTP as configured in Security Settings.',
     });
   }
@@ -592,6 +707,7 @@ app.post('/api/auth/login-otp', async (req, res) => {
     expiresAt,
     userId: memberId,
     name: memberName,
+    role: matchedUser.role || (isAdminUser ? 'admin' : 'user'),
     type: 'login',
   });
 
@@ -720,10 +836,13 @@ app.post('/api/auth/verify-login-otp', (req, res) => {
   // Invalidate OTP after successful verification
   otpCache.delete(`login_${normalizedEmail}`);
 
+  const token = generateSessionToken(entry.userId, entry.role || 'user');
+
   res.json({
     success: true,
     verified: true,
     userId: entry.userId,
+    token,
     message: 'Sign-in authorized successfully.',
   });
 });
@@ -1492,6 +1611,17 @@ app.post('/api/mongodb/registration/reject/:id', async (req, res) => {
         applicantDoc = { ...regDoc, ...payload };
       }
       await database.collection('registration').deleteOne({ id });
+      await database.collection('members').deleteOne({ id });
+      await database.collection('financeLogs').deleteMany({
+        $or: [
+          { id: `rec_mf_${id}` },
+          { userId: id },
+          { userMemberNo: id },
+          { memberId: id },
+          { userName: applicantDoc?.name },
+          { memberName: applicantDoc?.name },
+        ],
+      });
     }
 
     sendMemberRejectionEmail(applicantDoc).catch((e) =>
@@ -1858,11 +1988,19 @@ app.delete('/api/mongodb/financeLogs/:id', async (req, res) => {
 app.delete('/api/mongodb/financeLogs', async (req, res) => {
   const database = await getMongoDb();
   const id = (req.query.id as string) || req.body?.id;
+  const userId = (req.query.userId as string) || req.body?.userId;
   if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
-  if (!id) return res.status(400).json({ error: 'id is required' });
+  if (!id && !userId) return res.status(400).json({ error: 'id or userId is required' });
   try {
-    const result = await database.collection('financeLogs').deleteOne({ id });
-    res.json({ success: true, id, deletedCount: result.deletedCount });
+    let result;
+    if (id) {
+      result = await database.collection('financeLogs').deleteOne({ id });
+    } else if (userId) {
+      result = await database.collection('financeLogs').deleteMany({
+        $or: [{ userId }, { id: `rec_mf_${userId}` }, { userMemberNo: userId }],
+      });
+    }
+    res.json({ success: true, id, userId, deletedCount: result?.deletedCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

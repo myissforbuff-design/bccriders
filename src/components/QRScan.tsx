@@ -3,7 +3,7 @@ import jsQR from 'jsqr';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
-import { safeFetchJson } from '../lib/db';
+import { safeFetchJson, authFetch } from '../lib/db';
 import {
   QrCode,
   CheckCircle,
@@ -253,6 +253,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
   // Load activities from database
   const loadActivities = () => {
+    if (!currentUser) return;
     safeFetchJson('/api/mongodb/activities')
       .then(data => {
         const loaded: Activity[] = data.data || [];
@@ -269,6 +270,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   };
 
   useEffect(() => {
+    if (!currentUser) return;
     loadActivities();
 
     const handleActivitiesUpdate = (e: CustomEvent) => {
@@ -539,7 +541,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     setActivities(newActivities);
 
     // Save updated activity to database
-    fetch('/api/mongodb/activities', {
+    authFetch('/api/mongodb/activities', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updatedActivity)
@@ -590,7 +592,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
       createdAt: new Date().toISOString()
     };
 
-    fetch('/api/mongodb/attendanceLogs', {
+    authFetch('/api/mongodb/attendanceLogs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(attendanceLogEntry)

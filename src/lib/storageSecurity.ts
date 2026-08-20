@@ -5,7 +5,10 @@
  */
 
 // All known sensitive storage keys
+export const AUTH_TOKEN_KEY = 'bcc_auth_token_v1';
+
 export const SENSITIVE_STORAGE_KEYS = [
+  AUTH_TOKEN_KEY,
   'bcc_users_v2',
   'bcc_current_user_id_v2',
   'bcc_payments_v2',
@@ -130,13 +133,48 @@ export function removeFromSession(key: string): void {
 }
 
 /**
- * Helper to check whether there is currently an active session ID
+ * Auth Token Management
+ */
+export function getAuthToken(): string {
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      return window.sessionStorage.getItem(AUTH_TOKEN_KEY) || '';
+    }
+  } catch {}
+  return '';
+}
+
+export function setAuthToken(token: string): void {
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      if (token) {
+        window.sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+      } else {
+        window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
+      }
+    }
+  } catch (err) {
+    console.warn('Error saving auth token to sessionStorage:', err);
+  }
+}
+
+export function clearAuthToken(): void {
+  try {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
+      window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
+    }
+  } catch {}
+}
+
+/**
+ * Helper to check whether there is currently an active authenticated session
  */
 export function hasActiveUserSession(): boolean {
   try {
     if (typeof window !== 'undefined' && window.sessionStorage) {
       const current = window.sessionStorage.getItem('bcc_current_user_id_v2');
-      return Boolean(current && current.trim().length > 0);
+      const token = window.sessionStorage.getItem(AUTH_TOKEN_KEY);
+      return Boolean(current && current.trim().length > 0 && token && token.trim().length > 0);
     }
   } catch {}
   return false;

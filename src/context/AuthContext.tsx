@@ -8,9 +8,9 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   login: (usernameOrEmail: string, passwordAttempt: string) => boolean;
-  loginWithUserId: (userId: string) => boolean;
+  loginWithUserId: (userId: string, token?: string) => boolean;
   logout: () => void;
-  switchUser: (userId: string) => void;
+  switchUser: (userId: string, token?: string) => void;
   updateUser: (updated: User) => void;
   refreshUserData: () => void;
 }
@@ -42,8 +42,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return false;
   };
 
-  const loginWithUserId = (userId: string): boolean => {
-    const user = store.loginWithUserId(userId);
+  const loginWithUserId = (userId: string, token?: string): boolean => {
+    const user = store.loginWithUserId(userId, token);
     if (user) {
       setCurrentUser({ ...user });
       store.fetchAuthenticatedData().catch(() => {});
@@ -58,8 +58,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setCurrentUser(null);
   };
 
-  const switchUser = (userId: string) => {
-    const user = store.setCurrentUser(userId);
+  const switchUser = (userId: string, token?: string) => {
+    const user = store.setCurrentUser(userId, token);
     if (user) setCurrentUser({ ...user });
   };
 

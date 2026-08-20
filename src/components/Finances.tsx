@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
-import { store, safeFetchJson } from '../lib/db';
+import { store, safeFetchJson, authFetch } from '../lib/db';
 import { loadFromSession, saveToSession } from '../lib/storageSecurity';
 import { User, FinanceYearArchive, ArchivePackageData, TreasurerActionRequest } from '../types';
 import { CustomSelect } from './CustomSelect';
@@ -332,15 +332,15 @@ export const Finances: React.FC = () => {
       updatedList = updatedList.filter(r => {
         if (r.status === 'Pending' || r.status === 'Overdue') {
           if (r.itemType === 'Membership Fee' && paidKeys.has(`${r.userId}_mf`)) {
-            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           }
           if (r.itemType === 'Monthly Due' && ((r.coveredMonth && paidKeys.has(`${r.userId}_md_${r.coveredMonth}`)) || (r.customItemName && paidKeys.has(`${r.userId}_md_${r.customItemName}`)))) {
-            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           }
           if (r.itemType === 'Other' && ((r.customItemName && paidKeys.has(`${r.userId}_col_${r.customItemName}`)) || (r.coveredMonth && paidKeys.has(`${r.userId}_col_${r.coveredMonth}`)))) {
-            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           }
         }
@@ -367,7 +367,7 @@ export const Finances: React.FC = () => {
               );
             });
             if (!isMatch) {
-              fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+              authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
               return false;
             }
           } else if (r.itemType === 'Other') {
@@ -379,16 +379,16 @@ export const Finances: React.FC = () => {
               );
             });
             if (!isMatch) {
-              fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+              authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
               return false;
             }
           } else if (r.itemType === 'Membership Fee') {
             // Membership fee for approved members is marked Paid upon approval; purge stray pending fee records
-            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           } else {
             // Purge any other orphan pending/overdue records
-            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           }
         }
@@ -415,7 +415,7 @@ export const Finances: React.FC = () => {
           const recYear = r.coveredMonth?.match(/\d{4}/)?.[0] || r.paidDate?.slice(0, 4) || r.dueDate?.slice(0, 4) || String(new Date().getFullYear());
           const key = `${r.userId}_${recYear}`;
           if (!paidPromoUserYears.has(key)) {
-            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           }
         }
@@ -445,11 +445,11 @@ export const Finances: React.FC = () => {
         const lenBeforeDelCheck = updatedList.length;
         updatedList = updatedList.filter(r => {
           if (deletedRecordIds.includes(r.id)) {
-            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           }
           if (r.itemType === 'Membership Fee' && deletedFeeUserIds.includes(r.userId)) {
-            fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           }
           return true;
@@ -457,6 +457,27 @@ export const Finances: React.FC = () => {
         if (updatedList.length !== lenBeforeDelCheck) {
           hasNew = true;
         }
+      }
+
+      // 0.8. Clean up / purge any records belonging to Pending applicants or non-approved members
+      const pendingUsersList = loadedUsers.filter(u => u.approvalStatus === 'Pending');
+      const pendingIdsSet = new Set(pendingUsersList.map(u => u.id));
+      const approvedIdsSet = new Set(loadedUsers.filter(u => u.approvalStatus === 'Approved').map(u => u.id));
+
+      const lenBeforePendingPurge = updatedList.length;
+      updatedList = updatedList.filter(r => {
+        if (r.userId && (pendingIdsSet.has(r.userId) || r.userId.startsWith('reg_'))) {
+          authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+          return false;
+        }
+        if (r.itemType === 'Membership Fee' && r.userId && !approvedIdsSet.has(r.userId)) {
+          authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+          return false;
+        }
+        return true;
+      });
+      if (updatedList.length !== lenBeforePendingPurge) {
+        hasNew = true;
       }
 
       const approvedUsers = loadedUsers.filter(u => u.approvalStatus === 'Approved');
@@ -510,7 +531,7 @@ export const Finances: React.FC = () => {
               updatedAt: todayStr,
             };
             updatedList.push(newDueRec);
-            fetch('/api/mongodb/financeLogs', {
+            authFetch('/api/mongodb/financeLogs', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(newDueRec),
@@ -527,7 +548,7 @@ export const Finances: React.FC = () => {
                 updatedAt: todayStr,
               };
               updatedList[existsIdx] = updatedRec;
-              fetch('/api/mongodb/financeLogs', {
+              authFetch('/api/mongodb/financeLogs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedRec),
@@ -535,13 +556,13 @@ export const Finances: React.FC = () => {
             } else if (!hasAnnualPromo && existingRec.notes?.includes('Satisfied by Annual Upfront Promo Package')) {
               // Promo was deleted or is not present; remove this auto-generated satisfied record completely
               hasNew = true;
-              fetch(`/api/mongodb/financeLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
+              authFetch(`/api/mongodb/financeLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
               updatedList.splice(existsIdx, 1);
             } else if (!hasAnnualPromo && existingRec.status === 'Pending' && existingRec.amount !== due.amount) {
               hasNew = true;
               const updatedRec = { ...existingRec, amount: due.amount };
               updatedList[existsIdx] = updatedRec;
-              fetch('/api/mongodb/financeLogs', {
+              authFetch('/api/mongodb/financeLogs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedRec),
@@ -588,7 +609,7 @@ export const Finances: React.FC = () => {
               updatedAt: todayStr,
             };
             updatedList.push(newColRec);
-            fetch('/api/mongodb/financeLogs', {
+            authFetch('/api/mongodb/financeLogs', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(newColRec),
@@ -599,7 +620,7 @@ export const Finances: React.FC = () => {
               hasNew = true;
               const updatedRec = { ...existingRec, amount: perMemberAmount };
               updatedList[existsIdx] = updatedRec;
-              fetch('/api/mongodb/financeLogs', {
+              authFetch('/api/mongodb/financeLogs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedRec),
@@ -627,7 +648,7 @@ export const Finances: React.FC = () => {
         } else {
           ensureApprovedMembersHaveFeesAndMonthlyDues(savedRecs);
           if (savedRecs.length > 0) {
-            fetch('/api/mongodb/financeLogs/bulk', {
+            authFetch('/api/mongodb/financeLogs/bulk', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ records: savedRecs }),
@@ -663,8 +684,8 @@ export const Finances: React.FC = () => {
           localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(cleanData));
 
           sampleIds.forEach(id => {
-            fetch(`/api/mongodb/liquidationLogs/${id}`, { method: 'DELETE' }).catch(() => {});
-            fetch(`/api/mongodb/expenseLogs/${id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/liquidationLogs/${id}`, { method: 'DELETE' }).catch(() => {});
+            authFetch(`/api/mongodb/expenseLogs/${id}`, { method: 'DELETE' }).catch(() => {});
           });
         } else {
           // Fallback to expenseLogs if liquidationLogs is empty
@@ -676,8 +697,8 @@ export const Finances: React.FC = () => {
                 localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(cleanData));
 
                 sampleIds.forEach(id => {
-                  fetch(`/api/mongodb/expenseLogs/${id}`, { method: 'DELETE' }).catch(() => {});
-                  fetch(`/api/mongodb/liquidationLogs/${id}`, { method: 'DELETE' }).catch(() => {});
+                  authFetch(`/api/mongodb/expenseLogs/${id}`, { method: 'DELETE' }).catch(() => {});
+                  authFetch(`/api/mongodb/liquidationLogs/${id}`, { method: 'DELETE' }).catch(() => {});
                 });
               }
             })
@@ -706,7 +727,7 @@ export const Finances: React.FC = () => {
   };
 
   const syncRecordToMongo = (rec: FinanceRecord) => {
-    return fetch('/api/mongodb/financeLogs', {
+    return authFetch('/api/mongodb/financeLogs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(rec),
@@ -714,7 +735,7 @@ export const Finances: React.FC = () => {
   };
 
   const deleteRecordFromMongo = (recordId: string) => {
-    return fetch(`/api/mongodb/financeLogs/${recordId}`, {
+    return authFetch(`/api/mongodb/financeLogs/${recordId}`, {
       method: 'DELETE',
     }).catch(err => console.warn('MongoDB financeLogs delete error:', err));
   };
@@ -726,13 +747,13 @@ export const Finances: React.FC = () => {
   };
 
   const syncExpenseToMongo = (exp: ExpenseRecord) => {
-    const p1 = fetch('/api/mongodb/liquidationLogs', {
+    const p1 = authFetch('/api/mongodb/liquidationLogs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(exp),
     }).catch(err => console.warn('MongoDB liquidationLogs sync error:', err));
 
-    const p2 = fetch('/api/mongodb/expenseLogs', {
+    const p2 = authFetch('/api/mongodb/expenseLogs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(exp),
@@ -824,11 +845,11 @@ export const Finances: React.FC = () => {
   };
 
   const deleteExpenseFromMongo = (expenseId: string) => {
-    const p1 = fetch(`/api/mongodb/liquidationLogs/${expenseId}`, {
+    const p1 = authFetch(`/api/mongodb/liquidationLogs/${expenseId}`, {
       method: 'DELETE',
     }).catch(err => console.warn('MongoDB liquidationLogs delete error:', err));
 
-    const p2 = fetch(`/api/mongodb/expenseLogs/${expenseId}`, {
+    const p2 = authFetch(`/api/mongodb/expenseLogs/${expenseId}`, {
       method: 'DELETE',
     }).catch(err => console.warn('MongoDB expenseLogs delete error:', err));
 
@@ -1380,11 +1401,11 @@ export const Finances: React.FC = () => {
             updated = updated.filter(r => {
               if (r.id !== editingRecord.id && r.userId === recUserId && (r.status === 'Pending' || r.status === 'Overdue')) {
                 if (recItemType === 'Membership Fee' && r.itemType === 'Membership Fee') {
-                  fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+                  authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
                   return false;
                 }
                 if (itemKey && (r.customItemName === itemKey || r.coveredMonth === itemKey)) {
-                  fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+                  authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
                   return false;
                 }
               }
@@ -1462,11 +1483,11 @@ export const Finances: React.FC = () => {
               updatedList = updatedList.filter(r => {
                 if (r.id !== newRec.id && r.userId === recUserId && (r.status === 'Pending' || r.status === 'Overdue')) {
                   if (recItemType === 'Membership Fee' && r.itemType === 'Membership Fee') {
-                    fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+                    authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
                     return false;
                   }
                   if (itemKey && (r.customItemName === itemKey || r.coveredMonth === itemKey)) {
-                    fetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+                    authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
                     return false;
                   }
                 }

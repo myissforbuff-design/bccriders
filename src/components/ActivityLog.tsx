@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
-import { safeFetchJson, store } from '../lib/db';
+import { safeFetchJson, authFetch, store } from '../lib/db';
 import { User as UserType } from '../types';
 import { OfficialDotSpinner } from './OfficialLoader';
 import { AttendanceTracker } from './AttendanceTracker';
@@ -141,6 +141,7 @@ export const ActivityLog: React.FC = () => {
   };
 
   useEffect(() => {
+    if (!currentUser) return;
     fetchActivities();
     fetchAttendanceLogs();
 
@@ -272,7 +273,7 @@ export const ActivityLog: React.FC = () => {
     setActivities([...activities, newActivity]);
 
     try {
-      await fetch('/api/mongodb/activities', {
+      await authFetch('/api/mongodb/activities', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newActivity),
@@ -309,7 +310,7 @@ export const ActivityLog: React.FC = () => {
 
     if (updatedActivity) {
       try {
-        await fetch('/api/mongodb/activities', {
+        await authFetch('/api/mongodb/activities', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(updatedActivity),
@@ -346,7 +347,7 @@ export const ActivityLog: React.FC = () => {
     setActivityToDelete(null);
 
     try {
-      await fetch(`/api/mongodb/activities/${activityId}`, {
+      await authFetch(`/api/mongodb/activities/${activityId}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: activityName, id: activityId }),

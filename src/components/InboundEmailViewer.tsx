@@ -12,9 +12,10 @@ import {
 } from 'lucide-react';
 import { InboundEmail } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { authFetch } from '../lib/db';
 
 export const InboundEmailViewer: React.FC = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isAuthenticated } = useAuth();
   const [emails, setEmails] = useState<InboundEmail[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedEmail, setSelectedEmail] = useState<InboundEmail | null>(null);
@@ -23,9 +24,10 @@ export const InboundEmailViewer: React.FC = () => {
   const [deleteSuccessMessage, setDeleteSuccessMessage] = useState<string | null>(null);
 
   const fetchEmails = async () => {
+    if (!isAuthenticated || !isAdmin) return;
     setIsLoading(true);
     try {
-      const res = await fetch('/api/inbound-emails');
+      const res = await authFetch('/api/inbound-emails');
       const data = await res.json();
       if (data.success && Array.isArray(data.data)) {
         setEmails(data.data);
@@ -38,8 +40,10 @@ export const InboundEmailViewer: React.FC = () => {
   };
 
   useEffect(() => {
-    fetchEmails();
-  }, []);
+    if (isAuthenticated && isAdmin) {
+      fetchEmails();
+    }
+  }, [isAuthenticated, isAdmin]);
 
   const openDeleteModal = (email: InboundEmail, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -50,7 +54,7 @@ export const InboundEmailViewer: React.FC = () => {
     if (!emailToDelete) return;
     setIsDeleting(true);
     try {
-      const res = await fetch(`/api/inbound-emails/${encodeURIComponent(emailToDelete.id)}`, {
+      const res = await authFetch(`/api/inbound-emails/${encodeURIComponent(emailToDelete.id)}`, {
         method: 'DELETE',
       });
       if (res.ok) {
@@ -74,7 +78,7 @@ export const InboundEmailViewer: React.FC = () => {
     setSelectedEmail(email);
     if (!email.read) {
       try {
-        await fetch(`/api/inbound-emails/${encodeURIComponent(email.id)}/mark-read`, {
+        await authFetch(`/api/inbound-emails/${encodeURIComponent(email.id)}/mark-read`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ read: true }),
