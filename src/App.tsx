@@ -17,13 +17,73 @@ import { Finances } from './components/Finances';
 import { AnnouncementsView } from './components/AnnouncementsView';
 import { useIdleTimer } from './hooks/useIdleTimer';
 import { useIsAnyModalOpen } from './hooks/useModalDismiss';
-import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer } from 'lucide-react';
+import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer, Fingerprint } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
+import { isBiometricAvailable, registerBiometricCredential } from './lib/biometrics';
+import { store } from './lib/db';
 
 function MainAppContent() {
-  const { currentUser, isAuthenticated, isAdmin, logout } = useAuth();
+  const { currentUser, isAuthenticated, isAdmin, logout, updateUser } = useAuth();
   const { toastMessage, clearToast, triggerPushAlert } = useNotifications();
   const isAnyModalOpen = useIsAnyModalOpen();
+
+  // Biometric enrollment state
+  const [isBiometricSupported, setIsBiometricSupported] = useState(false);
+  const [biometricEnrolling, setBiometricEnrolling] = useState(false);
+  const [biometricBannerDismissed, setBiometricBannerDismissed] = useState(() => {
+    return sessionStorage.getItem('bcc_dismiss_bio_prompt') === '1';
+  });
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      isBiometricAvailable().then((avail) => setIsBiometricSupported(avail));
+    }
+  }, [isAuthenticated]);
+
+  const handleEnrollBiometricQuick = async () => {
+    if (!currentUser) return;
+    setBiometricEnrolling(true);
+    try {
+      const result = await registerBiometricCredential({
+        id: currentUser.id,
+        username: currentUser.username,
+        name: currentUser.name,
+      });
+
+      if (result.success && result.credentialId) {
+        const updated = store.updateUserBiometrics(currentUser.id, true, result.credentialId);
+        if (updated) {
+          updateUser(updated);
+        }
+        setBiometricBannerDismissed(true);
+        sessionStorage.setItem('bcc_dismiss_bio_prompt', '1');
+        triggerPushAlert(
+          'Fingerprint Biometric Enrolled',
+          'You can now sign in with 1-tap using your device fingerprint sensor on future logins (OTP bypassed)!',
+          'system'
+        );
+      } else {
+        triggerPushAlert(
+          'Biometric Setup Notice',
+          result.error || 'Fingerprint registration was cancelled or not completed.',
+          'system'
+        );
+      }
+    } catch (err: any) {
+      triggerPushAlert(
+        'Biometric Setup Error',
+        err.message || 'Failed to complete fingerprint registration.',
+        'system'
+      );
+    } finally {
+      setBiometricEnrolling(false);
+    }
+  };
+
+  const handleDismissBiometricBanner = () => {
+    setBiometricBannerDismissed(true);
+    sessionStorage.setItem('bcc_dismiss_bio_prompt', '1');
+  };
 
   // Automatic security logout after 5 minutes of inactivity for both members & administrators
   useIdleTimer({
@@ -173,6 +233,45 @@ function MainAppContent() {
               )}
             </div>
           </header>
+        )}
+
+        {/* Quick Biometric Setup Banner for Unenrolled Biometric-capable Devices */}
+        {isBiometricSupported && currentUser && !currentUser.biometricEnabled && !biometricBannerDismissed && (
+          <div className="bg-gradient-to-r from-emerald-50 via-[#f0f9f1] to-emerald-50 border-b border-emerald-200 px-3 sm:px-6 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs shadow-2xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-7 h-7 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+                <Fingerprint className="w-4 h-4 text-emerald-100" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-extrabold text-[#1b4332] truncate sm:whitespace-normal">
+                  ⚡ 1-Tap Fingerprint Sign-in Available
+                </p>
+                <p className="text-[11px] text-[#52605d] truncate sm:whitespace-normal">
+                  Register your device fingerprint once to log in instantly on future visits and skip email OTP codes.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
+              <button
+                type="button"
+                onClick={handleEnrollBiometricQuick}
+                disabled={biometricEnrolling}
+                className="px-3 py-1.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-[11px] font-black shadow-xs transition-all flex items-center gap-1.5 cursor-pointer hover:scale-[1.02]"
+              >
+                <Fingerprint className="w-3.5 h-3.5" />
+                <span>{biometricEnrolling ? 'Registering...' : 'Enroll Fingerprint'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissBiometricBanner}
+                className="p-1.5 rounded-xl text-stone-500 hover:text-stone-800 hover:bg-stone-200/60 transition-colors cursor-pointer"
+                title="Dismiss for this session"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Dynamic Screen View Content */}

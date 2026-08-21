@@ -59,6 +59,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   const handleBiometricLogin = async () => {
     const cleanUsername = username.trim();
     setError('');
+
+    // Pre-check if username entered and biometrics not enabled for this user
+    if (cleanUsername) {
+      const localUser = store.getUserByUsername(cleanUsername) || store.getUserByEmail(cleanUsername);
+      if (localUser && !localUser.biometricEnabled) {
+        setError(`No fingerprint passkey registered for account "${cleanUsername}" yet. Please sign in with your password and OTP first, then enable Biometric Sign-In under Settings > Security.`);
+        return;
+      }
+    }
+
     setBiometricAuthenticating(true);
 
     try {
@@ -77,6 +87,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
           const checkData = await checkRes.json();
           if (checkData.biometricEnabled && checkData.credentialIds?.length) {
             credentialIds = checkData.credentialIds;
+          } else if (checkData.biometricEnabled === false) {
+            setError(`No fingerprint passkey registered for account "${cleanUsername}" yet. Please sign in with your password and OTP first, then enable Biometric Sign-In under Settings > Security.`);
+            setBiometricAuthenticating(false);
+            return;
           }
         } catch {
           // Ignore network error and continue
@@ -86,7 +100,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
       // 2. Perform WebAuthn fingerprint authentication on device
       const authResult = await authenticateBiometricCredential(credentialIds);
       if (!authResult.success || !authResult.credentialId) {
-        throw new Error(authResult.error || 'Fingerprint verification failed or was cancelled.');
+        throw new Error(authResult.error || 'No fingerprint passkey found on this device or the scan was cancelled.');
       }
 
       // 3. Verify credential with backend or local store to bypass OTP
@@ -117,7 +131,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
           return;
         }
 
-        throw new Error(verifyData.error || 'Biometric credential not matched to any registered member.');
+        throw new Error(verifyData.error || 'Biometric credential not matched to any registered member. Please sign in with password.');
       }
 
       // Successful Biometric Login (OTP bypassed!)
@@ -132,7 +146,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
       onLoginSuccess();
     } catch (err: any) {
       setBiometricAuthenticating(false);
-      setError(err.message || 'Fingerprint authentication failed.');
+      setError(err.message || 'Biometric verification failed.');
     }
   };
 
@@ -619,7 +633,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                   </div>
 
                   {/* Biometric / Fingerprint Sign In Quick Action */}
-                  <div className="pt-2 border-t border-[#e2ece2]">
+                  <div className="pt-2 border-t border-[#e2ece2] space-y-1.5">
                     <button
                       type="button"
                       onClick={handleBiometricLogin}
@@ -633,6 +647,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                           : 'Biometric Sign-in'}
                       </span>
                     </button>
+                    <p className="text-[10px] text-center text-[#52605d] leading-tight">
+                      Instant 1-tap sign-in with your device's fingerprint sensor. First time? Sign in with your password to enroll in Settings.
+                    </p>
                   </div>
                 </form>
               </motion.div>

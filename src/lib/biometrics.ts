@@ -188,7 +188,7 @@ export async function authenticateBiometricCredential(
     ) {
       errMsg = 'Biometric sensor access is restricted inside embedded browser frames. Please open the app directly or sign in using your username and password.';
     } else if (err.name === 'NotAllowedError') {
-      errMsg = 'Fingerprint scan was cancelled or timed out.';
+      errMsg = 'No biometric fingerprint credential found on this device, or the scan was cancelled. Please sign in with your username and password first to enroll your fingerprint under Settings > Security.';
     } else if (err.name === 'NotSupportedError') {
       errMsg = 'Biometric passkeys are not supported by this browser. Please use standard password sign-in.';
     } else if (msg) {
