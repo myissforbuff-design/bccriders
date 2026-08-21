@@ -681,6 +681,23 @@ export class DataStoreService {
     return this.users;
   }
 
+  getUserById(id: string): User | null {
+    if (!id) return null;
+    return this.users.find((u) => u.id === id) || null;
+  }
+
+  getUserByUsername(username: string): User | null {
+    if (!username) return null;
+    const clean = username.trim().toLowerCase();
+    return this.users.find((u) => (u.username || '').trim().toLowerCase() === clean) || null;
+  }
+
+  getUserByEmail(email: string): User | null {
+    if (!email) return null;
+    const clean = email.trim().toLowerCase();
+    return this.users.find((u) => (u.email || '').trim().toLowerCase() === clean) || null;
+  }
+
   updateUserPassword(email: string, newPassword: string): boolean {
     const cleanEmail = (email || '').trim().toLowerCase();
     const cleanPassword = (newPassword || '').trim();
@@ -1683,6 +1700,39 @@ export class DataStoreService {
     authFetch(`/api/mongodb/treasurerRequests/${id}`, {
       method: 'DELETE',
     }).catch((err) => console.warn('MongoDB treasurerRequests delete error:', err));
+  }
+
+  updateUserBiometrics(userId: string, biometricEnabled: boolean, credentialId?: string): User | null {
+    const user = this.getUserById(userId);
+    if (!user) return null;
+
+    user.biometricEnabled = biometricEnabled;
+    if (biometricEnabled) {
+      if (!Array.isArray(user.biometricCredentialIds)) {
+        user.biometricCredentialIds = [];
+      }
+      if (credentialId && !user.biometricCredentialIds.includes(credentialId)) {
+        user.biometricCredentialIds.push(credentialId);
+      }
+    } else {
+      user.biometricCredentialIds = [];
+    }
+
+    const updated = this.updateUser(user);
+
+    // Sync to backend
+    fetch('/api/auth/register-biometric', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userId,
+        username: user.username,
+        enabled: biometricEnabled,
+        credentialId,
+      }),
+    }).catch((err) => console.warn('Sync biometric credentials notice:', err));
+
+    return updated;
   }
 }
 

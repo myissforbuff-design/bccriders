@@ -19,7 +19,10 @@ import {
   QrCode,
   ChevronDown,
   ChevronUp,
+  Fingerprint,
+  CheckCircle2,
 } from 'lucide-react';
+import { isBiometricAvailable, registerBiometricCredential } from '../lib/biometrics';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageCropperModal } from './ImageCropperModal';
 import { OfficialLoader } from './OfficialLoader';
@@ -86,6 +89,49 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
       localStorage.setItem('bcc_show_qr_code', String(next));
       return next;
     });
+  };
+
+  // Biometric / Fingerprint State
+  const [isBiometricSupported, setIsBiometricSupported] = useState(false);
+  const [biometricLoading, setBiometricLoading] = useState(false);
+  const [biometricMessage, setBiometricMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    isBiometricAvailable().then((avail) => setIsBiometricSupported(avail));
+  }, []);
+
+  const handleToggleBiometric = async () => {
+    if (!currentUser) return;
+    setBiometricLoading(true);
+    setBiometricMessage(null);
+
+    if (currentUser.biometricEnabled) {
+      const updated = store.updateUserBiometrics(currentUser.id, false);
+      if (updated) {
+        updateUser(updated);
+        setBiometricMessage('Biometric fingerprint sign-in disabled.');
+      }
+      setBiometricLoading(false);
+    } else {
+      const result = await registerBiometricCredential({
+        id: currentUser.id,
+        username: currentUser.username,
+        name: currentUser.name,
+      });
+
+      if (result.success && result.credentialId) {
+        const updated = store.updateUserBiometrics(currentUser.id, true, result.credentialId);
+        if (updated) {
+          updateUser(updated);
+          setBiometricMessage('Fingerprint enrolled! You can now log in without OTP.');
+        }
+      } else {
+        setBiometricMessage(result.error || 'Failed to register fingerprint credential.');
+      }
+      setBiometricLoading(false);
+    }
+
+    setTimeout(() => setBiometricMessage(null), 4500);
   };
 
   if (!currentUser) return null;
@@ -690,6 +736,65 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                 </span>
               </div>
             </div>
+
+            {/* Quick Biometric Access Setting (for logged-in rider viewing own profile) */}
+            {!isUserAdmin && (
+              <div className="mt-3 p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shadow-2xs">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-[#1b4332] text-white flex items-center justify-center shrink-0">
+                    <Fingerprint className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#74c69d]" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-xs font-bold text-[#1b4332]">
+                        Fingerprint Login
+                      </span>
+                      {currentUser?.biometricEnabled ? (
+                        <span className="px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          Active (OTP Bypassed)
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[8px] sm:text-[9px] font-bold bg-stone-100 text-stone-600 border border-stone-200">
+                          Disabled
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-stone-500 truncate">
+                      {currentUser?.biometricEnabled
+                        ? 'Sign in using your device fingerprint sensor without OTP.'
+                        : 'Enroll your fingerprint sensor for instant passwordless sign-in.'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2 shrink-0">
+                  {biometricMessage && (
+                    <span className="text-[10px] font-bold text-[#2d6a4f] truncate">
+                      {biometricMessage}
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleToggleBiometric}
+                    disabled={biometricLoading}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 shrink-0 ${
+                      currentUser?.biometricEnabled
+                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                        : 'bg-[#1b4332] text-white hover:bg-[#2d6a4f]'
+                    }`}
+                  >
+                    <Fingerprint className="w-3 h-3" />
+                    <span>
+                      {biometricLoading
+                        ? '...'
+                        : currentUser?.biometricEnabled
+                        ? 'Remove'
+                        : 'Enroll'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

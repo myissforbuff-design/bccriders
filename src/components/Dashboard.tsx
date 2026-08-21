@@ -16,12 +16,14 @@ import {
   CheckCircle2,
   AlertCircle,
   ChevronRight,
+  ChevronLeft,
+  ChevronsLeft,
+  ChevronsRight,
   Bike,
   ShieldCheck,
   Calendar,
   Search,
 } from 'lucide-react';
-import { motion } from 'motion/react';
 
 interface DashboardProps {
   setActiveTab: (tab: TabType) => void;
@@ -36,6 +38,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const [allUsers, setAllUsers] = useState<User[]>(() => store.getUsers());
   const [searchTerm, setSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
+
+  // Reset page to 1 when search term changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   // Fetch latest members and registrations from MongoDB database on mount and listen to updates
   useEffect(() => {
@@ -157,6 +166,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   });
 
+  const totalPages = Math.max(1, Math.ceil(filteredMembersList.length / ITEMS_PER_PAGE));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * ITEMS_PER_PAGE;
+  const paginatedMembersList = filteredMembersList.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  const startItemCount = filteredMembersList.length > 0 ? startIndex + 1 : 0;
+  const endItemCount = Math.min(startIndex + ITEMS_PER_PAGE, filteredMembersList.length);
+
   return (
     <div className="space-y-3 sm:space-y-6 lg:space-y-8 pb-4 sm:pb-6">
       {/* Welcome Banner */}
@@ -195,13 +211,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Row 1: Active Members & Pending Approvals (Side-by-side on mobile: grid-cols-2) */}
         <div className="grid grid-cols-2 gap-2 sm:gap-4">
           {/* Active Members */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => {
               localStorage.setItem('bcc_roster_tab', 'active');
               setActiveTab('members');
             }}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex flex-col justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex flex-col justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 transition-all duration-200"
           >
             <div className="flex items-center justify-between gap-1 mb-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider">Active Members</span>
@@ -219,16 +234,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {totalMembers > 0 ? Math.round((activeMembersCount / totalMembers) * 100) : 0}% active
               </span>
             </div>
-          </motion.div>
+          </div>
 
           {/* Pending Approvals */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => {
               localStorage.setItem('bcc_roster_tab', 'pending');
               setActiveTab('members');
             }}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex flex-col justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex flex-col justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 transition-all duration-200"
           >
             <div className="flex items-center justify-between gap-1 mb-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider">Pending Approvals</span>
@@ -244,16 +258,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {pendingApprovalsCount > 0 ? 'Action in Roster' : 'All processed'}
               </span>
             </div>
-          </motion.div>
+          </div>
         </div>
 
         {/* Row 2: Total Funds, Total Expenses, Net Treasury Balance Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
           {/* Total Funds */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => setActiveTab('finances')}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 transition-all duration-200"
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Total Funds</span>
@@ -267,13 +280,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="p-1.5 sm:p-3 rounded-lg sm:rounded-xl bg-[#d8f3dc] text-[#1b4332] shrink-0 ml-2">
               <Coins className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
-          </motion.div>
+          </div>
 
           {/* Total Expenses */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => setActiveTab('finances')}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 transition-all duration-200"
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Total Expenses</span>
@@ -287,13 +299,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="p-1.5 sm:p-3 rounded-lg sm:rounded-xl bg-rose-100 text-rose-800 shrink-0 ml-2">
               <TrendingDown className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
-          </motion.div>
+          </div>
 
           {/* Net Treasury Balance */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => setActiveTab('finances')}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 transition-all duration-200"
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Net Treasury Balance</span>
@@ -307,7 +318,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className={`p-1.5 sm:p-3 rounded-lg sm:rounded-xl shrink-0 ml-2 ${netBalance >= 0 ? 'bg-emerald-100 text-emerald-900' : 'bg-rose-100 text-rose-900'}`}>
               <Wallet className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
-          </motion.div>
+          </div>
         </div>
       </div>
 
@@ -368,7 +379,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <>
               {/* Mobile View: High-Density Compact Card List (visible on sm:hidden) */}
               <div className="block sm:hidden divide-y divide-[#e2ece2]">
-                {filteredMembersList.map((m) => {
+                {paginatedMembersList.map((m) => {
                   const isPending = m.approvalStatus === 'Pending' || m.approvalStatus?.toLowerCase() === 'pending';
                   return (
                     <div
@@ -440,7 +451,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e2ece2]">
-                    {filteredMembersList.map((m) => {
+                    {paginatedMembersList.map((m) => {
                       const isPending = m.approvalStatus === 'Pending' || m.approvalStatus?.toLowerCase() === 'pending';
                       return (
                         <tr
@@ -524,6 +535,91 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     })}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Pagination Controls Bar (10 items per batch) */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-3 sm:pt-4 border-t border-[#e2ece2] text-xs">
+                <p className="text-[11px] sm:text-xs text-[#52605d] order-2 sm:order-1 text-center sm:text-left">
+                  Showing <span className="font-bold text-[#1b4332]">{startItemCount}</span> to{' '}
+                  <span className="font-bold text-[#1b4332]">{endItemCount}</span> of{' '}
+                  <span className="font-bold text-[#1b4332]">{filteredMembersList.length}</span> members
+                </p>
+
+                {totalPages > 1 && (
+                  <div className="flex items-center gap-1 order-1 sm:order-2">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(1)}
+                      disabled={safeCurrentPage === 1}
+                      title="First Page"
+                      className="p-1.5 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] disabled:opacity-35 disabled:cursor-not-allowed hover:bg-[#f0f4f1] transition-colors cursor-pointer"
+                    >
+                      <ChevronsLeft className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                      disabled={safeCurrentPage === 1}
+                      title="Previous Page"
+                      className="px-2.5 py-1.5 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] font-bold text-xs disabled:opacity-35 disabled:cursor-not-allowed hover:bg-[#f0f4f1] transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Prev</span>
+                    </button>
+
+                    <div className="flex items-center gap-1 px-1">
+                      {Array.from({ length: totalPages }, (_, i) => i + 1)
+                        .filter((page) => {
+                          if (totalPages <= 5) return true;
+                          if (page === 1 || page === totalPages) return true;
+                          return Math.abs(page - safeCurrentPage) <= 1;
+                        })
+                        .map((page, idx, arr) => {
+                          const prevPage = arr[idx - 1];
+                          const showEllipsis = prevPage && page - prevPage > 1;
+
+                          return (
+                            <React.Fragment key={page}>
+                              {showEllipsis && <span className="px-1 text-stone-400 font-bold">...</span>}
+                              <button
+                                type="button"
+                                onClick={() => setCurrentPage(page)}
+                                className={`min-w-[28px] h-7 px-1.5 rounded-lg text-xs font-extrabold transition-all cursor-pointer flex items-center justify-center ${
+                                  safeCurrentPage === page
+                                    ? 'bg-[#1b4332] text-white shadow-xs'
+                                    : 'border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-[#f0f4f1]'
+                                }`}
+                              >
+                                {page}
+                              </button>
+                            </React.Fragment>
+                          );
+                        })}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                      disabled={safeCurrentPage === totalPages}
+                      title="Next Page"
+                      className="px-2.5 py-1.5 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] font-bold text-xs disabled:opacity-35 disabled:cursor-not-allowed hover:bg-[#f0f4f1] transition-colors cursor-pointer flex items-center gap-1"
+                    >
+                      <span className="hidden sm:inline">Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={safeCurrentPage === totalPages}
+                      title="Last Page"
+                      className="p-1.5 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] disabled:opacity-35 disabled:cursor-not-allowed hover:bg-[#f0f4f1] transition-colors cursor-pointer"
+                    >
+                      <ChevronsRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             </>
           )}

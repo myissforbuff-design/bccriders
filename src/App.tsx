@@ -176,14 +176,14 @@ function MainAppContent() {
         )}
 
         {/* Dynamic Screen View Content */}
-        <main className={`relative z-0 ${activeTab === 'qr' ? 'p-0 pb-0 max-w-none w-full' : 'p-2.5 sm:p-6 lg:p-8 pb-24 sm:pb-28 lg:pb-8 max-w-7xl'} w-full mx-auto flex-1 overflow-x-hidden`}>
+        <main className={`relative z-0 ${activeTab === 'qr' ? 'p-0 pb-0 max-w-none w-full' : 'p-2.5 sm:p-6 lg:p-8 pb-24 sm:pb-28 lg:pb-8 max-w-7xl'} w-full mx-auto flex-1`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
-              initial={{ opacity: 0, y: 12, scale: 0.985 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -12, scale: 0.985 }}
-              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
             >
               {activeTab === 'dashboard' && (
                 <Dashboard

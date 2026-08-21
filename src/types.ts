@@ -99,6 +99,8 @@ export interface User {
   streakDays?: number;
   unlockedBadgeIds?: string[];
   approvalStatus?: ApprovalStatus;
+  biometricEnabled?: boolean;
+  biometricCredentialIds?: string[];
 }
 
 export type EventType = 'Group Ride' | 'Club Meeting' | 'Workshop' | 'Rally' | 'Charity Run';

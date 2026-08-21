@@ -21,8 +21,10 @@ import {
   CheckCircle2,
   Clock,
   Facebook,
+  Fingerprint,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { isBiometricAvailable, authenticateBiometricCredential } from '../lib/biometrics';
 
 interface LandingPageProps {
   onLoginSuccess: () => void;
@@ -43,10 +45,96 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricAuthenticating, setBiometricAuthenticating] = useState(false);
   const [regViewMode, setRegViewMode] = useState<'landing' | 'constitution' | 'register'>('landing');
   const [regPage, setRegPage] = useState<number>(1);
   const [isNavigatingReg, setIsNavigatingReg] = useState(false);
   const [regNavMsg, setRegNavMsg] = useState('Loading Registration Portal...');
+
+  useEffect(() => {
+    isBiometricAvailable().then((avail) => setBiometricSupported(avail));
+  }, []);
+
+  const handleBiometricLogin = async () => {
+    const cleanUsername = username.trim();
+    setError('');
+    setBiometricAuthenticating(true);
+
+    try {
+      // 1. Check if user has biometric credentials registered
+      let targetUser = cleanUsername ? store.getUserByUsername(cleanUsername) || store.getUserByEmail(cleanUsername) : null;
+      let credentialIds: string[] | undefined = targetUser?.biometricCredentialIds;
+
+      // If username provided, query backend check
+      if (cleanUsername) {
+        try {
+          const checkRes = await fetch('/api/auth/check-biometric', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username: cleanUsername }),
+          });
+          const checkData = await checkRes.json();
+          if (checkData.biometricEnabled && checkData.credentialIds?.length) {
+            credentialIds = checkData.credentialIds;
+          }
+        } catch {
+          // Ignore network error and continue
+        }
+      }
+
+      // 2. Perform WebAuthn fingerprint authentication on device
+      const authResult = await authenticateBiometricCredential(credentialIds);
+      if (!authResult.success || !authResult.credentialId) {
+        throw new Error(authResult.error || 'Fingerprint verification failed or was cancelled.');
+      }
+
+      // 3. Verify credential with backend or local store to bypass OTP
+      const verifyRes = await fetch('/api/auth/verify-biometric-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          credentialId: authResult.credentialId,
+          username: cleanUsername || undefined,
+        }),
+      });
+
+      const verifyData = await verifyRes.json();
+      if (!verifyRes.ok || !verifyData.success) {
+        // Fallback: check locally stored users
+        const allUsers = store.getUsers();
+        const localMatched = allUsers.find(
+          (u) =>
+            u.biometricEnabled &&
+            Array.isArray(u.biometricCredentialIds) &&
+            u.biometricCredentialIds.includes(authResult.credentialId!)
+        );
+
+        if (localMatched) {
+          loginWithUserId(localMatched);
+          setBiometricAuthenticating(false);
+          onLoginSuccess();
+          return;
+        }
+
+        throw new Error(verifyData.error || 'Biometric credential not matched to any registered member.');
+      }
+
+      // Successful Biometric Login (OTP bypassed!)
+      if (verifyData.user) {
+        loginWithUserId(verifyData.user, verifyData.token);
+      } else if (verifyData.userId) {
+        loginWithUserId(verifyData.userId, verifyData.token);
+      } else if (targetUser) {
+        loginWithUserId(targetUser);
+      }
+      setBiometricAuthenticating(false);
+      onLoginSuccess();
+    } catch (err: any) {
+      setBiometricAuthenticating(false);
+      setError(err.message || 'Fingerprint authentication failed.');
+    }
+  };
 
   const handleOpenRegister = () => {
     setIsNavigatingReg(true);
@@ -454,7 +542,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
 
                 <form onSubmit={handleLoginSubmit} className="space-y-4 text-xs">
                   <div>
-                    <label className="text-[#2d3a3a] font-semibold mb-1.5 block">
+                    <label className="text-[11px] font-semibold text-[#2d3a3a] mb-1 block">
                       Registered Username
                     </label>
                     <div className="relative">
@@ -466,16 +554,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                         autoCapitalize="none"
                         autoCorrect="off"
                         spellCheck={false}
-                        className="w-full pl-10 pr-4 py-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] text-sm focus:outline-none focus:border-[#2d6a4f]"
+                        className="w-full pl-10 pr-4 py-2.5 sm:py-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] text-xs sm:text-sm focus:outline-none focus:border-[#2d6a4f]"
                         placeholder="Enter your registered username"
                       />
-                      <User className="w-4 h-4 text-[#52605d] absolute left-3.5 top-3.5" />
+                      <User className="w-4 h-4 text-[#52605d] absolute left-3.5 top-3 sm:top-3.5" />
                     </div>
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[#2d3a3a] font-semibold block">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[11px] font-semibold text-[#2d3a3a] block">
                         Password
                       </label>
                       <button
@@ -484,7 +572,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                           setError('');
                           setShowForgotPasswordModal(true);
                         }}
-                        className="text-[#2d6a4f] hover:text-[#1b4332] font-bold text-xs hover:underline cursor-pointer transition-colors"
+                        className="text-[#2d6a4f] hover:text-[#1b4332] font-bold text-[11px] hover:underline cursor-pointer transition-colors"
                       >
                         Forgot password?
                       </button>
@@ -495,14 +583,14 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
                         required
-                        className="w-full pl-10 pr-11 py-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] text-sm focus:outline-none focus:border-[#2d6a4f]"
+                        className="w-full pl-10 pr-11 py-2.5 sm:py-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] text-xs sm:text-sm focus:outline-none focus:border-[#2d6a4f]"
                         placeholder="••••••••••••"
                       />
-                      <Key className="w-4 h-4 text-[#52605d] absolute left-3.5 top-3.5 pointer-events-none" />
+                      <Key className="w-4 h-4 text-[#52605d] absolute left-3.5 top-3 sm:top-3.5 pointer-events-none" />
                       <button
                         type="button"
                         onClick={() => setShowPassword(!showPassword)}
-                        className="text-[#52605d] hover:text-[#1b4332] absolute right-3.5 top-3.5 focus:outline-none transition-colors cursor-pointer"
+                        className="text-[#52605d] hover:text-[#1b4332] absolute right-3.5 top-3 sm:top-3.5 focus:outline-none transition-colors cursor-pointer"
                         title={showPassword ? 'Hide password' : 'Show password'}
                         aria-label={showPassword ? 'Hide password' : 'Show password'}
                       >
@@ -512,21 +600,38 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                   </div>
 
                   {/* Side-by-side action buttons wrapper without icons */}
-                  <div className="flex items-center gap-3 pt-2">
+                  <div className="flex items-center gap-3 pt-1">
                     <button
                       type="submit"
-                      disabled={loading}
-                      className="flex-1 py-3.5 px-4 rounded-2xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center"
+                      disabled={loading || biometricAuthenticating}
+                      className="flex-1 py-3 px-4 rounded-xl sm:rounded-2xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center"
                     >
                       <span>Sign In</span>
                     </button>
                     <button
                       type="button"
                       onClick={handleOpenRegister}
-                      disabled={loading || isNavigatingReg}
-                      className="flex-1 py-3.5 px-4 rounded-2xl bg-[#d8f3dc] hover:bg-[#b7e4c7] text-[#1b4332] font-extrabold text-xs border border-[#b7e4c7] transition-all cursor-pointer flex items-center justify-center"
+                      disabled={loading || isNavigatingReg || biometricAuthenticating}
+                      className="flex-1 py-3 px-4 rounded-xl sm:rounded-2xl bg-[#d8f3dc] hover:bg-[#b7e4c7] text-[#1b4332] font-extrabold text-xs border border-[#b7e4c7] transition-all cursor-pointer flex items-center justify-center"
                     >
                       <span>Register</span>
+                    </button>
+                  </div>
+
+                  {/* Biometric / Fingerprint Sign In Quick Action */}
+                  <div className="pt-2 border-t border-[#e2ece2]">
+                    <button
+                      type="button"
+                      onClick={handleBiometricLogin}
+                      disabled={loading || biometricAuthenticating}
+                      className="w-full py-2.5 sm:py-3 px-4 rounded-xl sm:rounded-2xl bg-[#f0f7f2] hover:bg-[#e2f0e6] text-[#1b4332] font-extrabold text-xs border border-[#c3e3cb] transition-all cursor-pointer flex items-center justify-center gap-2 shadow-2xs group"
+                    >
+                      <Fingerprint className="w-4 h-4 text-[#2d6a4f] group-hover:scale-110 transition-transform" />
+                      <span>
+                        {biometricAuthenticating
+                          ? 'Scanning Fingerprint...'
+                          : 'Biometric Sign-in'}
+                      </span>
                     </button>
                   </div>
                 </form>

@@ -66,7 +66,9 @@ import {
   Archive,
   FolderArchive,
   Upload,
+  Fingerprint,
 } from 'lucide-react';
+import { isBiometricAvailable, registerBiometricCredential } from '../lib/biometrics';
 
 const MONTH_OPTIONS = [
   'January',
@@ -93,7 +95,7 @@ const SUB_TAB_OPTIONS = [
 ] as const;
 
 export const Settings: React.FC = () => {
-  const { currentUser, isAdmin, logout } = useAuth();
+  const { currentUser, isAdmin, logout, updateUser } = useAuth();
   const { runWithLoader, refreshTick } = useLoader();
 
   // Settings Sub-Navigation Dropdown & Tabs
@@ -163,6 +165,58 @@ export const Settings: React.FC = () => {
     store.getSecuritySettings()
   );
   const [securityToast, setSecurityToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+  const [isBiometricSupported, setIsBiometricSupported] = useState<boolean>(false);
+  const [biometricLoading, setBiometricLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    isBiometricAvailable().then((avail) => setIsBiometricSupported(avail));
+  }, []);
+
+  const handleToggleBiometric = async () => {
+    if (!currentUser) return;
+    setBiometricLoading(true);
+
+    if (currentUser.biometricEnabled) {
+      // Disable biometric
+      const updated = store.updateUserBiometrics(currentUser.id, false);
+      if (updated) {
+        updateUser(updated);
+        setSecurityToast({
+          message: 'Biometric Login Disabled: Standard password & OTP sign-in restored.',
+          type: 'info',
+        });
+      }
+      setBiometricLoading(false);
+    } else {
+      // Enroll fingerprint
+      const result = await registerBiometricCredential({
+        id: currentUser.id,
+        username: currentUser.username,
+        name: currentUser.name,
+      });
+
+      if (result.success && result.credentialId) {
+        const updated = store.updateUserBiometrics(currentUser.id, true, result.credentialId);
+        if (updated) {
+          updateUser(updated);
+          setSecurityToast({
+            message: 'Fingerprint Biometrics Enrolled: You can now sign in using your fingerprint sensor without OTP.',
+            type: 'success',
+          });
+        }
+      } else {
+        setSecurityToast({
+          message: result.error || 'Failed to register fingerprint credential.',
+          type: 'info',
+        });
+      }
+      setBiometricLoading(false);
+    }
+
+    setTimeout(() => {
+      setSecurityToast(null);
+    }, 5000);
+  };
 
   const handleToggleAdminOtp = () => {
     const updatedValue = !securitySettings.adminOtpEnabled;
@@ -3555,7 +3609,85 @@ export const Settings: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 2: Executive Sign Out Card */}
+          {/* Card 2: Biometric / Fingerprint Authentication Card */}
+          <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#1b4332] text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5 sm:mt-0">
+                  <Fingerprint className="w-4 h-4 text-[#74c69d]" />
+                </div>
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <div className="flex items-center justify-between sm:justify-start gap-2 flex-wrap">
+                    <h3 className="font-heading font-black text-xs sm:text-sm md:text-base text-[#1b4332] leading-snug">
+                      Biometric / Fingerprint Sign In
+                    </h3>
+                    {currentUser?.biometricEnabled ? (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                        Enabled (OTP Bypassed)
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-stone-200 text-stone-700 border border-stone-300 flex items-center gap-1 shrink-0">
+                        <span className="w-1.5 h-1.5 rounded-full bg-stone-500"></span>
+                        Not Enrolled
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
+                    Use your device's fingerprint sensor / Touch ID to sign in directly, bypassing email OTP verification.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Toggle / Enroll Button */}
+              <div className="flex items-center justify-between sm:justify-end gap-2.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#e2ece2] shrink-0">
+                <button
+                  type="button"
+                  onClick={handleToggleBiometric}
+                  disabled={biometricLoading}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow-xs ${
+                    currentUser?.biometricEnabled
+                      ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100'
+                      : 'bg-[#1b4332] text-white hover:bg-[#2d6a4f]'
+                  }`}
+                >
+                  <Fingerprint className="w-3.5 h-3.5" />
+                  <span>
+                    {biometricLoading
+                      ? 'Processing...'
+                      : currentUser?.biometricEnabled
+                      ? 'Remove Fingerprint'
+                      : 'Enroll Fingerprint'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {/* Explanatory Details Box */}
+            <div className="p-3 sm:p-3.5 rounded-xl bg-white border border-[#e2ece2] space-y-1.5 text-[11px] sm:text-xs">
+              <div className="flex items-center gap-1.5 font-extrabold text-[#1b4332]">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                <span>Biometric Passkey Security</span>
+              </div>
+              <p className="text-[#52605d] leading-relaxed break-words text-[11px]">
+                {isBiometricSupported
+                  ? 'Your hardware fingerprint sensor is verified and supported by WebAuthn/Passkey standards. Fingerprints are processed entirely on your secure hardware chip and never sent over the network.'
+                  : 'Note: If this device does not have an active fingerprint/Touch ID sensor, biometric enrollment will prompt you to set up device authentication or fallback to standard OTP.'}
+              </p>
+              <div className="pt-1.5 border-t border-[#f0f4f0] grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] sm:text-[11px] text-[#52605d]">
+                <div className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  <span>OTP Bypass: <strong>Automatic with Fingerprint</strong></span>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                  <span>Standard: <strong>FIDO2 / WebAuthn standard</strong></span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Executive Sign Out Card */}
           <div className="p-3.5 sm:p-4 rounded-2xl bg-rose-50/60 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5">
               <div className="flex items-center gap-1.5">
