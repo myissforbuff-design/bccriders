@@ -61,6 +61,8 @@ interface OtpEntry {
   otp: string;
   expiresAt: number;
   userId?: string;
+  username?: string;
+  user?: any;
   name?: string;
   type?: 'reset' | 'login';
   role?: string;
@@ -701,15 +703,38 @@ app.post('/api/auth/login-otp', async (req, res) => {
   const maskedLocal = localPart.length <= 2 ? `${localPart[0]}*` : `${localPart[0]}${'*'.repeat(Math.max(1, localPart.length - 2))}${localPart[localPart.length - 1]}`;
   const maskedEmail = `${maskedLocal}@${domainPart}`;
 
-  otpCache.set(`login_${memberEmail}`, {
+  const userPayload = {
+    id: memberId,
+    username: matchedUser.username || normalizedUsername || memberName,
     email: memberEmail,
+    name: memberName,
+    firstName: matchedUser.firstName || '',
+    lastName: matchedUser.lastName || '',
+    role: matchedUser.role || (isAdminUser ? 'admin' : 'Member'),
+    memberNumber: matchedUser.memberNumber || 'BRC-0000',
+    approvalStatus: matchedUser.approvalStatus || 'Approved',
+    avatar: matchedUser.avatar || '/avatar.svg',
+    duesStatus: matchedUser.duesStatus || 'Active',
+    duesExpiryDate: matchedUser.duesExpiryDate || '2027-12-31',
+    mobileNo: matchedUser.mobileNo || matchedUser.phone || '',
+    bikeInfo: matchedUser.bikeInfo,
+  };
+
+  const otpPayload: OtpEntry = {
+    email: memberEmail,
+    username: normalizedUsername,
     otp,
     expiresAt,
     userId: memberId,
+    user: userPayload,
     name: memberName,
     role: matchedUser.role || (isAdminUser ? 'admin' : 'user'),
     type: 'login',
-  });
+  };
+
+  otpCache.set(`login_${memberEmail}`, otpPayload);
+  if (memberId) otpCache.set(`login_uid_${memberId}`, otpPayload);
+  if (normalizedUsername) otpCache.set(`login_user_${normalizedUsername}`, otpPayload);
 
   const fromEmail = process.env.RESEND_FROM_EMAIL || 'contact@bccriders.cc';
   const replyToEmail = process.env.RESEND_REPLY_TO || 'contact@bccriders.cc';
@@ -783,6 +808,7 @@ app.post('/api/auth/login-otp', async (req, res) => {
         email: memberEmail,
         maskedEmail,
         userId: memberId,
+        user: userPayload,
         message: `A 6-digit authorization code has been sent to ${maskedEmail}.`,
       });
     } catch (err: any) {
@@ -793,6 +819,7 @@ app.post('/api/auth/login-otp', async (req, res) => {
         email: memberEmail,
         maskedEmail,
         userId: memberId,
+        user: userPayload,
         message: `Authorization code generated for ${maskedEmail}. (Resend notice: ${err?.message || 'Check server settings'})`,
         devOtp: process.env.NODE_ENV !== 'production' ? otp : undefined,
       });
@@ -805,6 +832,7 @@ app.post('/api/auth/login-otp', async (req, res) => {
       email: memberEmail,
       maskedEmail,
       userId: memberId,
+      user: userPayload,
       message: `Authorization code generated for ${maskedEmail}.`,
       devOtp: otp,
     });
@@ -813,28 +841,41 @@ app.post('/api/auth/login-otp', async (req, res) => {
 
 // AUTH: Verify Login OTP and Complete Sign-In
 app.post('/api/auth/verify-login-otp', (req, res) => {
-  const { email, otp } = req.body || {};
-  if (!email || !otp) {
-    return res.status(400).json({ error: 'Email and OTP code are required.' });
+  const { email, username, usernameOrEmail, userId, otp } = req.body || {};
+  const cleanOtp = (otp || '').trim();
+
+  if (!cleanOtp) {
+    return res.status(400).json({ error: 'Verification code (OTP) is required.' });
   }
-  const normalizedEmail = email.trim().toLowerCase();
-  const entry = otpCache.get(`login_${normalizedEmail}`);
+
+  const normalizedEmail = (email || '').trim().toLowerCase();
+  const normalizedUsername = (username || usernameOrEmail || '').trim().toLowerCase();
+  const cleanUserId = (userId || '').trim();
+
+  let entry = null;
+  if (normalizedEmail) entry = otpCache.get(`login_${normalizedEmail}`);
+  if (!entry && normalizedUsername) entry = otpCache.get(`login_user_${normalizedUsername}`);
+  if (!entry && cleanUserId) entry = otpCache.get(`login_uid_${cleanUserId}`);
 
   if (!entry) {
-    return res.status(400).json({ error: 'No active sign-in authorization found. Please try signing in again.' });
+    return res.status(400).json({ error: 'No active sign-in authorization found. Please enter your username and password again.' });
   }
 
   if (Date.now() > entry.expiresAt) {
-    otpCache.delete(`login_${normalizedEmail}`);
+    if (entry.email) otpCache.delete(`login_${entry.email}`);
+    if (entry.userId) otpCache.delete(`login_uid_${entry.userId}`);
+    if (entry.username) otpCache.delete(`login_user_${entry.username}`);
     return res.status(400).json({ error: 'The sign-in code has expired. Please sign in again to receive a fresh code.' });
   }
 
-  if (entry.otp !== otp.trim()) {
+  if (entry.otp !== cleanOtp) {
     return res.status(400).json({ error: 'Invalid verification code. Please check your email and try again.' });
   }
 
-  // Invalidate OTP after successful verification
-  otpCache.delete(`login_${normalizedEmail}`);
+  // Invalidate OTP keys after successful verification
+  if (entry.email) otpCache.delete(`login_${entry.email}`);
+  if (entry.userId) otpCache.delete(`login_uid_${entry.userId}`);
+  if (entry.username) otpCache.delete(`login_user_${entry.username}`);
 
   const token = generateSessionToken(entry.userId, entry.role || 'user');
 
@@ -842,6 +883,7 @@ app.post('/api/auth/verify-login-otp', (req, res) => {
     success: true,
     verified: true,
     userId: entry.userId,
+    user: entry.user,
     token,
     message: 'Sign-in authorized successfully.',
   });
@@ -1127,8 +1169,20 @@ app.get('/api/mongodb/members', async (req, res) => {
   }
   try {
     const docs = await database.collection('members').find({}).toArray();
+    let userDocs: any[] = [];
+    try {
+      userDocs = await database.collection('users').find({}).toArray();
+    } catch {}
+
+    const allMemberDocs = [...docs];
+    for (const u of userDocs) {
+      if (!allMemberDocs.some((m) => (m.id && m.id === u.id) || (m.username && m.username === u.username) || (m.email && m.email === u.email))) {
+        allMemberDocs.push(u);
+      }
+    }
+
     // Clean _id field and sanitize fields for frontend consistency
-    const members = docs.map(({ _id, ...rest }) => {
+    const members = allMemberDocs.map(({ _id, ...rest }) => {
       const cleaned = sanitizeMemberForMongo(rest);
       const docId = cleaned.id || (_id ? _id.toString() : `usr_${Math.random().toString(36).substring(2, 9)}`);
       const emailStr = (cleaned.email || '').trim();
@@ -1139,14 +1193,17 @@ app.get('/api/mongodb/members', async (req, res) => {
         : `user_${docId.substring(0, 6)}`;
       const finalUsername = (cleaned.username && String(cleaned.username).trim()) || fallbackUser;
 
+      const rawStatus = String(cleaned.approvalStatus || 'Approved').trim();
+      const normalizedStatus = rawStatus.toLowerCase() === 'pending' ? 'Pending' : 'Approved';
+
       return {
         ...cleaned,
         id: docId,
         username: finalUsername,
-        name: cleaned.name || finalUsername || 'Club Member',
-        role: cleaned.role || 'Members',
+        name: cleaned.name || (cleaned.firstName ? `${cleaned.firstName} ${cleaned.lastName || ''}`.trim() : finalUsername) || 'Club Member',
+        role: cleaned.role || 'Member',
         duesStatus: cleaned.duesStatus || 'Active',
-        approvalStatus: cleaned.approvalStatus || 'Approved',
+        approvalStatus: normalizedStatus,
         duesExpiryDate: cleaned.duesExpiryDate || '2027-12-31',
       };
     });
@@ -1253,11 +1310,31 @@ app.get('/api/mongodb/registration', async (req, res) => {
   }
   try {
     const docs = await database.collection('registration').find({}).toArray();
-    const registrations = docs.map(({ _id, ...rest }) => ({
-      id: rest.id,
-      ...rest,
-      approvalStatus: 'Pending',
-    }));
+    let pluralDocs: any[] = [];
+    try {
+      pluralDocs = await database.collection('registrations').find({}).toArray();
+    } catch {}
+
+    const allRegDocs = [...docs];
+    for (const p of pluralDocs) {
+      if (!allRegDocs.some((r) => (r.id && r.id === p.id) || (r.username && r.username === p.username) || (r.email && r.email === p.email))) {
+        allRegDocs.push(p);
+      }
+    }
+
+    const seenIds = new Set();
+    const registrations = [];
+    for (const d of allRegDocs) {
+      const { _id, ...rest } = d;
+      const docId = rest.id || (_id ? _id.toString() : `reg_${Math.random().toString(36).substring(2, 9)}`);
+      if (seenIds.has(docId)) continue;
+      seenIds.add(docId);
+      registrations.push({
+        id: docId,
+        ...rest,
+        approvalStatus: 'Pending',
+      });
+    }
     res.json({ success: true, count: registrations.length, data: registrations });
   } catch (err: any) {
     res.status(500).json({ error: err.message, data: [] });
@@ -2822,6 +2899,216 @@ app.post('/api/inbound-emails/test', async (req, res) => {
     message: 'Simulated test inbound email created successfully!',
     record,
   });
+});
+
+// ==========================================
+// RESEND OUTBOUND SEND EMAIL API
+// ==========================================
+interface OutboundEmailRecord {
+  id: string;
+  resendId?: string;
+  from: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  replyTo?: string;
+  subject: string;
+  bodyText?: string;
+  bodyHtml?: string;
+  sentAt: string;
+  status: 'sent' | 'failed' | 'simulated';
+  error?: string;
+  senderName?: string;
+}
+
+const outboundEmailMemoryCache: OutboundEmailRecord[] = [];
+
+// GET /api/emails/outbox (history of sent emails)
+app.get('/api/emails/outbox', async (_req, res) => {
+  const database = await getMongoDb();
+  if (database) {
+    try {
+      const docs = await database
+        .collection('outbound_emails')
+        .find({})
+        .sort({ sentAt: -1 })
+        .limit(100)
+        .toArray();
+      const data = docs.map(({ _id, ...rest }) => rest);
+      return res.json({ success: true, count: data.length, data });
+    } catch (err: any) {
+      console.warn('Error querying outbound_emails in MongoDB:', err);
+    }
+  }
+  return res.json({
+    success: true,
+    count: outboundEmailMemoryCache.length,
+    data: outboundEmailMemoryCache,
+  });
+});
+
+// POST /api/emails/send (Send outbound email via Resend API)
+app.post('/api/emails/send', async (req, res) => {
+  try {
+    const {
+      to,
+      subject,
+      body,
+      html,
+      from = 'BCC Riders Club <info@bccriders.cc>',
+      cc,
+      bcc,
+      replyTo = 'contact@bccriders.cc',
+      senderName = 'Admin',
+    } = req.body || {};
+
+    if (!to) {
+      return res.status(400).json({ error: 'Recipient "to" email address is required.' });
+    }
+    if (!subject || !String(subject).trim()) {
+      return res.status(400).json({ error: 'Email subject is required.' });
+    }
+    if (!body && !html) {
+      return res.status(400).json({ error: 'Email content (body or HTML) is required.' });
+    }
+
+    const toList: string[] = Array.isArray(to)
+      ? to.map((s: string) => String(s).trim()).filter(Boolean)
+      : String(to)
+          .split(/[,;]/)
+          .map((s) => s.trim())
+          .filter(Boolean);
+
+    if (toList.length === 0) {
+      return res.status(400).json({ error: 'At least one valid recipient email is required.' });
+    }
+
+    const ccList: string[] = cc
+      ? Array.isArray(cc)
+        ? cc
+        : String(cc).split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+      : [];
+
+    const bccList: string[] = bcc
+      ? Array.isArray(bcc)
+        ? bcc
+        : String(bcc).split(/[,;]/).map((s) => s.trim()).filter(Boolean)
+      : [];
+
+    const formattedHtml =
+      html ||
+      `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f4f6f4; margin: 0; padding: 20px; color: #1b4332; }
+          .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #d8f3dc; overflow: hidden; box-shadow: 0 4px 12px rgba(27,67,50,0.06); }
+          .header { background: #1b4332; padding: 24px; text-align: center; color: #ffffff; }
+          .header h1 { margin: 0; font-size: 20px; letter-spacing: 0.5px; font-weight: 800; }
+          .header p { margin: 4px 0 0; color: #74c69d; font-size: 12px; }
+          .content { padding: 24px; font-size: 14px; line-height: 1.6; color: #2d3748; white-space: pre-wrap; }
+          .footer { background: #f7f9f7; padding: 16px; text-align: center; font-size: 11px; color: #718096; border-top: 1px solid #e2ece2; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h1>BCC RIDERS CLUB</h1>
+            <p>Official Club Communication</p>
+          </div>
+          <div class="content">${String(body || '').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</div>
+          <div class="footer">
+            Sent via Resend Dispatch • BCC Riders Club • contact@bccriders.cc
+          </div>
+        </div>
+      </body>
+      </html>
+    `;
+
+    const resend = getResendClient();
+    let resendId = `msg_${Date.now()}`;
+    let deliveryStatus: 'sent' | 'simulated' | 'failed' = 'sent';
+    let errorMessage = '';
+
+    if (resend) {
+      try {
+        const response = await resend.emails.send({
+          from,
+          to: toList,
+          cc: ccList.length > 0 ? ccList : undefined,
+          bcc: bccList.length > 0 ? bccList : undefined,
+          replyTo,
+          subject,
+          text: String(body || ''),
+          html: formattedHtml,
+        });
+
+        if (response && (response as any).data?.id) {
+          resendId = (response as any).data.id;
+        } else if ((response as any).id) {
+          resendId = (response as any).id;
+        }
+      } catch (err: any) {
+        console.error('[Resend Outbound] Resend API error:', err);
+        errorMessage = err.message || 'Resend API call failed';
+        deliveryStatus = 'failed';
+      }
+    } else {
+      console.warn('[Resend Outbound] RESEND_API_KEY is not configured. Email logged as simulated dispatch.');
+      deliveryStatus = 'simulated';
+    }
+
+    const emailRecord: OutboundEmailRecord = {
+      id: `out_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      resendId,
+      from,
+      to: toList,
+      cc: ccList,
+      bcc: bccList,
+      replyTo,
+      subject,
+      bodyText: body || '',
+      bodyHtml: formattedHtml,
+      sentAt: new Date().toISOString(),
+      status: deliveryStatus,
+      error: errorMessage || undefined,
+      senderName,
+    };
+
+    outboundEmailMemoryCache.unshift(emailRecord);
+    if (outboundEmailMemoryCache.length > 200) outboundEmailMemoryCache.pop();
+
+    const database = await getMongoDb();
+    if (database) {
+      try {
+        await database.collection('outbound_emails').insertOne(emailRecord);
+      } catch (dbErr) {
+        console.warn('Error recording outbound email to MongoDB:', dbErr);
+      }
+    }
+
+    if (deliveryStatus === 'failed') {
+      return res.status(502).json({
+        success: false,
+        error: `Failed to deliver email: ${errorMessage}`,
+        record: emailRecord,
+      });
+    }
+
+    return res.json({
+      success: true,
+      message:
+        deliveryStatus === 'simulated'
+          ? 'Email dispatched (simulated mode — configure RESEND_API_KEY for live delivery)'
+          : 'Email sent successfully via Resend API!',
+      record: emailRecord,
+    });
+  } catch (err: any) {
+    console.error('Server error in /api/emails/send:', err);
+    return res.status(500).json({ error: err.message || 'Internal server error' });
+  }
 });
 
 // Catch-all route for API requests to ensure JSON response instead of HTML SPA fallback

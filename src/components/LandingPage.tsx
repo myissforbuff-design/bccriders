@@ -35,10 +35,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [showLoginOtpModal, setShowLoginOtpModal] = useState(false);
-  const [loginOtpData, setLoginOtpData] = useState<{ email: string; maskedEmail: string; userId?: string }>({
+  const [loginOtpData, setLoginOtpData] = useState<{ email: string; maskedEmail: string; userId?: string; user?: any }>({
     email: '',
     maskedEmail: '',
     userId: '',
+    user: undefined,
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -243,21 +244,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
 
       // If OTP is bypassed (e.g. Admin with OTP disabled), sign in immediately
       if (data.requiresOtp === false) {
+        const targetUser = data.user || matchedUser;
         const targetId = data.userId || matchedUser?.id;
-        if (targetId) {
+        if (targetUser) {
+          loginWithUserId(targetUser, data.token);
+        } else if (targetId) {
           loginWithUserId(targetId, data.token);
         } else {
           login(cleanUsername, cleanPassword);
         }
         setLoading(false);
         onLoginSuccess();
-        window.location.reload();
         return;
-      }
-
-      // If user exists in MongoDB but not in local store, sync background state
-      if (data.userId && !store.getUsers().some((u) => u.id === data.userId)) {
-        await store.initMongoDb().catch(() => {});
       }
 
       setLoading(false);
@@ -265,6 +263,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
         email: data.email || matchedUser?.email || '',
         maskedEmail: data.maskedEmail || matchedUser?.email || '',
         userId: data.userId || matchedUser?.id || '',
+        user: data.user || matchedUser,
       });
       setShowLoginOtpModal(true);
     } catch (err: any) {
@@ -273,18 +272,21 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleLoginOtpSuccess = (verifiedUserId: string, token?: string) => {
+  const handleLoginOtpSuccess = (verifiedUserId: string, token?: string, verifiedUser?: any) => {
     setShowLoginOtpModal(false);
+    const targetUser = verifiedUser || loginOtpData.user;
     const targetId = verifiedUserId || loginOtpData.userId;
-    if (targetId) {
+
+    if (targetUser) {
+      loginWithUserId(targetUser, token);
+      onLoginSuccess();
+    } else if (targetId) {
       loginWithUserId(targetId, token);
       onLoginSuccess();
-      window.location.reload();
     } else {
       const success = login(username, password);
       if (success) {
         onLoginSuccess();
-        window.location.reload();
       }
     }
   };

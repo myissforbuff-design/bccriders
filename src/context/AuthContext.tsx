@@ -8,7 +8,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isAdmin: boolean;
   login: (usernameOrEmail: string, passwordAttempt: string) => boolean;
-  loginWithUserId: (userId: string, token?: string) => boolean;
+  loginWithUserId: (userOrId: User | string, token?: string) => boolean;
   logout: () => void;
   switchUser: (userId: string, token?: string) => void;
   updateUser: (updated: User) => void;
@@ -21,11 +21,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [currentUser, setCurrentUser] = useState<User | null>(() => store.getCurrentUser());
 
   useEffect(() => {
-    // If no authenticated user session exists, ensure local and session storage are sanitized
-    if (!currentUser) {
-      store.clearStorageOnUnauthenticated();
+    // If authenticated user session exists, ensure MongoDB sync is triggered on mount
+    if (currentUser) {
+      store.fetchAuthenticatedData().catch(() => {});
+    } else {
+      const activeUser = store.getCurrentUser();
+      if (activeUser) {
+        setCurrentUser({ ...activeUser });
+        store.fetchAuthenticatedData().catch(() => {});
+      } else {
+        store.clearStorageOnUnauthenticated();
+      }
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    const handleUsersUpdated = () => {
+      const activeUser = store.getCurrentUser();
+      if (activeUser) {
+        setCurrentUser({ ...activeUser });
+      }
+    };
+
+    window.addEventListener('bcc_users_updated', handleUsersUpdated);
+    return () => window.removeEventListener('bcc_users_updated', handleUsersUpdated);
+  }, []);
 
   const refreshUserData = () => {
     const user = store.getCurrentUser();
@@ -42,8 +62,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return false;
   };
 
-  const loginWithUserId = (userId: string, token?: string): boolean => {
-    const user = store.loginWithUserId(userId, token);
+  const loginWithUserId = (userOrId: User | string, token?: string): boolean => {
+    const user = store.loginWithUserId(userOrId, token);
     if (user) {
       setCurrentUser({ ...user });
       store.fetchAuthenticatedData().catch(() => {});

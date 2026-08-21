@@ -630,6 +630,25 @@ export const Finances: React.FC = () => {
         });
       });
 
+      // 4. Membership Fee Normalization & Alignment
+      const configuredMembershipFee = Number(store.getFinanceSettings()?.membershipFee) || 200;
+      updatedList.forEach((r, idx) => {
+        if (r.itemType === 'Membership Fee' && (r.amount === 500 || !r.amount || (r.notes?.includes('upon member approval') && r.amount !== configuredMembershipFee))) {
+          hasNew = true;
+          const updatedRec: FinanceRecord = {
+            ...r,
+            amount: configuredMembershipFee,
+            updatedAt: todayStr,
+          };
+          updatedList[idx] = updatedRec;
+          authFetch('/api/mongodb/financeLogs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updatedRec),
+          }).catch(err => console.warn('MongoDB fee update sync notice:', err));
+        }
+      });
+
       if (hasNew) {
         setRecords(updatedList);
         localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(updatedList));

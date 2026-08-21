@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { store } from '../lib/db';
 import {
@@ -17,7 +17,24 @@ import {
 export const AdminERPPanel: React.FC = () => {
   const { currentUser } = useAuth();
   const [payments, setPayments] = useState(() => store.getPayments());
-  const [users, setUsers] = useState(() => store.getUsers().filter((u) => u.role !== 'admin'));
+  const [users, setUsers] = useState(() => store.getUsers().filter((u) => u.role !== 'admin' && u.id !== 'usr_admin'));
+
+  useEffect(() => {
+    store.fetchAuthenticatedData().then(() => {
+      setUsers(store.getUsers().filter((u) => u.role !== 'admin' && u.id !== 'usr_admin'));
+      setPayments(store.getPayments());
+    }).catch(() => {});
+
+    const handleUsersUpdated = (e: Event) => {
+      const updated = (e as CustomEvent).detail || store.getUsers();
+      if (Array.isArray(updated)) {
+        setUsers(updated.filter((u: any) => u.role !== 'admin' && u.id !== 'usr_admin'));
+      }
+    };
+
+    window.addEventListener('bcc_users_updated', handleUsersUpdated);
+    return () => window.removeEventListener('bcc_users_updated', handleUsersUpdated);
+  }, []);
 
   const totalRevenue = payments
     .filter((p) => p.status === 'Paid')

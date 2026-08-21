@@ -486,5 +486,22 @@ export interface InboundEmail {
   status?: string;
 }
 
+export interface OutboundEmail {
+  id: string;
+  resendId?: string;
+  from: string;
+  to: string[];
+  cc?: string[];
+  bcc?: string[];
+  replyTo?: string;
+  subject: string;
+  bodyText?: string;
+  bodyHtml?: string;
+  sentAt: string;
+  status: 'sent' | 'failed' | 'simulated';
+  error?: string;
+  senderName?: string;
+}
+
 
 

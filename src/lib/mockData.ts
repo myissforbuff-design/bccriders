@@ -132,7 +132,7 @@ export const INITIAL_NOTIFICATIONS: NotificationItem[] = [];
 export const INITIAL_ANNOUNCEMENTS: Announcement[] = [];
 
 export const INITIAL_FINANCE_SETTINGS: FinanceSettings = {
-  membershipFee: 500,
+  membershipFee: 200,
   annualFee: 1000,
   annualPromoEnabled: true,
 };

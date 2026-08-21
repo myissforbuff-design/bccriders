@@ -58,6 +58,7 @@ const STORAGE_KEYS = {
   FINANCE_ARCHIVES: 'bcc_finance_yearly_archives_v1',
   TREASURER_REQUESTS: 'bcc_treasurer_requests_v1',
   CURRENT_USER: 'bcc_current_user_id_v2',
+  USER_PROFILE: 'bcc_user_profile_v2',
 };
 
 // Helper for session storage fallback
@@ -390,9 +391,18 @@ export class DataStoreService {
 
         if (activeMembers.length > 0 || pendingRegistrations.length > 0) {
           // Merge active members and pending registration forms with guaranteed usernames
-          this.users = [...activeMembers, ...pendingRegistrations].map((u) => this.sanitizeUser(u));
-          if (this.currentUserId || hasActiveUserSession()) {
-            saveToStorage(STORAGE_KEYS.USERS, this.users);
+          const sanitizedList = [...activeMembers, ...pendingRegistrations].map((u) => this.sanitizeUser(u));
+
+          // Ensure the system admin exists in the list
+          if (!sanitizedList.some((u) => u.id === 'usr_admin' || u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
+            sanitizedList.unshift(INITIAL_USERS[0]);
+          }
+
+          this.users = sanitizedList;
+          saveToStorage(STORAGE_KEYS.USERS, this.users);
+
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
           }
         } else {
           // Seed initial data into MongoDB if collection is empty
@@ -421,8 +431,8 @@ export class DataStoreService {
           const finSettingsDoc = dataSettings.data.find((s: any) => s.id === 'finance_settings');
           if (finSettingsDoc) {
             this.financeSettings = {
-              membershipFee: Number(finSettingsDoc.membershipFee) || 500,
-              annualFee: Number(finSettingsDoc.annualFee) || 1200,
+              membershipFee: Number(finSettingsDoc.membershipFee) || 200,
+              annualFee: Number(finSettingsDoc.annualFee) || 1000,
               annualPromoEnabled: finSettingsDoc.annualPromoEnabled !== undefined ? Boolean(finSettingsDoc.annualPromoEnabled) : true,
             };
             if (this.currentUserId || hasActiveUserSession()) {
@@ -507,20 +517,60 @@ export class DataStoreService {
         return null;
       }
     }
-    return this.users.find((u) => u.id === this.currentUserId) || null;
+    const found = this.users.find((u) => u.id === this.currentUserId);
+    if (found) return found;
+
+    // Check cached profile if users array hasn't completed MongoDB sync yet
+    const cachedProfile = loadFromStorage<User | null>(STORAGE_KEYS.USER_PROFILE, null);
+    if (cachedProfile && cachedProfile.id === this.currentUserId) {
+      if (!this.users.some((u) => u.id === cachedProfile.id)) {
+        this.users.push(cachedProfile);
+      }
+      return cachedProfile;
+    }
+
+    return null;
   }
 
-  setCurrentUser(userId: string | null, token?: string): User | null {
-    this.currentUserId = userId || '';
-    if (userId) {
-      if (token) {
-        setAuthToken(token);
-      }
-      saveToStorage(STORAGE_KEYS.CURRENT_USER, userId);
-      this.initMongoDb().catch(() => {});
-    } else {
+  setCurrentUser(userOrId: User | string | null, token?: string): User | null {
+    if (!userOrId) {
       this.logout();
+      return null;
     }
+
+    let targetId = '';
+    let targetUser: User | undefined;
+
+    if (typeof userOrId === 'object' && userOrId !== null) {
+      targetUser = this.sanitizeUser(userOrId);
+      targetId = targetUser.id;
+    } else {
+      targetId = String(userOrId);
+      targetUser = this.users.find((u) => u.id === targetId);
+    }
+
+    this.currentUserId = targetId;
+    if (token) {
+      setAuthToken(token);
+    }
+    saveToStorage(STORAGE_KEYS.CURRENT_USER, targetId);
+
+    if (targetUser) {
+      if (!this.users.some((u) => u.id === targetUser.id)) {
+        this.users.unshift(targetUser);
+      } else {
+        this.users = this.users.map((u) => (u.id === targetUser.id ? targetUser! : u));
+      }
+      saveToStorage(STORAGE_KEYS.USERS, this.users);
+      saveToStorage(STORAGE_KEYS.USER_PROFILE, targetUser);
+    }
+
+    this.initMongoDb().catch(() => {});
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
+    }
+
     return this.getCurrentUser();
   }
 
@@ -590,8 +640,8 @@ export class DataStoreService {
   }
 
   // Authorize sign-in directly after successful 2FA OTP verification
-  loginWithUserId(userId: string, token?: string): User | null {
-    return this.setCurrentUser(userId, token);
+  loginWithUserId(userOrId: User | string, token?: string): User | null {
+    return this.setCurrentUser(userOrId, token);
   }
 
   // Auth / Login Simulation strictly by registered Username
@@ -658,6 +708,9 @@ export class DataStoreService {
 
     this.users = this.users.map((u) => (u.id === sanitized.id ? sanitized : u));
     saveToStorage(STORAGE_KEYS.USERS, this.users);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
+    }
 
     const endpoint = sanitized.approvalStatus === 'Pending' ? '/api/mongodb/registration' : '/api/mongodb/members';
 
@@ -721,6 +774,9 @@ export class DataStoreService {
     const finalUser = this.sanitizeUser(user);
     this.users.unshift(finalUser);
     saveToStorage(STORAGE_KEYS.USERS, this.users);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
+    }
 
     // Save to appropriate MongoDB collection: 'registration' if Pending, 'members' if Approved
     const endpoint = isPending ? '/api/mongodb/registration' : '/api/mongodb/members';
@@ -786,7 +842,7 @@ export class DataStoreService {
 
     if (!exists) {
       const configuredFee = Number(this.getFinanceSettings()?.membershipFee);
-      const feeAmount = !isNaN(configuredFee) && configuredFee >= 0 ? configuredFee : 500;
+      const feeAmount = !isNaN(configuredFee) && configuredFee >= 0 ? configuredFee : 200;
 
       const newRec = {
         id: `rec_mf_${approvedUser.id}`,
@@ -844,6 +900,9 @@ export class DataStoreService {
     // Update in local memory list
     this.users = this.users.map((u) => (u.id === sanitized.id ? sanitized : u));
     saveToStorage(STORAGE_KEYS.USERS, this.users);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
+    }
 
     // Call MongoDB transfer endpoint and dispatch approval email from info@bccriders.cc
     authFetch(`/api/mongodb/registration/accept/${sanitized.id}`, {
@@ -881,6 +940,9 @@ export class DataStoreService {
     const userId = rejectedUser.id;
     this.users = this.users.filter((u) => u.id !== userId);
     saveToStorage(STORAGE_KEYS.USERS, this.users);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
+    }
 
     // Ensure any finance logs for this rejected applicant are purged locally
     try {
@@ -936,6 +998,9 @@ export class DataStoreService {
     const targetUser = this.users.find((u) => u.id === userId);
     this.users = this.users.filter((u) => u.id !== userId);
     saveToStorage(STORAGE_KEYS.USERS, this.users);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
+    }
 
     // Purge finance records
     try {

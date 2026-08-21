@@ -21,7 +21,7 @@ interface LoginOtpModalProps {
   userId?: string;
   usernameOrEmail: string;
   passwordAttempt: string;
-  onSuccess: (userId: string, token?: string) => void;
+  onSuccess: (userId: string, token?: string, user?: any) => void;
 }
 
 export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
@@ -84,18 +84,86 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
 
   if (!isOpen) return null;
 
+  const triggerVerification = async (codeToVerify: string) => {
+    const cleanOtp = (codeToVerify || '').trim();
+    if (!cleanOtp || cleanOtp.length < 6 || loading) {
+      if (!cleanOtp || cleanOtp.length < 6) {
+        setError('Please enter the complete 6-digit verification code.');
+      }
+      return;
+    }
+
+    const startTime = Date.now();
+    setError('');
+    setLoading(true);
+
+    try {
+      const res = await fetch('/api/auth/verify-login-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: (email || '').trim().toLowerCase(),
+          username: (usernameOrEmail || '').trim(),
+          usernameOrEmail: (usernameOrEmail || '').trim(),
+          userId: (userId || '').trim(),
+          otp: cleanOtp,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Invalid or expired verification code.');
+      }
+
+      // Ensure at least 2 full seconds of loading animation before logging in
+      const elapsed = Date.now() - startTime;
+      const minLoadingTime = 2000; // 2 seconds minimum loading time
+      if (elapsed < minLoadingTime) {
+        await new Promise((resolve) => setTimeout(resolve, minLoadingTime - elapsed));
+      }
+
+      // Successful verification
+      const targetUserId = data.userId || userId;
+      onSuccess(targetUserId, data.token, data.user);
+    } catch (err: any) {
+      setError(err.message || 'Verification failed. Please check your code and try again.');
+      setLoading(false);
+    }
+  };
+
   const handleDigitChange = (index: number, value: string) => {
+    if (loading) return;
+
     // Only accept numeric characters
-    const numericChar = value.replace(/\D/g, '');
-    if (!numericChar) {
+    const numericChars = value.replace(/\D/g, '');
+    if (!numericChars) {
       const newDigits = [...digits];
       newDigits[index] = '';
       setDigits(newDigits);
       return;
     }
 
-    // Take the last character typed if multiple were somehow entered
-    const singleDigit = numericChar.slice(-1);
+    // If multiple digits pasted/typed into a single input box
+    if (numericChars.length > 1) {
+      const newDigits = [...digits];
+      for (let i = 0; i < 6; i++) {
+        if (numericChars[i]) {
+          newDigits[i] = numericChars[i];
+        }
+      }
+      setDigits(newDigits);
+      const fullOtp = newDigits.join('');
+      if (fullOtp.length === 6) {
+        triggerVerification(fullOtp);
+      } else {
+        const nextIdx = Math.min(numericChars.length, 5);
+        inputRefs.current[nextIdx]?.focus();
+      }
+      return;
+    }
+
+    const singleDigit = numericChars.slice(-1);
     const newDigits = [...digits];
     newDigits[index] = singleDigit;
     setDigits(newDigits);
@@ -104,9 +172,17 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
     if (index < 5) {
       inputRefs.current[index + 1]?.focus();
     }
+
+    // If all 6 digits are now filled, immediately trigger verification
+    const fullOtp = newDigits.join('');
+    if (fullOtp.length === 6 && !newDigits.includes('')) {
+      triggerVerification(fullOtp);
+    }
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (loading) return;
+
     if (e.key === 'Backspace') {
       if (!digits[index] && index > 0) {
         // If current is empty, move back and clear previous
@@ -123,10 +199,17 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
       inputRefs.current[index - 1]?.focus();
     } else if (e.key === 'ArrowRight' && index < 5) {
       inputRefs.current[index + 1]?.focus();
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const fullOtp = digits.join('');
+      if (fullOtp.length === 6) {
+        triggerVerification(fullOtp);
+      }
     }
   };
 
   const handlePaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    if (loading) return;
     e.preventDefault();
     const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
     if (!pastedData) return;
@@ -140,42 +223,16 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
     // Focus the box after the last pasted digit or the last box
     const nextFocusIndex = Math.min(pastedData.length, 5);
     inputRefs.current[nextFocusIndex]?.focus();
+
+    // If complete 6-digit code was pasted, automatically trigger verification
+    if (pastedData.length === 6) {
+      triggerVerification(pastedData);
+    }
   };
 
-  const handleVerify = async (e: React.FormEvent) => {
+  const handleVerify = (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanOtp = otp.trim();
-    if (!cleanOtp || cleanOtp.length < 6) {
-      setError('Please enter the complete 6-digit verification code.');
-      return;
-    }
-
-    setError('');
-    setLoading(true);
-
-    try {
-      const res = await fetch('/api/auth/verify-login-otp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          otp: cleanOtp,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Invalid or expired verification code.');
-      }
-
-      // Successful verification
-      const targetUserId = data.userId || userId;
-      onSuccess(targetUserId, data.token);
-    } catch (err: any) {
-      setError(err.message || 'Verification failed. Please try again.');
-      setLoading(false);
-    }
+    triggerVerification(digits.join(''));
   };
 
   const handleResend = async () => {
@@ -260,10 +317,11 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
                   inputMode="numeric"
                   pattern="[0-9]*"
                   value={digit}
+                  disabled={loading}
                   onChange={(e) => handleDigitChange(index, e.target.value)}
                   onKeyDown={(e) => handleKeyDown(index, e)}
                   onPaste={handlePaste}
-                  className="otp-input"
+                  className={`otp-input ${loading ? 'opacity-70 cursor-not-allowed bg-emerald-50/50' : ''}`}
                   aria-label={`Digit ${index + 1}`}
                 />
               ))}
@@ -292,7 +350,7 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
               {loading ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Verifying...</span>
+                  <span>Verifying & Signing In...</span>
                 </>
               ) : (
                 'Verify'

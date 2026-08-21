@@ -23,6 +23,7 @@ import { ArchiveExportModal } from './ArchiveExportModal';
 import { ModalPortal } from './ModalPortal';
 import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import { InboundEmailViewer } from './InboundEmailViewer';
+import { EmailSender } from './EmailSender';
 import {
   Coins,
   Wallet,
@@ -1300,12 +1301,45 @@ export const Settings: React.FC = () => {
     e.preventDefault();
     await runWithLoader(
       async () => {
+        const newMembershipFee = Number(membershipFeeInput) || 200;
         const updated = store.updateFinanceSettings({
-          membershipFee: Number(membershipFeeInput) || 0,
+          membershipFee: newMembershipFee,
           annualFee: Number(annualFeeInput) || 0,
           annualPromoEnabled: financeSettings.annualPromoEnabled !== false,
         });
         setFinanceSettings(updated);
+
+        // Sync existing Membership Fee records in local session and MongoDB to the new fee amount
+        try {
+          const recKey = 'bcc_finance_records_v3';
+          const savedRecs = loadFromSession<any[]>(recKey, []);
+          let changed = false;
+          const updatedRecs = savedRecs.map((r: any) => {
+            if (r.itemType === 'Membership Fee') {
+              changed = true;
+              const updatedRec = {
+                ...r,
+                amount: newMembershipFee,
+                updatedAt: new Date().toISOString().split('T')[0],
+              };
+              authFetch('/api/mongodb/financeLogs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedRec),
+              }).catch(() => {});
+              return updatedRec;
+            }
+            return r;
+          });
+          if (changed) {
+            saveToSession(recKey, updatedRecs);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('bcc_finance_updated'));
+            }
+          }
+        } catch (err) {
+          console.error('Failed to sync updated fee records:', err);
+        }
       },
       {
         message: 'Updating Fee Configuration & Refreshing...',
@@ -1324,7 +1358,7 @@ export const Settings: React.FC = () => {
     await runWithLoader(
       async () => {
         const updated = store.updateFinanceSettings({
-          membershipFee: Number(membershipFeeInput) || financeSettings.membershipFee || 500,
+          membershipFee: Number(membershipFeeInput) || financeSettings.membershipFee || 200,
           annualFee: Number(annualFeeInput) || financeSettings.annualFee || 1000,
           annualPromoEnabled: newStatus,
         });
@@ -3546,8 +3580,16 @@ export const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* SUB TAB 4: RECEIVING EMAIL & RESEND WEBHOOK */}
-      {activeSubTab === 'inbound' && <InboundEmailViewer />}
+      {/* SUB TAB 4: RECEIVING & SENDING EMAIL VIA RESEND */}
+      {activeSubTab === 'inbound' && (
+        <div className="space-y-4 sm:space-y-6">
+          {/* Section 1: Sending Email via Resend */}
+          <EmailSender />
+
+          {/* Section 2: Receiving Email (Inbound Webhook Inbox) */}
+          <InboundEmailViewer />
+        </div>
+      )}
 
       {/* MODAL: CREATE / EDIT MONTHLY DUE */}
       <AnimatePresence>

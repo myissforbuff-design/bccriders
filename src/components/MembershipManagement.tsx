@@ -194,8 +194,25 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
   }, [rosterTab]);
 
   useEffect(() => {
-    setMembers([...store.getUsers().filter((m) => m.role !== 'admin')]);
+    setMembers([...store.getUsers().filter((m) => m.role !== 'admin' && m.id !== 'usr_admin')]);
   }, [refreshTick]);
+
+  useEffect(() => {
+    // Initial fetch from MongoDB endpoints on mount
+    store.fetchAuthenticatedData().then(() => {
+      setMembers([...store.getUsers().filter((m) => m.role !== 'admin' && m.id !== 'usr_admin')]);
+    }).catch(() => {});
+
+    const handleUsersUpdated = (e: Event) => {
+      const updated = (e as CustomEvent).detail || store.getUsers();
+      if (Array.isArray(updated)) {
+        setMembers([...updated.filter((m: User) => m.role !== 'admin' && m.id !== 'usr_admin')]);
+      }
+    };
+
+    window.addEventListener('bcc_users_updated', handleUsersUpdated);
+    return () => window.removeEventListener('bcc_users_updated', handleUsersUpdated);
+  }, []);
 
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);

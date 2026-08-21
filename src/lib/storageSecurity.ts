@@ -11,6 +11,7 @@ export const SENSITIVE_STORAGE_KEYS = [
   AUTH_TOKEN_KEY,
   'bcc_users_v2',
   'bcc_current_user_id_v2',
+  'bcc_user_profile_v2',
   'bcc_payments_v2',
   'bcc_finance_records_v3',
   'bcc_expense_records_v1',

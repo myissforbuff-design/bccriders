@@ -190,19 +190,19 @@ export const Navigation: React.FC<NavigationProps> = ({
       {/* Mobile & Tablet Top Header */}
       {activeTab !== 'qr' && (
         <div
-          className={`lg:hidden sticky top-0 z-50 bg-[#1b4332] border-b border-[#2d6a4f] px-3.5 sm:px-4 py-2 flex items-center justify-between text-white shadow-xs min-h-[52px] transition-[filter] duration-200 ${
+          className={`lg:hidden sticky top-0 z-50 bg-[#1b4332] border-b border-[#2d6a4f] px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between text-white shadow-xs min-h-[48px] sm:min-h-[52px] transition-[filter] duration-200 ${
             isAnyModalOpen ? 'blur-sm pointer-events-none' : ''
           }`}
         >
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="p-1 sm:p-1.5 rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center shrink-0 w-8 h-8 sm:w-9 sm:h-9">
-              <img src="/logo.png" alt="BCC Logo" className="w-5 h-5 sm:w-6 sm:h-6 object-contain" />
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+            <div className="p-1 sm:p-1.5 rounded-lg sm:rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center shrink-0 w-7 h-7 sm:w-9 sm:h-9">
+              <img src="/logo.png" alt="BCC Logo" className="w-4.5 h-4.5 sm:w-6 sm:h-6 object-contain" />
             </div>
             <div className="min-w-0 flex-1">
-              <h1 className="font-heading text-xs sm:text-sm font-extrabold text-white tracking-wide leading-tight uppercase truncate">
+              <h1 className="font-heading text-[11px] sm:text-sm font-extrabold text-white tracking-wide leading-tight uppercase truncate">
                 BCC RIDERS CLUB
               </h1>
-              <p className="text-[11px] sm:text-xs font-medium text-[#74c69d] truncate leading-tight">
+              <p className="text-[10px] sm:text-xs font-medium text-[#74c69d] truncate leading-tight">
                 Hello, <span className="text-white font-bold">{currentUser?.name || 'Member'}</span>!
               </p>
             </div>
