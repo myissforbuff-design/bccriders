@@ -799,8 +799,7 @@ export class DataStoreService {
       !approvedUser ||
       approvedUser.approvalStatus !== 'Approved' ||
       approvedUser.role === 'admin' ||
-      approvedUser.id === 'usr_admin' ||
-      approvedUser.id.startsWith('reg_')
+      approvedUser.id === 'usr_admin'
     ) {
       return;
     }
@@ -812,7 +811,7 @@ export class DataStoreService {
     // Check if membership fee was permanently deleted by admin/treasurer
     try {
       const deletedUserIds = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
-      if (deletedUserIds && deletedUserIds.includes(approvedUser.id)) {
+      if (deletedUserIds && (deletedUserIds.includes(approvedUser.id) || (approvedUser.username && deletedUserIds.includes(approvedUser.username)))) {
         return;
       }
     } catch (e) {
@@ -822,7 +821,7 @@ export class DataStoreService {
     // Check if membership fee payment already exists for this user
     const exists = savedRecs.some((r: any) => {
       if (r.itemType !== 'Membership Fee') return false;
-      if (r.userId === approvedUser.id || r.userId === approvedUser.username) return true;
+      if (r.userId === approvedUser.id || (approvedUser.username && r.userId === approvedUser.username)) return true;
       if (
         r.userMemberNo &&
         approvedUser.memberNumber &&
@@ -890,15 +889,20 @@ export class DataStoreService {
     try {
       const delItem = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
       if (delItem && Array.isArray(delItem)) {
-        const filtered = delItem.filter((id) => id !== sanitized.id);
+        const filtered = delItem.filter((id) => id !== sanitized.id && id !== sanitized.username);
         saveToSession('bcc_deleted_membership_fee_user_ids', filtered);
       }
     } catch (e) {
       console.error(e);
     }
 
-    // Update in local memory list
-    this.users = this.users.map((u) => (u.id === sanitized.id ? sanitized : u));
+    // Update in local memory list (or insert if not present)
+    const existsInList = this.users.some((u) => u.id === sanitized.id);
+    if (existsInList) {
+      this.users = this.users.map((u) => (u.id === sanitized.id ? sanitized : u));
+    } else {
+      this.users.unshift(sanitized);
+    }
     saveToStorage(STORAGE_KEYS.USERS, this.users);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));

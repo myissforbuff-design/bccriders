@@ -291,7 +291,21 @@ export const Finances: React.FC = () => {
   useEffect(() => {
     if (!currentUser) return;
 
-    const loadedUsers = store.getUsers().filter(u => {
+    const getApprovedUsers = () => {
+      return store.getUsers().filter(u => {
+        const isUserAdmin =
+          u.role === 'admin' ||
+          u.role?.toLowerCase() === 'admin' ||
+          u.role?.toLowerCase() === 'administrator' ||
+          u.id === 'usr_admin' ||
+          u.id === 'admin' ||
+          u.username?.toLowerCase() === 'admin' ||
+          u.email?.toLowerCase().includes('admin@');
+        return !isUserAdmin && u.approvalStatus !== 'Pending';
+      });
+    };
+
+    const initialUsers = store.getUsers().filter(u => {
       const isUserAdmin =
         u.role === 'admin' ||
         u.role?.toLowerCase() === 'admin' ||
@@ -302,7 +316,7 @@ export const Finances: React.FC = () => {
         u.email?.toLowerCase().includes('admin@');
       return !isUserAdmin;
     });
-    setUsers(loadedUsers);
+    setUsers(initialUsers);
 
     // 1. Load Funds Records
     let savedRecs: FinanceRecord[] = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, []);
@@ -311,6 +325,8 @@ export const Finances: React.FC = () => {
       let updatedList = [...currentRecs];
       let hasNew = false;
       const todayStr = new Date().toISOString().split('T')[0];
+      const allCurrentUsers = store.getUsers();
+      const approvedUsers = getApprovedUsers();
 
       // 0. Clean up any Pending records if a Paid record already exists for the same user and item
       const paidKeys = new Set<string>();
@@ -460,17 +476,13 @@ export const Finances: React.FC = () => {
       }
 
       // 0.8. Clean up / purge any records belonging to Pending applicants or non-approved members
-      const pendingUsersList = loadedUsers.filter(u => u.approvalStatus === 'Pending');
+      const pendingUsersList = allCurrentUsers.filter(u => u.approvalStatus === 'Pending');
       const pendingIdsSet = new Set(pendingUsersList.map(u => u.id));
-      const approvedIdsSet = new Set(loadedUsers.filter(u => u.approvalStatus === 'Approved').map(u => u.id));
+      const approvedIdsSet = new Set(approvedUsers.map(u => u.id));
 
       const lenBeforePendingPurge = updatedList.length;
       updatedList = updatedList.filter(r => {
-        if (r.userId && (pendingIdsSet.has(r.userId) || r.userId.startsWith('reg_'))) {
-          authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
-          return false;
-        }
-        if (r.itemType === 'Membership Fee' && r.userId && !approvedIdsSet.has(r.userId)) {
+        if (r.userId && pendingIdsSet.has(r.userId) && !approvedIdsSet.has(r.userId)) {
           authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
           return false;
         }
@@ -479,8 +491,6 @@ export const Finances: React.FC = () => {
       if (updatedList.length !== lenBeforePendingPurge) {
         hasNew = true;
       }
-
-      const approvedUsers = loadedUsers.filter(u => u.approvalStatus === 'Approved');
 
       // If no approved registered members exist, mute pending generation
       if (approvedUsers.length === 0) {
@@ -630,8 +640,41 @@ export const Finances: React.FC = () => {
         });
       });
 
-      // 4. Membership Fee Normalization & Alignment
+      // 4. Membership Fee Auto-Creation & Normalization
       const configuredMembershipFee = Number(store.getFinanceSettings()?.membershipFee) || 200;
+
+      // Ensure every approved member has their Membership Fee transaction recorded
+      approvedUsers.forEach(u => {
+        if (deletedFeeUserIds.includes(u.id) || (u.username && deletedFeeUserIds.includes(u.username))) return;
+        const exists = updatedList.some(r =>
+          r.itemType === 'Membership Fee' &&
+          (r.userId === u.id || (u.username && r.userId === u.username) || (r.userMemberNo && u.memberNumber && r.userMemberNo.trim().toUpperCase() === u.memberNumber.trim().toUpperCase()) || (r.userName && u.name && r.userName.trim().toLowerCase() === u.name.trim().toLowerCase()))
+        );
+        if (!exists) {
+          hasNew = true;
+          const feeRec: FinanceRecord = {
+            id: `rec_mf_${u.id}`,
+            itemType: 'Membership Fee',
+            userId: u.id,
+            userName: u.name,
+            userMemberNo: u.memberNumber || 'BRC-MEMBER',
+            amount: configuredMembershipFee,
+            dueDate: u.joinDate || todayStr,
+            paidDate: todayStr,
+            status: 'Paid',
+            paymentMethod: 'Cash',
+            notes: 'Payment recorded upon member approval',
+            updatedAt: todayStr,
+          };
+          updatedList.unshift(feeRec);
+          authFetch('/api/mongodb/financeLogs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(feeRec),
+          }).catch(err => console.warn('MongoDB fee auto-sync notice:', err));
+        }
+      });
+
       updatedList.forEach((r, idx) => {
         if (r.itemType === 'Membership Fee' && (r.amount === 500 || !r.amount || (r.notes?.includes('upon member approval') && r.amount !== configuredMembershipFee))) {
           hasNew = true;
@@ -658,6 +701,23 @@ export const Finances: React.FC = () => {
     };
 
     setRecords(savedRecs);
+
+    store.initMongoDb().then(() => {
+      const freshUsers = store.getUsers().filter(u => {
+        const isUserAdmin =
+          u.role === 'admin' ||
+          u.role?.toLowerCase() === 'admin' ||
+          u.role?.toLowerCase() === 'administrator' ||
+          u.id === 'usr_admin' ||
+          u.id === 'admin' ||
+          u.username?.toLowerCase() === 'admin' ||
+          u.email?.toLowerCase().includes('admin@');
+        return !isUserAdmin;
+      });
+      setUsers(freshUsers);
+      const latestRecs = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, []);
+      ensureApprovedMembersHaveFeesAndMonthlyDues(latestRecs);
+    }).catch(() => {});
 
     safeFetchJson('/api/mongodb/financeLogs')
       .then(data => {
@@ -737,6 +797,31 @@ export const Finances: React.FC = () => {
       });
 
     setFinanceArchives(store.getFinanceArchives());
+
+    const handleUsersOrFinancesUpdated = () => {
+      const freshUsers = store.getUsers().filter(u => {
+        const isUserAdmin =
+          u.role === 'admin' ||
+          u.role?.toLowerCase() === 'admin' ||
+          u.role?.toLowerCase() === 'administrator' ||
+          u.id === 'usr_admin' ||
+          u.id === 'admin' ||
+          u.username?.toLowerCase() === 'admin' ||
+          u.email?.toLowerCase().includes('admin@');
+        return !isUserAdmin;
+      });
+      setUsers(freshUsers);
+      const latestRecs = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, []);
+      ensureApprovedMembersHaveFeesAndMonthlyDues(latestRecs);
+    };
+
+    window.addEventListener('bcc_users_updated', handleUsersOrFinancesUpdated);
+    window.addEventListener('bcc_finance_updated', handleUsersOrFinancesUpdated);
+
+    return () => {
+      window.removeEventListener('bcc_users_updated', handleUsersOrFinancesUpdated);
+      window.removeEventListener('bcc_finance_updated', handleUsersOrFinancesUpdated);
+    };
   }, [refreshTick]);
 
   // Save Funds Records

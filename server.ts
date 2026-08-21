@@ -344,30 +344,6 @@ async function initMongoIndexes() {
       ],
     });
 
-    // Purge any stray finance logs for pending applicants in the registration table or non-members
-    const pendingRegs = await database.collection('registration').find({}).toArray();
-    const pendingIds = pendingRegs.map((r: any) => r.id).filter(Boolean);
-    const approvedDocs = await database.collection('members').find({}).toArray();
-    const approvedIds = new Set(approvedDocs.map((m: any) => m.id));
-
-    if (pendingIds.length > 0) {
-      await database.collection('financeLogs').deleteMany({
-        $or: [
-          { userId: { $in: pendingIds } },
-          { id: { $in: pendingIds.map((id: string) => `rec_mf_${id}`) } },
-          { userMemberNo: { $in: pendingIds } },
-        ],
-      });
-    }
-
-    // Also purge any Membership Fee record where the userId is not in approved members (and not usr_admin)
-    const allFinanceLogs = await database.collection('financeLogs').find({ itemType: 'Membership Fee' }).toArray();
-    for (const log of allFinanceLogs) {
-      if (log.userId && !approvedIds.has(log.userId) && log.userId !== 'usr_admin') {
-        await database.collection('financeLogs').deleteOne({ id: log.id });
-      }
-    }
-
     // Auto seed members if empty so the database and collection appear in MongoDB Compass / Atlas immediately
     const count = await database.collection('members').countDocuments();
     if (count === 0) {
@@ -379,7 +355,22 @@ async function initMongoIndexes() {
           { upsert: true }
         );
       }
-      console.log('Successfully created "bcc-riders-club-db" database and "members" collection in MongoDB!');
+    }
+
+    // Purge any stray finance logs for pending applicants in the registration table who have not been approved
+    const pendingRegs = await database.collection('registration').find({}).toArray();
+    const approvedDocs = await database.collection('members').find({}).toArray();
+    const approvedIds = new Set(approvedDocs.map((m: any) => m.id));
+    const strictlyPendingIds = pendingRegs.map((r: any) => r.id).filter((id: string) => id && !approvedIds.has(id));
+
+    if (strictlyPendingIds.length > 0) {
+      await database.collection('financeLogs').deleteMany({
+        $or: [
+          { userId: { $in: strictlyPendingIds } },
+          { id: { $in: strictlyPendingIds.map((id: string) => `rec_mf_${id}`) } },
+          { userMemberNo: { $in: strictlyPendingIds } },
+        ],
+      });
     }
 
     // Auto seed settings collection if empty
@@ -1755,7 +1746,36 @@ app.post('/api/mongodb/registration/accept/:id', async (req, res) => {
     // 3. Remove item from "registration" collection in MongoDB
     await database.collection('registration').deleteOne({ id });
 
-    // 4. Send official approval email to the registered email address from info@bccriders.cc (No-Reply)
+    // 4. Ensure Membership Fee record exists in MongoDB "financeLogs" collection
+    try {
+      const feeSettings = await database.collection('settings').findOne({ id: 'finance_settings' });
+      const feeAmount = Number(feeSettings?.membershipFee) || 200;
+      const todayStr = new Date().toISOString().split('T')[0];
+      const feeRecord = {
+        id: `rec_mf_${memberDoc.id}`,
+        itemType: 'Membership Fee',
+        userId: memberDoc.id,
+        userName: memberDoc.name || `${memberDoc.firstName || ''} ${memberDoc.lastName || ''}`.trim() || 'Club Member',
+        userMemberNo: memberDoc.memberNumber || 'BRC-MEMBER',
+        amount: feeAmount,
+        dueDate: memberDoc.joinDate || todayStr,
+        paidDate: todayStr,
+        status: 'Paid',
+        paymentMethod: 'Cash',
+        notes: 'Payment recorded upon member approval',
+        createdAt: todayStr,
+        updatedAt: todayStr,
+      };
+      await database.collection('financeLogs').updateOne(
+        { id: feeRecord.id },
+        { $set: feeRecord },
+        { upsert: true }
+      );
+    } catch (feeErr) {
+      console.warn('Could not auto-create finance log in MongoDB:', feeErr);
+    }
+
+    // 5. Send official approval email to the registered email address from info@bccriders.cc (No-Reply)
     sendMemberApprovalEmail(memberDoc).catch((e) =>
       console.error('[Approval Email Error] Could not send approval email:', e)
     );
@@ -1992,7 +2012,52 @@ app.get('/api/mongodb/financeLogs', async (req, res) => {
   if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
   try {
     const docs = await database.collection('financeLogs').find({}).sort({ updatedAt: -1 }).toArray();
-    const data = docs.map(({ _id, ...rest }) => rest);
+    let data = docs.map(({ _id, ...rest }) => rest);
+
+    // Ensure all approved members have their membership fee log recorded
+    try {
+      const members = await database.collection('members').find({}).toArray();
+      const feeSettings = await database.collection('settings').findOne({ id: 'finance_settings' });
+      const feeAmount = Number(feeSettings?.membershipFee) || 200;
+      const todayStr = new Date().toISOString().split('T')[0];
+
+      for (const member of members) {
+        if (member.role === 'admin' || member.id === 'usr_admin') continue;
+        const hasFee = data.some(
+          (d: any) =>
+            d.itemType === 'Membership Fee' &&
+            (d.userId === member.id ||
+              (member.username && d.userId === member.username) ||
+              (d.userMemberNo && member.memberNumber && d.userMemberNo === member.memberNumber))
+        );
+        if (!hasFee) {
+          const feeDoc = {
+            id: `rec_mf_${member.id}`,
+            itemType: 'Membership Fee',
+            userId: member.id,
+            userName: member.name || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Club Member',
+            userMemberNo: member.memberNumber || 'BRC-MEMBER',
+            amount: feeAmount,
+            dueDate: member.joinDate || todayStr,
+            paidDate: todayStr,
+            status: 'Paid',
+            paymentMethod: 'Cash',
+            notes: 'Payment recorded upon member approval',
+            createdAt: todayStr,
+            updatedAt: todayStr,
+          };
+          await database.collection('financeLogs').updateOne(
+            { id: feeDoc.id },
+            { $set: feeDoc },
+            { upsert: true }
+          );
+          data.unshift(feeDoc);
+        }
+      }
+    } catch (autoErr) {
+      console.warn('Notice while auto-checking member fees in financeLogs:', autoErr);
+    }
+
     res.json({ success: true, count: data.length, data });
   } catch (err: any) {
     res.status(500).json({ error: err.message, data: [] });

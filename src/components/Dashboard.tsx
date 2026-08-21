@@ -133,7 +133,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const pendingUserIds = new Set(allUsers.filter((u) => u.approvalStatus === 'Pending').map((u) => u.id));
   const validFinanceRecords = financeRecords.filter(
-    (r) => !r.userId || (!pendingUserIds.has(r.userId) && !r.userId.startsWith('reg_'))
+    (r) => !r.userId || !pendingUserIds.has(r.userId)
   );
 
   const totalCollected = validFinanceRecords
