@@ -7,9 +7,7 @@
 }
 
 html {
-  scroll-behavior: auto;
-  overscroll-behavior-y: auto;
-  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
 }
 
 html, body, *, ::before, ::after, input, button, select, textarea, h1, h2, h3, h4, h5, h6, p, span, div, a, label, table, td, th, code, pre, .font-heading, .font-mono, .font-sans {
@@ -32,9 +30,6 @@ html, body, *, ::before, ::after, input, button, select, textarea, h1, h2, h3, h
     background-color: #ffffff;
     color: var(--text-primary);
     -webkit-font-smoothing: antialiased;
-    overscroll-behavior-y: auto;
-    -webkit-overflow-scrolling: touch;
-    touch-action: manipulation;
   }
 
   /* Universal smooth transition defaults for interactive elements */
