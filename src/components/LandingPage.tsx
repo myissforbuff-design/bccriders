@@ -24,7 +24,7 @@ import {
   Fingerprint,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { authenticateBiometricCredential, getStoredBiometrics, isBiometricsSupported } from '../lib/biometrics';
+import { authenticateBiometricCredential, getStoredBiometrics, isBiometricsSupported, isMobileDevice } from '../lib/biometrics';
 
 interface LandingPageProps {
   onLoginSuccess: () => void;
@@ -47,6 +47,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   const [loading, setLoading] = useState(false);
   const [hasStoredBiometrics, setHasStoredBiometrics] = useState(false);
   const [isBioLoading, setIsBioLoading] = useState(false);
+  const [isMobileUser, setIsMobileUser] = useState(false);
+
+  useEffect(() => {
+    setIsMobileUser(isMobileDevice());
+
+    const handleResize = () => {
+      setIsMobileUser(isMobileDevice());
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     isBiometricsSupported().then((supported) => {
@@ -583,8 +595,8 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                     </button>
                   </div>
 
-                  {/* Fingerprint Biometric Button centered below */}
-                  <div className="flex flex-col items-center justify-center pt-3 gap-1">
+                  {/* Fingerprint Biometric Button centered below (Mobile view only: visible on mobile screens, hidden on desktop md+ screens) */}
+                  <div className="flex md:hidden flex-col items-center justify-center pt-3 gap-1 animate-fade-in">
                     <button
                       type="button"
                       id="biometric-icon-btn"

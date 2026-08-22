@@ -43,6 +43,16 @@ export function base64UrlToBuffer(base64url: string): Uint8Array {
   return outputArray;
 }
 
+// Check if device is a mobile phone or tablet
+export function isMobileDevice(): boolean {
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  const ua = navigator.userAgent || navigator.vendor || (window as any).opera || '';
+  const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Mobile|mobile|CriOS/i.test(ua);
+  const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  const isSmallScreen = window.innerWidth <= 768;
+  return isMobileUA || (hasTouch && isSmallScreen);
+}
+
 // Generate human-friendly device name
 export function getDeviceDescription(): string {
   if (typeof navigator === 'undefined') return 'Mobile Device';
