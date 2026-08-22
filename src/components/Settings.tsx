@@ -66,7 +66,17 @@ import {
   Archive,
   FolderArchive,
   Upload,
+  Fingerprint,
+  Smartphone,
 } from 'lucide-react';
+import {
+  isBiometricsSupported,
+  registerBiometricCredential,
+  getBiometricForUser,
+  removeBiometricCredential,
+  getDeviceDescription,
+  BiometricCredentialInfo,
+} from '../lib/biometrics';
 
 const MONTH_OPTIONS = [
   'January',
@@ -88,7 +98,7 @@ const YEAR_OPTIONS = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 const SUB_TAB_OPTIONS = [
   { id: 'finance', label: 'Finances & Fees', icon: Wallet, description: 'Fees, monthly dues & drives' },
   { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet, description: 'Export member & financial ledgers' },
-  { id: 'security', label: 'System Security', icon: Shield, description: 'Admin 2FA & session policies' },
+  { id: 'security', label: 'System Security & Biometrics', icon: Shield, description: 'Fingerprint, Face ID & Admin 2FA' },
   { id: 'inbound', label: 'Receiving Email', icon: Mail, description: 'Resend webhook & contact@bccriders.cc inbox' },
 ] as const;
 
@@ -163,6 +173,62 @@ export const Settings: React.FC = () => {
     store.getSecuritySettings()
   );
   const [securityToast, setSecurityToast] = useState<{ message: string; type: 'success' | 'info' } | null>(null);
+
+  // Biometric Authentication State
+  const [biometricsSupported, setBiometricsSupported] = useState(false);
+  const [isEnrollingBio, setIsEnrollingBio] = useState(false);
+  const [userBioCredential, setUserBioCredential] = useState<BiometricCredentialInfo | null>(null);
+  const [bioSuccess, setBioSuccess] = useState<string | null>(null);
+  const [bioError, setBioError] = useState<string | null>(null);
+
+  useEffect(() => {
+    isBiometricsSupported()
+      .then((supported) => setBiometricsSupported(supported))
+      .catch(() => setBiometricsSupported(false));
+
+    if (currentUser?.id) {
+      const cred = getBiometricForUser(currentUser.id);
+      setUserBioCredential(cred);
+    }
+  }, [currentUser?.id]);
+
+  const handleRegisterBiometrics = async () => {
+    if (!currentUser) return;
+    setBioSuccess(null);
+    setBioError(null);
+    setIsEnrollingBio(true);
+
+    try {
+      const res = await registerBiometricCredential({
+        id: currentUser.id,
+        username: currentUser.username,
+        name: currentUser.name || currentUser.username,
+      });
+
+      if (res.success && res.credential) {
+        setUserBioCredential(res.credential);
+        setBioSuccess(`Biometrics registered successfully! You can now use your fingerprint or Face ID to sign in on this device.`);
+      } else {
+        setBioError(res.error || 'Failed to register biometric credentials.');
+      }
+    } catch (err: any) {
+      setBioError(err?.message || 'Failed to register biometric credentials.');
+    } finally {
+      setIsEnrollingBio(false);
+    }
+  };
+
+  const handleRemoveBiometrics = () => {
+    if (!currentUser) return;
+    try {
+      removeBiometricCredential(currentUser.id);
+      setUserBioCredential(null);
+      setBioSuccess('Biometric login removed from this device.');
+      setBioError(null);
+    } catch (err: any) {
+      setBioError('Failed to remove biometric credential.');
+    }
+  };
 
   const handleToggleAdminOtp = () => {
     const updatedValue = !securitySettings.adminOtpEnabled;
@@ -1864,6 +1930,78 @@ export const Settings: React.FC = () => {
             </div>
           </div>
 
+          {/* Biometric Authentication (Fingerprint / Face ID) */}
+          <div className="p-3.5 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-[#1b4332] text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <Fingerprint className="w-4 h-4 text-[#74c69d]" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-heading font-extrabold text-[#1b4332] text-xs sm:text-sm">
+                      Biometric Login
+                    </h3>
+                    {userBioCredential ? (
+                      <span className="px-2 py-0.5 rounded-full text-[9.5px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shrink-0">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Active on Device
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[9.5px] font-medium bg-stone-200 text-stone-700 shrink-0">
+                        Not Enrolled
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[10.5px] sm:text-xs text-[#52605d] mt-0.5 leading-relaxed">
+                    Sign in with your fingerprint (Android) or Touch ID / Face ID (iOS) on mobile.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {bioSuccess && (
+              <div className="p-2.5 bg-[#f0f9f1] border border-[#74c69d] rounded-xl flex items-center gap-2 text-[#1b4332] text-[11px] font-bold">
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                <span>{bioSuccess}</span>
+              </div>
+            )}
+
+            {bioError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-rose-700 text-[11px] font-semibold">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{bioError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center gap-2 pt-1">
+              <button
+                type="button"
+                onClick={handleRegisterBiometrics}
+                disabled={isEnrollingBio}
+                className="flex-1 py-2 px-3 bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                <Fingerprint className="w-3.5 h-3.5" />
+                <span>
+                  {isEnrollingBio
+                    ? 'Scanning Fingerprint...'
+                    : userBioCredential
+                    ? 'Update Fingerprint / Face ID'
+                    : 'Set Up Fingerprint / Face ID'}
+                </span>
+              </button>
+              {userBioCredential && (
+                <button
+                  type="button"
+                  onClick={handleRemoveBiometrics}
+                  className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold rounded-xl transition-colors cursor-pointer"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* Account Session / Sign Out Card */}
           <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-rose-50/70 border border-rose-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5 min-w-0">
@@ -3555,7 +3693,104 @@ export const Settings: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 2: Executive Sign Out Card */}
+          {/* Card 2: Biometric Authentication (Fingerprint / Touch ID / Face ID) */}
+          <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#1b4332] text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5 sm:mt-0">
+                  <Fingerprint className="w-5 h-5 text-[#74c69d]" />
+                </div>
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-heading font-black text-xs sm:text-sm md:text-base text-[#1b4332] leading-snug">
+                      Biometric Login (Fingerprint / Face ID)
+                    </h3>
+                    {userBioCredential ? (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shrink-0">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Active on Device
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-stone-200 text-stone-700 border border-stone-300 flex items-center gap-1 shrink-0">
+                        Not Enrolled
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
+                    Enroll this phone or tablet to sign in directly with Android fingerprint scanner, iOS Touch ID, or Face ID.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <div className="flex items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#e2ece2] shrink-0">
+                <button
+                  type="button"
+                  onClick={handleRegisterBiometrics}
+                  disabled={isEnrollingBio}
+                  className="px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black rounded-xl transition-all shadow-xs flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                >
+                  <Fingerprint className="w-3.5 h-3.5" />
+                  <span>
+                    {isEnrollingBio
+                      ? 'Scanning Sensor...'
+                      : userBioCredential
+                      ? 'Re-enroll Biometrics'
+                      : 'Enroll Fingerprint / Face ID'}
+                  </span>
+                </button>
+                {userBioCredential && (
+                  <button
+                    type="button"
+                    onClick={handleRemoveBiometrics}
+                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition-colors cursor-pointer border border-rose-200"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Live Feedback */}
+            {bioSuccess && (
+              <div className="p-3 bg-[#f0f9f1] border border-[#74c69d] rounded-xl flex items-center gap-2 text-[#1b4332] text-xs font-bold animate-fade-in">
+                <CheckCircle2 className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                <span>{bioSuccess}</span>
+              </div>
+            )}
+
+            {bioError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-rose-700 text-xs font-semibold animate-fade-in">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{bioError}</span>
+              </div>
+            )}
+
+            {/* Device Info */}
+            <div className="p-3 sm:p-3.5 rounded-xl bg-white border border-[#e2ece2] space-y-1.5 text-[11px] sm:text-xs">
+              <div className="flex items-center gap-1.5 font-extrabold text-[#1b4332]">
+                <Smartphone className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                <span>Hardware Compatibility</span>
+              </div>
+              <p className="text-[#52605d] leading-relaxed text-[11px]">
+                {biometricsSupported
+                  ? `Your device (${getDeviceDescription()}) supports native biometric hardware authentication (WebAuthn / Passkeys).`
+                  : 'Biometric hardware sensor is currently verifying or device requires biometric authorization permission.'}
+              </p>
+              {userBioCredential && (
+                <div className="pt-1.5 border-t border-[#f0f4f0] grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] sm:text-[11px] text-[#52605d]">
+                  <div>
+                    Enrolled device: <strong>{userBioCredential.deviceName}</strong>
+                  </div>
+                  <div>
+                    Enrolled at: <strong>{new Date(userBioCredential.createdAt).toLocaleDateString()}</strong>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Card 3: Executive Sign Out Card */}
           <div className="p-3.5 sm:p-4 rounded-2xl bg-rose-50/60 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5">
               <div className="flex items-center gap-1.5">

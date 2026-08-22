@@ -8,10 +8,12 @@ import {
   RefreshCw,
   ArrowRight,
   Lock,
+  Fingerprint,
 } from 'lucide-react';
 import { OfficialDotSpinner } from './OfficialLoader';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
+import { authenticateBiometricCredential, getBiometricForUser } from '../lib/biometrics';
 
 interface LoginOtpModalProps {
   isOpen: boolean;
@@ -41,7 +43,40 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
   const [error, setError] = useState('');
   const [countdown, setCountdown] = useState(60);
   const [expiryCountdown, setExpiryCountdown] = useState(300);
+  const [hasBiometrics, setHasBiometrics] = useState(false);
+  const [bioAuthenticating, setBioAuthenticating] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+
+  useEffect(() => {
+    if (userId || usernameOrEmail) {
+      const bio = getBiometricForUser(userId || usernameOrEmail);
+      setHasBiometrics(Boolean(bio));
+    }
+  }, [userId, usernameOrEmail]);
+
+  const handleBiometricVerify = async () => {
+    setError('');
+    setBioAuthenticating(true);
+    try {
+      const result = await authenticateBiometricCredential(
+        userId ? { id: userId, username: usernameOrEmail } : undefined
+      );
+
+      if (!result.success) {
+        setError(result.error || 'Biometric verification cancelled.');
+        setBioAuthenticating(false);
+        return;
+      }
+
+      // Biometric authentication verified! Proceed with login
+      const targetUserId = result.userId || userId || '';
+      onSuccess(targetUserId);
+    } catch (err: any) {
+      setError(err?.message || 'Biometric verification failed.');
+    } finally {
+      setBioAuthenticating(false);
+    }
+  };
 
   const otp = digits.join('');
 
@@ -356,6 +391,22 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
                 'Verify'
               )}
             </button>
+
+            {hasBiometrics && (
+              <button
+                type="button"
+                onClick={handleBiometricVerify}
+                disabled={loading || bioAuthenticating}
+                className="w-full py-2.5 px-3 rounded-xl bg-[#e8f5e9] hover:bg-[#d8f3dc] text-[#1b4332] font-extrabold text-xs border border-[#b7e4c7] transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs active:scale-[0.99] -mt-1"
+              >
+                <Fingerprint className="w-4 h-4 text-[#2d6a4f]" />
+                <span>
+                  {bioAuthenticating
+                    ? 'Scanning Fingerprint / Face ID...'
+                    : 'Verify with Biometrics'}
+                </span>
+              </button>
+            )}
 
             <p className="resendNote">
               Didn't receive the code?{' '}

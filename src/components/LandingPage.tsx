@@ -21,8 +21,10 @@ import {
   CheckCircle2,
   Clock,
   Facebook,
+  Fingerprint,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { authenticateBiometricCredential, getStoredBiometrics, isBiometricsSupported } from '../lib/biometrics';
 
 interface LandingPageProps {
   onLoginSuccess: () => void;
@@ -43,6 +45,57 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [hasStoredBiometrics, setHasStoredBiometrics] = useState(false);
+  const [isBioLoading, setIsBioLoading] = useState(false);
+
+  useEffect(() => {
+    isBiometricsSupported().then((supported) => {
+      if (supported) {
+        const creds = getStoredBiometrics();
+        setHasStoredBiometrics(creds.length > 0);
+      }
+    });
+  }, []);
+
+  const handleBiometricLogin = async () => {
+    setError('');
+    setIsBioLoading(true);
+    try {
+      const result = await authenticateBiometricCredential(
+        username.trim() ? { id: '', username: username.trim() } : undefined
+      );
+
+      if (!result.success) {
+        setError(result.error || 'Biometric authentication was not completed.');
+        setIsBioLoading(false);
+        return;
+      }
+
+      const matchedUserId = result.userId || result.matchedCredential?.userId;
+      const matchedUsername = result.username || result.matchedCredential?.username;
+
+      const user = store.getUsers().find(
+        (u) =>
+          (matchedUserId && u.id === matchedUserId) ||
+          (matchedUsername && u.username.toLowerCase() === matchedUsername.toLowerCase())
+      );
+
+      if (user) {
+        loginWithUserId(user);
+        onLoginSuccess();
+      } else if (matchedUserId) {
+        loginWithUserId(matchedUserId);
+        onLoginSuccess();
+      } else {
+        setError('Registered user account not found for these biometric credentials.');
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Biometric verification failed.');
+    } finally {
+      setIsBioLoading(false);
+    }
+  };
+
   const [regViewMode, setRegViewMode] = useState<'landing' | 'constitution' | 'register'>('landing');
   const [regPage, setRegPage] = useState<number>(1);
   const [isNavigatingReg, setIsNavigatingReg] = useState(false);
@@ -515,7 +568,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                   <div className="flex items-center gap-3 pt-2">
                     <button
                       type="submit"
-                      disabled={loading}
+                      disabled={loading || isBioLoading}
                       className="flex-1 py-3.5 px-4 rounded-2xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center"
                     >
                       <span>Sign In</span>
@@ -523,12 +576,32 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                     <button
                       type="button"
                       onClick={handleOpenRegister}
-                      disabled={loading || isNavigatingReg}
+                      disabled={loading || isNavigatingReg || isBioLoading}
                       className="flex-1 py-3.5 px-4 rounded-2xl bg-[#d8f3dc] hover:bg-[#b7e4c7] text-[#1b4332] font-extrabold text-xs border border-[#b7e4c7] transition-all cursor-pointer flex items-center justify-center"
                     >
                       <span>Register</span>
                     </button>
                   </div>
+
+                  {/* Mobile Biometrics Quick Login */}
+                  {hasStoredBiometrics && (
+                    <div className="pt-2">
+                      <div className="relative flex py-1 items-center">
+                        <div className="flex-grow border-t border-[#e2ece2]"></div>
+                        <span className="flex-shrink mx-2 text-[10px] uppercase font-bold text-[#52605d]">Or Quick Access</span>
+                        <div className="flex-grow border-t border-[#e2ece2]"></div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleBiometricLogin}
+                        disabled={loading || isBioLoading}
+                        className="w-full mt-1.5 py-3 px-4 rounded-2xl bg-[#f7f9f7] hover:bg-[#eaf4ec] text-[#1b4332] font-extrabold text-xs border border-[#b7e4c7] transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs active:scale-[0.99]"
+                      >
+                        <Fingerprint className="w-4 h-4 text-[#2d6a4f]" />
+                        <span>{isBioLoading ? 'Scanning Biometrics...' : 'Sign In with Fingerprint / Face ID'}</span>
+                      </button>
+                    </div>
+                  )}
                 </form>
               </motion.div>
             </div>
