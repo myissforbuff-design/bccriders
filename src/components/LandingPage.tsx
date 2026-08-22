@@ -564,7 +564,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                     </div>
                   </div>
 
-                  {/* Side-by-side action buttons wrapper without icons */}
+                  {/* Side-by-side action buttons: Sign In & Register */}
                   <div className="flex items-center gap-3 pt-2">
                     <button
                       type="submit"
@@ -583,25 +583,22 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                     </button>
                   </div>
 
-                  {/* Biometric Sign-in Button */}
-                  <div className="pt-2">
-                    <div className="relative flex py-1 items-center">
-                      <div className="flex-grow border-t border-[#e2ece2]"></div>
-                      <span className="flex-shrink mx-2 text-[10px] uppercase font-bold text-[#52605d]">Or Quick Sign-In</span>
-                      <div className="flex-grow border-t border-[#e2ece2]"></div>
-                    </div>
+                  {/* Fingerprint Biometric Button centered below */}
+                  <div className="flex flex-col items-center justify-center pt-3 gap-1">
                     <button
                       type="button"
-                      id="biometric-signin-btn"
+                      id="biometric-icon-btn"
                       onClick={handleBiometricLogin}
                       disabled={loading || isBioLoading}
-                      className="w-full mt-1.5 py-3.5 px-4 rounded-2xl bg-[#f0f9f1] hover:bg-[#d8f3dc] text-[#1b4332] font-black text-xs border border-[#74c69d] transition-all cursor-pointer flex items-center justify-center gap-2.5 shadow-sm active:scale-[0.99] group"
+                      title="Sign in with Fingerprint"
+                      aria-label="Sign in with Fingerprint"
+                      className="w-12 h-12 rounded-full bg-[#f0f9f1] hover:bg-[#d8f3dc] active:bg-[#b7e4c7] text-[#1b4332] border border-[#74c69d] transition-all cursor-pointer flex items-center justify-center shadow-xs hover:shadow-md active:scale-95 disabled:opacity-50 group"
                     >
-                      <div className="w-6 h-6 rounded-lg bg-[#1b4332] text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
-                        <Fingerprint className="w-4 h-4 text-[#74c69d]" />
-                      </div>
-                      <span>{isBioLoading ? 'Scanning Fingerprint / Face ID...' : 'Biometric Sign-in'}</span>
+                      <Fingerprint className={`w-6 h-6 text-[#1b4332] group-hover:scale-110 transition-transform ${isBioLoading ? 'animate-pulse text-[#2d6a4f]' : ''}`} />
                     </button>
+                    <span className="text-[10px] text-[#52605d] font-semibold">
+                      Fingerprint Sign-in
+                    </span>
                   </div>
                 </form>
               </motion.div>

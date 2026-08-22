@@ -40,11 +40,22 @@ export const SENSITIVE_STORAGE_KEYS = [
   'bcc_attendance_logs_cache_v1',
 ];
 
+// Persistent device settings & credentials that must survive user logout
+export const PERSISTENT_STORAGE_KEYS = [
+  'bcc_biometric_credentials_v1',
+  'bcc_theme',
+  'bcc_device_id',
+  'bcc_preferred_locale',
+];
+
 /**
  * Checks if a key belongs to the application.
  */
 export function isSensitiveStorageKey(key: string): boolean {
   if (!key) return false;
+  if (PERSISTENT_STORAGE_KEYS.includes(key)) return false;
+  if (key.includes('biometric')) return false;
+
   const lower = key.toLowerCase();
   return (
     lower.startsWith('bcc_') ||

@@ -14,6 +14,7 @@ export interface BiometricCredentialInfo {
 }
 
 const STORAGE_KEY = 'bcc_biometric_credentials_v1';
+const BACKUP_KEY = 'bcc_biometric_backup_vault';
 
 // Helper: Convert ArrayBuffer to Base64URL string
 export function bufferToBase64Url(buffer: ArrayBuffer): string {
@@ -75,11 +76,20 @@ export async function isBiometricsSupported(): Promise<boolean> {
  */
 export function getStoredBiometrics(): BiometricCredentialInfo[] {
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return parsed;
+    if (typeof window !== 'undefined') {
+      if (window.localStorage) {
+        const raw = window.localStorage.getItem(STORAGE_KEY) || window.localStorage.getItem(BACKUP_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
+      }
+      if (window.sessionStorage) {
+        const sRaw = window.sessionStorage.getItem(STORAGE_KEY);
+        if (sRaw) {
+          const parsed = JSON.parse(sRaw);
+          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        }
       }
     }
   } catch (err) {
@@ -89,12 +99,19 @@ export function getStoredBiometrics(): BiometricCredentialInfo[] {
 }
 
 /**
- * Save biometric credentials in storage.
+ * Save biometric credentials in storage with redundant persistence.
  */
 export function saveStoredBiometrics(list: BiometricCredentialInfo[]): void {
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    if (typeof window !== 'undefined') {
+      const serialized = JSON.stringify(list);
+      if (window.localStorage) {
+        window.localStorage.setItem(STORAGE_KEY, serialized);
+        window.localStorage.setItem(BACKUP_KEY, serialized);
+      }
+      if (window.sessionStorage) {
+        window.sessionStorage.setItem(STORAGE_KEY, serialized);
+      }
     }
   } catch (err) {
     console.warn('Error saving biometrics:', err);
