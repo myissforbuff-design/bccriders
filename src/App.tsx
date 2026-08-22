@@ -15,7 +15,6 @@ import { ActivityLog } from './components/ActivityLog';
 import { QRScan } from './components/QRScan';
 import { Finances } from './components/Finances';
 import { AnnouncementsView } from './components/AnnouncementsView';
-import { useIdleTimer } from './hooks/useIdleTimer';
 import { useIsAnyModalOpen } from './hooks/useModalDismiss';
 import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
@@ -24,20 +23,6 @@ function MainAppContent() {
   const { currentUser, isAuthenticated, isAdmin, logout } = useAuth();
   const { toastMessage, clearToast, triggerPushAlert } = useNotifications();
   const isAnyModalOpen = useIsAnyModalOpen();
-
-  // Automatic security logout after 5 minutes of inactivity for both members & administrators
-  useIdleTimer({
-    timeoutMs: 5 * 60 * 1000,
-    enabled: isAuthenticated,
-    onIdle: () => {
-      logout();
-      triggerPushAlert(
-        'Session Expired',
-        'You have been automatically logged out due to 5 minutes of inactivity for account security.',
-        'system'
-      );
-    },
-  });
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const saved = localStorage.getItem('bcc_active_tab');
@@ -176,7 +161,7 @@ function MainAppContent() {
         )}
 
         {/* Dynamic Screen View Content */}
-        <main className={`relative z-0 ${activeTab === 'qr' ? 'p-0 pb-0 max-w-none w-full' : 'p-2.5 sm:p-6 lg:p-8 pb-24 sm:pb-28 lg:pb-8 max-w-7xl'} w-full mx-auto flex-1 overflow-x-hidden`}>
+        <main className={`relative z-0 ${activeTab === 'qr' ? 'p-0 pb-0 max-w-none w-full' : 'p-2.5 sm:p-6 lg:p-8 pb-24 sm:pb-28 lg:pb-8 max-w-7xl'} w-full mx-auto flex-1 overflow-x-clip`}>
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
@@ -184,6 +169,7 @@ function MainAppContent() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -12, scale: 0.985 }}
               transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+              className="w-full"
             >
               {activeTab === 'dashboard' && (
                 <Dashboard

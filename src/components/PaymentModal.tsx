@@ -49,7 +49,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [cardNumber, setCardNumber] = useState('4242 •••• •••• 8810');
   const [cardExp, setCardExp] = useState('12/28');
   const [cardCvc, setCardCvc] = useState('910');
-  const [cardName, setCardName] = useState(currentUser?.name || 'Marcus Vance');
+  const [cardName, setCardName] = useState(currentUser?.name || 'BCC Member');
 
   if (!isOpen) return null;
 

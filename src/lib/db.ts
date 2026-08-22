@@ -32,6 +32,8 @@ import {
 } from '../types';
 import {
   clearSensitiveStorage,
+  loadFromLocal,
+  saveToLocal,
   loadFromSession,
   saveToSession,
   removeFromSession,
@@ -69,56 +71,18 @@ const STORAGE_KEYS = {
   USER_PROFILE: 'bcc_user_profile_v2',
 };
 
-// Helper for session storage fallback
+// Helper for localStorage persistence
 function loadFromStorage<T>(key: string, initialFallback: T): T {
-  return loadFromSession<T>(key, initialFallback);
+  return loadFromLocal<T>(key, initialFallback);
 }
 
 function saveToStorage<T>(key: string, data: T): void {
-  saveToSession<T>(key, data);
+  saveToLocal<T>(key, data);
 }
 
-// Check whether a route is protected and requires an authenticated session
-export function isProtectedApiUrl(url: string, method = 'GET'): boolean {
-  if (!url) return false;
-  const cleanUrl = url.split('?')[0].trim();
-  if (cleanUrl === '/api/health' || cleanUrl === '/api/resend/status') return false;
-  if (cleanUrl.startsWith('/api/auth/')) return false;
-  if (cleanUrl === '/api/mongodb/registration' && method.toUpperCase() === 'POST') return false;
-  if (
-    cleanUrl.startsWith('/api/resend/webhook') ||
-    cleanUrl.startsWith('/api/webhook') ||
-    cleanUrl.startsWith('/api/events')
-  ) {
-    return false;
-  }
-  return (
-    cleanUrl.startsWith('/api/mongodb') ||
-    cleanUrl.startsWith('/api/settings') ||
-    cleanUrl.startsWith('/api/members') ||
-    cleanUrl.startsWith('/api/inbound-emails')
-  );
-}
-
-// Authenticated fetch wrapper injecting Bearer token and guarding against unauthenticated pre-fetches
+// Authenticated fetch wrapper injecting Bearer token
 export async function authFetch(url: string, options?: RequestInit): Promise<Response> {
-  const method = (options?.method || 'GET').toUpperCase();
   const token = getAuthToken();
-  const hasSession = hasActiveUserSession() || Boolean(token && token.length > 0);
-
-  // If unauthenticated and calling a protected route, prevent network request and return a 401 response
-  if (isProtectedApiUrl(url, method) && !hasSession) {
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: 'Unauthorized: Authentication required',
-        code: 'UNAUTHORIZED',
-        data: [],
-      }),
-      { status: 401, headers: { 'Content-Type': 'application/json' } }
-    );
-  }
-
   const existingHeaders = (options?.headers as Record<string, string>) || {};
   const authHeaders: Record<string, string> = {
     ...existingHeaders,
@@ -188,17 +152,6 @@ export async function safeFetchJson<T = any>(
 }
 
 export async function checkMongoDbStatus(): Promise<MongoStatusResponse> {
-  const token = getAuthToken();
-  const hasSession = hasActiveUserSession() || Boolean(token);
-  if (!hasSession) {
-    return {
-      status: 'not_configured',
-      uriConfigured: false,
-      message: 'Unauthenticated session',
-      dbName: 'bcc-riders-club-db',
-    };
-  }
-
   try {
     const res = await authFetch('/api/mongodb/status');
     const contentType = res.headers.get('content-type') || '';
@@ -344,7 +297,6 @@ export class DataStoreService {
   private currentUserId: string;
 
   constructor() {
-    const hasSession = hasActiveUserSession();
     this.events = loadFromStorage(STORAGE_KEYS.EVENTS, INITIAL_EVENTS);
     this.posts = loadFromStorage(STORAGE_KEYS.POSTS, INITIAL_POSTS);
     this.logs = loadFromStorage(STORAGE_KEYS.LOGS, INITIAL_RIDE_LOGS);
@@ -357,62 +309,36 @@ export class DataStoreService {
       STORAGE_KEYS.ANNOUNCEMENTS,
       INITIAL_ANNOUNCEMENTS
     );
-
-    if (hasSession) {
-      this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
-      this.users = loadFromStorage(STORAGE_KEYS.USERS, INITIAL_USERS);
-      this.payments = loadFromStorage(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS);
-      this.financeSettings = loadFromStorage(
-        STORAGE_KEYS.FINANCE_SETTINGS,
-        INITIAL_FINANCE_SETTINGS
-      );
-      this.monthlyDues = loadFromStorage(
-        STORAGE_KEYS.MONTHLY_DUES,
-        INITIAL_MONTHLY_DUES
-      );
-      this.dynamicCollections = loadFromStorage(
-        STORAGE_KEYS.DYNAMIC_COLLECTIONS,
-        INITIAL_DYNAMIC_COLLECTIONS
-      );
-      this.securitySettings = loadFromStorage(
-        STORAGE_KEYS.SECURITY_SETTINGS,
-        INITIAL_SECURITY_SETTINGS
-      );
-      this.financeArchives = loadFromStorage(
-        STORAGE_KEYS.FINANCE_ARCHIVES,
-        []
-      );
-      this.treasurerRequests = loadFromStorage(
-        STORAGE_KEYS.TREASURER_REQUESTS,
-        []
-      );
-    } else {
-      // Unauthenticated / Landing state: Secure storage by not loading or storing sensitive data
-      this.currentUserId = '';
-      this.users = [...INITIAL_USERS]; // In-memory only for local credential fallback
-      this.payments = [];
-      this.financeSettings = INITIAL_FINANCE_SETTINGS;
-      this.monthlyDues = [];
-      this.dynamicCollections = [];
-      this.securitySettings = INITIAL_SECURITY_SETTINGS;
-      this.financeArchives = [];
-      this.treasurerRequests = [];
-      clearSensitiveStorage();
-    }
+    this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
+    this.users = loadFromStorage(STORAGE_KEYS.USERS, INITIAL_USERS);
+    this.payments = loadFromStorage(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS);
+    this.financeSettings = loadFromStorage(
+      STORAGE_KEYS.FINANCE_SETTINGS,
+      INITIAL_FINANCE_SETTINGS
+    );
+    this.monthlyDues = loadFromStorage(
+      STORAGE_KEYS.MONTHLY_DUES,
+      INITIAL_MONTHLY_DUES
+    );
+    this.dynamicCollections = loadFromStorage(
+      STORAGE_KEYS.DYNAMIC_COLLECTIONS,
+      INITIAL_DYNAMIC_COLLECTIONS
+    );
+    this.securitySettings = loadFromStorage(
+      STORAGE_KEYS.SECURITY_SETTINGS,
+      INITIAL_SECURITY_SETTINGS
+    );
+    this.financeArchives = loadFromStorage(
+      STORAGE_KEYS.FINANCE_ARCHIVES,
+      []
+    );
+    this.treasurerRequests = loadFromStorage(
+      STORAGE_KEYS.TREASURER_REQUESTS,
+      []
+    );
   }
 
   async initMongoDb(): Promise<MongoStatusResponse> {
-    const token = getAuthToken();
-    const hasSession = hasActiveUserSession() || Boolean(token && token.length > 0) || Boolean(this.currentUserId);
-    if (!hasSession) {
-      return {
-        status: 'not_configured',
-        uriConfigured: false,
-        message: 'Unauthenticated session: sync skipped',
-        dbName: 'bcc-riders-club-db',
-      };
-    }
-
     const status = await checkMongoDbStatus();
     if (status.status === 'connected') {
       try {
@@ -535,11 +461,6 @@ export class DataStoreService {
   // Clear all sensitive storage when unauthenticated
   clearStorageOnUnauthenticated(): void {
     this.currentUserId = '';
-    this.users = [...INITIAL_USERS];
-    this.payments = [];
-    this.financeArchives = [];
-    this.treasurerRequests = [];
-    clearSensitiveStorage();
   }
 
   // Current User Session
@@ -611,10 +532,6 @@ export class DataStoreService {
 
   logout(): void {
     this.currentUserId = '';
-    this.users = [...INITIAL_USERS];
-    this.payments = [];
-    this.financeArchives = [];
-    this.treasurerRequests = [];
     clearSensitiveStorage();
   }
 

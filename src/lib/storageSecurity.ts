@@ -1,10 +1,10 @@
 /**
- * Storage Security & Sensitive Data Cleansing Utilities
- * Ensures sensitive user data (financial records, membership drafts, user IDs)
- * are stored in secure session/in-memory storage and completely wiped on logout or landing page.
+ * Storage Security & Local / Session Persistence Utilities
+ * Provides seamless local storage caching for zero-latency UI rendering,
+ * while maintaining safe token management and clean logout purging.
  */
 
-// All known sensitive storage keys
+// All known storage keys
 export const AUTH_TOKEN_KEY = 'bcc_auth_token_v1';
 
 export const SENSITIVE_STORAGE_KEYS = [
@@ -36,10 +36,12 @@ export const SENSITIVE_STORAGE_KEYS = [
   'bcc_settings_subtab',
   'bcc_finances_tab',
   'bcc_activity_sync_time',
+  'bcc_activities_cache_v1',
+  'bcc_attendance_logs_cache_v1',
 ];
 
 /**
- * Checks if a key is sensitive or belongs to the application.
+ * Checks if a key belongs to the application.
  */
 export function isSensitiveStorageKey(key: string): boolean {
   if (!key) return false;
@@ -57,13 +59,12 @@ export function isSensitiveStorageKey(key: string): boolean {
 }
 
 /**
- * Removes all sensitive keys from localStorage and sessionStorage.
+ * Removes all application keys from localStorage and sessionStorage on explicit logout.
  */
 export function clearSensitiveStorage(): void {
   try {
     if (typeof window === 'undefined') return;
 
-    // 1. Clean localStorage for all bcc_ / brc_ and sensitive keys
     if (window.localStorage) {
       const keysToRemove: string[] = [];
       for (let i = 0; i < window.localStorage.length; i++) {
@@ -79,57 +80,93 @@ export function clearSensitiveStorage(): void {
       });
     }
 
-    // 2. Wipe sessionStorage
     if (window.sessionStorage) {
       try {
         window.sessionStorage.clear();
       } catch {}
     }
   } catch (err) {
-    console.warn('Notice while clearing sensitive storage:', err);
+    console.warn('Notice while clearing storage:', err);
   }
 }
 
 /**
- * Session storage loader with fallback
+ * Local storage loader with fallback to sessionStorage and default value
  */
-export function loadFromSession<T>(key: string, initialFallback: T): T {
+export function loadFromLocal<T>(key: string, initialFallback: T): T {
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const item = window.sessionStorage.getItem(key);
-      if (item) {
-        return JSON.parse(item);
+    if (typeof window !== 'undefined') {
+      if (window.localStorage) {
+        const item = window.localStorage.getItem(key);
+        if (item !== null && item !== undefined && item !== '') {
+          return JSON.parse(item);
+        }
+      }
+      if (window.sessionStorage) {
+        const sItem = window.sessionStorage.getItem(key);
+        if (sItem !== null && sItem !== undefined && sItem !== '') {
+          return JSON.parse(sItem);
+        }
       }
     }
   } catch (err) {
-    console.warn(`Error reading ${key} from sessionStorage:`, err);
+    console.warn(`Error reading ${key} from storage:`, err);
   }
   return initialFallback;
 }
 
 /**
- * Session storage saver
+ * Local storage saver - mirrors to localStorage and sessionStorage
  */
-export function saveToSession<T>(key: string, data: T): void {
+export function saveToLocal<T>(key: string, data: T): void {
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      window.sessionStorage.setItem(key, JSON.stringify(data));
+    if (typeof window !== 'undefined') {
+      const json = JSON.stringify(data);
+      if (window.localStorage) {
+        window.localStorage.setItem(key, json);
+      }
+      if (window.sessionStorage) {
+        window.sessionStorage.setItem(key, json);
+      }
     }
   } catch (err) {
-    console.warn(`Error saving ${key} to sessionStorage:`, err);
+    console.warn(`Error saving ${key} to storage:`, err);
   }
 }
 
 /**
- * Session storage remover
+ * Session storage loader with fallback - checks localStorage & sessionStorage
+ */
+export function loadFromSession<T>(key: string, initialFallback: T): T {
+  return loadFromLocal<T>(key, initialFallback);
+}
+
+/**
+ * Session storage saver - saves to both localStorage and sessionStorage
+ */
+export function saveToSession<T>(key: string, data: T): void {
+  saveToLocal<T>(key, data);
+}
+
+/**
+ * Storage remover
  */
 export function removeFromSession(key: string): void {
+  removeFromLocal(key);
+}
+
+export function removeFromLocal(key: string): void {
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      window.sessionStorage.removeItem(key);
+    if (typeof window !== 'undefined') {
+      if (window.localStorage) {
+        window.localStorage.removeItem(key);
+      }
+      if (window.sessionStorage) {
+        window.sessionStorage.removeItem(key);
+      }
     }
   } catch (err) {
-    console.warn(`Error removing ${key} from sessionStorage:`, err);
+    console.warn(`Error removing ${key} from storage:`, err);
   }
 }
 
@@ -138,8 +175,15 @@ export function removeFromSession(key: string): void {
  */
 export function getAuthToken(): string {
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      return window.sessionStorage.getItem(AUTH_TOKEN_KEY) || '';
+    if (typeof window !== 'undefined') {
+      if (window.localStorage) {
+        const tok = window.localStorage.getItem(AUTH_TOKEN_KEY);
+        if (tok) return tok;
+      }
+      if (window.sessionStorage) {
+        const tok = window.sessionStorage.getItem(AUTH_TOKEN_KEY);
+        if (tok) return tok;
+      }
     }
   } catch {}
   return '';
@@ -147,22 +191,24 @@ export function getAuthToken(): string {
 
 export function setAuthToken(token: string): void {
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
+    if (typeof window !== 'undefined') {
       if (token) {
-        window.sessionStorage.setItem(AUTH_TOKEN_KEY, token);
+        if (window.localStorage) window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+        if (window.sessionStorage) window.sessionStorage.setItem(AUTH_TOKEN_KEY, token);
       } else {
-        window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
+        clearAuthToken();
       }
     }
   } catch (err) {
-    console.warn('Error saving auth token to sessionStorage:', err);
+    console.warn('Error saving auth token:', err);
   }
 }
 
 export function clearAuthToken(): void {
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
+    if (typeof window !== 'undefined') {
+      if (window.localStorage) window.localStorage.removeItem(AUTH_TOKEN_KEY);
+      if (window.sessionStorage) window.sessionStorage.removeItem(AUTH_TOKEN_KEY);
     }
   } catch {}
 }
@@ -172,10 +218,14 @@ export function clearAuthToken(): void {
  */
 export function hasActiveUserSession(): boolean {
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const current = window.sessionStorage.getItem('bcc_current_user_id_v2');
-      const token = window.sessionStorage.getItem(AUTH_TOKEN_KEY);
-      return Boolean(current && current.trim().length > 0 && token && token.trim().length > 0);
+    if (typeof window !== 'undefined') {
+      const current =
+        (window.localStorage && window.localStorage.getItem('bcc_current_user_id_v2')) ||
+        (window.sessionStorage && window.sessionStorage.getItem('bcc_current_user_id_v2'));
+      const token =
+        (window.localStorage && window.localStorage.getItem(AUTH_TOKEN_KEY)) ||
+        (window.sessionStorage && window.sessionStorage.getItem(AUTH_TOKEN_KEY));
+      return Boolean(current && current.trim().length > 0) || Boolean(token && token.trim().length > 0);
     }
   } catch {}
   return false;

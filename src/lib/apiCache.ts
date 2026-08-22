@@ -71,8 +71,9 @@ export function removeCachedData(key: string): void {
   memoryCache.delete(key);
   const storageKey = getStorageKey(key);
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      window.sessionStorage.removeItem(storageKey);
+    if (typeof window !== 'undefined') {
+      if (window.localStorage) window.localStorage.removeItem(storageKey);
+      if (window.sessionStorage) window.sessionStorage.removeItem(storageKey);
     }
   } catch {}
 }
@@ -83,15 +84,27 @@ export function removeCachedData(key: string): void {
 export function clearAllApiCache(): void {
   memoryCache.clear();
   try {
-    if (typeof window !== 'undefined' && window.sessionStorage) {
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < window.sessionStorage.length; i++) {
-        const k = window.sessionStorage.key(i);
-        if (k && k.startsWith(CACHE_PREFIX)) {
-          keysToRemove.push(k);
+    if (typeof window !== 'undefined') {
+      if (window.localStorage) {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          if (k && k.startsWith(CACHE_PREFIX)) {
+            keysToRemove.push(k);
+          }
         }
+        keysToRemove.forEach((k) => window.localStorage.removeItem(k));
       }
-      keysToRemove.forEach((k) => window.sessionStorage.removeItem(k));
+      if (window.sessionStorage) {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < window.sessionStorage.length; i++) {
+          const k = window.sessionStorage.key(i);
+          if (k && k.startsWith(CACHE_PREFIX)) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach((k) => window.sessionStorage.removeItem(k));
+      }
     }
   } catch {}
 }

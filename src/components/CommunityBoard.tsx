@@ -42,7 +42,7 @@ export const CommunityBoard: React.FC = () => {
   useModalDismiss(!!activePostForComments, () => setActivePostForComments(null));
   const [commentsMap, setCommentsMap] = useState<Record<string, Array<{ authorName: string; text: string; time: string }>>>({
     post_201: [
-      { authorName: 'Marcus Vance', text: 'Count me in! Bike is prepped.', time: '1 hour ago' },
+      { authorName: 'BCC Admin', text: 'Count me in! Bike is prepped.', time: '1 hour ago' },
       { authorName: 'David Chen', text: 'Will bring the GoPro for footage.', time: '30 mins ago' },
     ],
   });

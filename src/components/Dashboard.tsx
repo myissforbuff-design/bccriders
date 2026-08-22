@@ -21,7 +21,6 @@ import {
   Calendar,
   Search,
 } from 'lucide-react';
-import { motion } from 'motion/react';
 
 interface DashboardProps {
   setActiveTab: (tab: TabType) => void;
@@ -204,13 +203,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Row 1: Active Members & Pending Approvals (Side-by-side on mobile: grid-cols-2) */}
         <div className="grid grid-cols-2 gap-2 sm:gap-4">
           {/* Active Members */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => {
               localStorage.setItem('bcc_roster_tab', 'active');
               setActiveTab('members');
             }}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex flex-col justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex flex-col justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 select-none"
           >
             <div className="flex items-center justify-between gap-1 mb-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider">Active Members</span>
@@ -228,16 +226,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {totalMembers > 0 ? Math.round((activeMembersCount / totalMembers) * 100) : 0}% active
               </span>
             </div>
-          </motion.div>
+          </div>
 
           {/* Pending Approvals */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => {
               localStorage.setItem('bcc_roster_tab', 'pending');
               setActiveTab('members');
             }}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex flex-col justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex flex-col justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 select-none"
           >
             <div className="flex items-center justify-between gap-1 mb-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider">Pending Approvals</span>
@@ -253,16 +250,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 {pendingApprovalsCount > 0 ? 'Action in Roster' : 'All processed'}
               </span>
             </div>
-          </motion.div>
+          </div>
         </div>
 
         {/* Row 2: Total Funds, Total Expenses, Net Treasury Balance Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-4">
           {/* Total Funds */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => setActiveTab('finances')}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 select-none"
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Total Funds</span>
@@ -276,13 +272,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="p-1.5 sm:p-3 rounded-lg sm:rounded-xl bg-[#d8f3dc] text-[#1b4332] shrink-0 ml-2">
               <Coins className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
-          </motion.div>
+          </div>
 
           {/* Total Expenses */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => setActiveTab('finances')}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 select-none"
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Total Expenses</span>
@@ -296,13 +291,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className="p-1.5 sm:p-3 rounded-lg sm:rounded-xl bg-rose-100 text-rose-800 shrink-0 ml-2">
               <TrendingDown className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
-          </motion.div>
+          </div>
 
           {/* Net Treasury Balance */}
-          <motion.div
-            whileHover={{ y: -2 }}
+          <div
             onClick={() => setActiveTab('finances')}
-            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] transition-colors"
+            className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 select-none"
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Net Treasury Balance</span>
@@ -316,7 +310,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <div className={`p-1.5 sm:p-3 rounded-lg sm:rounded-xl shrink-0 ml-2 ${netBalance >= 0 ? 'bg-emerald-100 text-emerald-900' : 'bg-rose-100 text-rose-900'}`}>
               <Wallet className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
-          </motion.div>
+          </div>
         </div>
       </div>
 

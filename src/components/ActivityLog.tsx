@@ -156,15 +156,53 @@ export const ActivityLog: React.FC = () => {
     if (!silent && activities.length === 0) setIsLoadingActivities(true);
     safeFetchJson('/api/mongodb/activities')
       .then((data) => {
-        if (data.data && Array.isArray(data.data)) {
-          setActivities(data.data);
-          try {
-            localStorage.setItem('bcc_activities_cache_v1', JSON.stringify(data.data));
-          } catch {}
+        if (data && data.success !== false && data.data && Array.isArray(data.data)) {
+          if (data.data.length > 0) {
+            setActivities(data.data);
+            try {
+              localStorage.setItem('bcc_activities_cache_v1', JSON.stringify(data.data));
+            } catch {}
+          } else {
+            // If MongoDB collection is empty, check if we have offline/local events or activities
+            setActivities((prev) => {
+              if (prev && prev.length > 0) {
+                // Sync local activities up to MongoDB
+                prev.forEach((act) => {
+                  authFetch('/api/mongodb/activities', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(act),
+                  }).catch(() => {});
+                });
+                return prev;
+              }
+              const storeEvts = store.getEvents() || [];
+              if (storeEvts.length > 0) {
+                const mapped: Activity[] = storeEvts.map((evt) => ({
+                  id: evt.id,
+                  name: evt.title,
+                  date: evt.date,
+                  status: (evt.status === 'Completed' || evt.status === 'Cancelled' ? 'Closed' : 'Open') as 'Open' | 'Closed',
+                  attendance: [],
+                }));
+                mapped.forEach((act) => {
+                  authFetch('/api/mongodb/activities', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(act),
+                  }).catch(() => {});
+                });
+                return mapped;
+              }
+              return [];
+            });
+          }
           // If modal is open, sync the open activity
           setSelectedActivityForModal((prev) => {
             if (!prev) return null;
-            const updated = data.data.find((a: Activity) => a.id === prev.id || a.name.toLowerCase().trim() === prev.name.toLowerCase().trim());
+            const updated = (data.data || []).find(
+              (a: Activity) => a.id === prev.id || a.name.toLowerCase().trim() === prev.name.toLowerCase().trim()
+            );
             return updated || prev;
           });
         }
@@ -179,7 +217,7 @@ export const ActivityLog: React.FC = () => {
     if (!silent && attendanceLogs.length === 0) setIsLoadingLogs(true);
     safeFetchJson('/api/mongodb/attendanceLogs')
       .then((data) => {
-        if (data.data && Array.isArray(data.data)) {
+        if (data && data.success !== false && data.data && Array.isArray(data.data)) {
           setAttendanceLogs(data.data);
           try {
             localStorage.setItem('bcc_attendance_logs_cache_v1', JSON.stringify(data.data));

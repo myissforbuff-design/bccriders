@@ -29,8 +29,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (activeUser) {
         setCurrentUser({ ...activeUser });
         store.fetchAuthenticatedData().catch(() => {});
-      } else {
-        store.clearStorageOnUnauthenticated();
       }
     }
   }, [currentUser]);
