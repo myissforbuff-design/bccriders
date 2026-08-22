@@ -504,7 +504,6 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
   const isPage1Valid = Boolean(
     firstName.trim() &&
     lastName.trim() &&
-    email.trim() &&
     username.trim() &&
     isPasswordValid &&
     phAddress &&
@@ -554,7 +553,6 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
     if (currentPage === 1) {
       if (!firstName.trim()) missing.push('First Name');
       if (!lastName.trim()) missing.push('Last Name');
-      if (!email.trim()) missing.push('Active Email Address');
       if (!username.trim()) missing.push('Username');
       if (!password.trim()) missing.push('Password');
       if (!confirmPassword.trim()) missing.push('Confirm Password');
@@ -1083,14 +1081,13 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
 
                   <div className="space-y-1">
                     <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                      Active Email Address <span className="text-rose-500">*</span>
+                      Active Email Address <span className="text-gray-400 font-normal text-[9px] sm:text-xs">(Optional)</span>
                     </label>
                     <input
                       type="email"
-                      required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="rider@example.com"
+                      placeholder="rider@example.com (optional)"
                       className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
                     />
                   </div>
