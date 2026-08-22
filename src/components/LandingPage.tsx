@@ -583,25 +583,26 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                     </button>
                   </div>
 
-                  {/* Mobile Biometrics Quick Login */}
-                  {hasStoredBiometrics && (
-                    <div className="pt-2">
-                      <div className="relative flex py-1 items-center">
-                        <div className="flex-grow border-t border-[#e2ece2]"></div>
-                        <span className="flex-shrink mx-2 text-[10px] uppercase font-bold text-[#52605d]">Or Quick Access</span>
-                        <div className="flex-grow border-t border-[#e2ece2]"></div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleBiometricLogin}
-                        disabled={loading || isBioLoading}
-                        className="w-full mt-1.5 py-3 px-4 rounded-2xl bg-[#f7f9f7] hover:bg-[#eaf4ec] text-[#1b4332] font-extrabold text-xs border border-[#b7e4c7] transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs active:scale-[0.99]"
-                      >
-                        <Fingerprint className="w-4 h-4 text-[#2d6a4f]" />
-                        <span>{isBioLoading ? 'Scanning Biometrics...' : 'Sign In with Fingerprint / Face ID'}</span>
-                      </button>
+                  {/* Biometric Sign-in Button */}
+                  <div className="pt-2">
+                    <div className="relative flex py-1 items-center">
+                      <div className="flex-grow border-t border-[#e2ece2]"></div>
+                      <span className="flex-shrink mx-2 text-[10px] uppercase font-bold text-[#52605d]">Or Quick Sign-In</span>
+                      <div className="flex-grow border-t border-[#e2ece2]"></div>
                     </div>
-                  )}
+                    <button
+                      type="button"
+                      id="biometric-signin-btn"
+                      onClick={handleBiometricLogin}
+                      disabled={loading || isBioLoading}
+                      className="w-full mt-1.5 py-3.5 px-4 rounded-2xl bg-[#f0f9f1] hover:bg-[#d8f3dc] text-[#1b4332] font-black text-xs border border-[#74c69d] transition-all cursor-pointer flex items-center justify-center gap-2.5 shadow-sm active:scale-[0.99] group"
+                    >
+                      <div className="w-6 h-6 rounded-lg bg-[#1b4332] text-white flex items-center justify-center shrink-0 group-hover:scale-105 transition-transform">
+                        <Fingerprint className="w-4 h-4 text-[#74c69d]" />
+                      </div>
+                      <span>{isBioLoading ? 'Scanning Fingerprint / Face ID...' : 'Biometric Sign-in'}</span>
+                    </button>
+                  </div>
                 </form>
               </motion.div>
             </div>
