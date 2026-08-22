@@ -713,12 +713,12 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
       {selectedMember && selectedMemberStats && (
         <ModalPortal>
           <div
-            className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[9999] p-3 sm:p-5 animate-fadeIn"
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-3 sm:p-5 animate-fadeIn overscroll-contain"
             onClick={(e) => {
               if (e.target === e.currentTarget) setSelectedMember(null);
             }}
           >
-          <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] w-full max-w-2xl lg:max-w-3xl max-h-[60dvh] sm:max-h-[72dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
+          <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] w-full max-w-2xl lg:max-w-3xl max-h-[78dvh] sm:max-h-[82dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
             {/* Modal Header */}
             <div className="p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3 shrink-0">
               <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">

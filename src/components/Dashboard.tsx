@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { store, safeFetchJson } from '../lib/db';
+import { store, safeFetchJson, getCachedData } from '../lib/db';
 import { loadFromSession } from '../lib/storageSecurity';
 import { TabType } from './Navigation';
 import { User } from '../types';
@@ -73,13 +73,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
     (m) => m.approvalStatus === 'Pending' || (m.approvalStatus && m.approvalStatus.toLowerCase() === 'pending')
   ).length;
 
-  // Treasury stats state
+  // Treasury stats state with instant cache hydration
   const [financeRecords, setFinanceRecords] = useState<any[]>(() => {
-    return loadFromSession<any[]>('bcc_finance_records_v3', []);
+    return (
+      getCachedData('/api/mongodb/financeLogs', null) ||
+      getCachedData('bcc_finance_records_v3', null) ||
+      loadFromSession<any[]>('bcc_finance_records_v3', [])
+    );
   });
 
   const [expenseRecords, setExpenseRecords] = useState<any[]>(() => {
-    return loadFromSession<any[]>('bcc_expense_records_v1', []);
+    return (
+      getCachedData('/api/mongodb/liquidationLogs', null) ||
+      getCachedData('/api/mongodb/expenseLogs', null) ||
+      getCachedData('bcc_expense_records_v1', null) ||
+      loadFromSession<any[]>('bcc_expense_records_v1', [])
+    );
   });
 
   useEffect(() => {

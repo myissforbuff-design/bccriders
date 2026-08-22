@@ -40,6 +40,14 @@ import {
   setAuthToken,
   clearAuthToken,
 } from './storageSecurity';
+import {
+  getCachedData,
+  setCachedData,
+  removeCachedData,
+  clearAllApiCache,
+} from './apiCache';
+
+export { getCachedData, setCachedData, removeCachedData, clearAllApiCache };
 
 // Storage Keys for session state persistence
 const STORAGE_KEYS = {
@@ -140,14 +148,41 @@ export async function safeFetchJson<T = any>(
   url: string,
   options?: RequestInit
 ): Promise<{ success: boolean; data?: T; [key: string]: any }> {
+  const method = (options?.method || 'GET').toUpperCase();
   try {
     const res = await authFetch(url, options);
     const contentType = res.headers.get('content-type') || '';
     if (!res.ok || !contentType.includes('application/json')) {
+      const cached = getCachedData<T | null>(url, null);
+      if (cached !== null) {
+        return { success: true, data: cached };
+      }
       return { success: false, data: [] as any };
     }
-    return await res.json();
+    const result = await res.json();
+    if (result && result.success && result.data !== undefined && method === 'GET') {
+      setCachedData(url, result.data);
+      // Synchronize associated entity caches
+      if (url.startsWith('/api/mongodb/financeLogs')) {
+        setCachedData('bcc_finance_records_v3', result.data);
+        saveToSession('bcc_finance_records_v3', result.data);
+      } else if (url.startsWith('/api/mongodb/liquidationLogs') || url.startsWith('/api/mongodb/expenseLogs')) {
+        setCachedData('bcc_expense_records_v1', result.data);
+        saveToSession('bcc_expense_records_v1', result.data);
+      } else if (url.startsWith('/api/mongodb/activities')) {
+        setCachedData('bcc_activities_cache_v1', result.data);
+        saveToSession('bcc_activities_cache_v1', result.data);
+      } else if (url.startsWith('/api/mongodb/attendanceLogs')) {
+        setCachedData('bcc_attendance_logs_cache_v1', result.data);
+        saveToSession('bcc_attendance_logs_cache_v1', result.data);
+      }
+    }
+    return result;
   } catch {
+    const cached = getCachedData<T | null>(url, null);
+    if (cached !== null) {
+      return { success: true, data: cached };
+    }
     return { success: false, data: [] as any };
   }
 }
@@ -1360,6 +1395,10 @@ export class DataStoreService {
   // Finance Settings & Configs
   getFinanceRecords(): any[] {
     try {
+      const fromCache = getCachedData<any[]>('/api/mongodb/financeLogs', null as any);
+      if (fromCache && Array.isArray(fromCache) && fromCache.length > 0) {
+        return fromCache;
+      }
       return loadFromSession<any[]>('bcc_finance_records_v3', []);
     } catch (e) {
       console.error('Failed to parse finance records:', e);

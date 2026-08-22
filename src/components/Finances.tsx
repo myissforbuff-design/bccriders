@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
-import { store, safeFetchJson, authFetch } from '../lib/db';
+import { store, safeFetchJson, authFetch, getCachedData, setCachedData } from '../lib/db';
 import { loadFromSession, saveToSession } from '../lib/storageSecurity';
 import { User, FinanceYearArchive, ArchivePackageData, TreasurerActionRequest } from '../types';
 import { CustomSelect } from './CustomSelect';
@@ -137,9 +137,36 @@ export const Finances: React.FC = () => {
   const isTreasurer = currentUser?.role === 'Treasurer' || currentUser?.role?.toLowerCase() === 'treasurer';
   const canManageFinances = isAdmin || isTreasurer;
 
-  const [users, setUsers] = useState<User[]>([]);
-  const [records, setRecords] = useState<FinanceRecord[]>([]);
-  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [users, setUsers] = useState<User[]>(() => {
+    return store.getUsers().filter(u => {
+      const isUserAdmin =
+        u.role === 'admin' ||
+        u.role?.toLowerCase() === 'admin' ||
+        u.role?.toLowerCase() === 'administrator' ||
+        u.id === 'usr_admin' ||
+        u.id === 'admin' ||
+        u.username?.toLowerCase() === 'admin' ||
+        u.email?.toLowerCase().includes('admin@');
+      return !isUserAdmin;
+    });
+  });
+
+  const [records, setRecords] = useState<FinanceRecord[]>(() => {
+    return (
+      getCachedData<FinanceRecord[]>('/api/mongodb/financeLogs', null as any) ||
+      getCachedData<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, null as any) ||
+      loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, [])
+    );
+  });
+
+  const [expenses, setExpenses] = useState<ExpenseRecord[]>(() => {
+    return (
+      getCachedData<ExpenseRecord[]>('/api/mongodb/liquidationLogs', null as any) ||
+      getCachedData<ExpenseRecord[]>('/api/mongodb/expenseLogs', null as any) ||
+      getCachedData<ExpenseRecord[]>(LOCAL_STORAGE_EXPENSE_KEY, null as any) ||
+      loadFromSession<ExpenseRecord[]>(LOCAL_STORAGE_EXPENSE_KEY, [])
+    );
+  });
 
   // Main Mode Toggle: "funds", "expenses", or "accounts"
   const [activeTab, setActiveTab] = useState<'funds' | 'expenses' | 'accounts'>(() => {
@@ -676,7 +703,7 @@ export const Finances: React.FC = () => {
       });
 
       updatedList.forEach((r, idx) => {
-        if (r.itemType === 'Membership Fee' && (r.amount === 500 || !r.amount || (r.notes?.includes('upon member approval') && r.amount !== configuredMembershipFee))) {
+        if (r.itemType === 'Membership Fee' && (r.amount === undefined || r.amount === null || isNaN(Number(r.amount)))) {
           hasNew = true;
           const updatedRec: FinanceRecord = {
             ...r,
@@ -694,6 +721,9 @@ export const Finances: React.FC = () => {
 
       if (hasNew) {
         setRecords(updatedList);
+        setCachedData(LOCAL_STORAGE_REC_KEY, updatedList);
+        setCachedData('/api/mongodb/financeLogs', updatedList);
+        saveToSession(LOCAL_STORAGE_REC_KEY, updatedList);
         localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(updatedList));
       } else {
         setRecords(currentRecs);
@@ -715,7 +745,7 @@ export const Finances: React.FC = () => {
         return !isUserAdmin;
       });
       setUsers(freshUsers);
-      const latestRecs = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, []);
+      const latestRecs = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, savedRecs);
       ensureApprovedMembersHaveFeesAndMonthlyDues(latestRecs);
     }).catch(() => {});
 
@@ -723,6 +753,9 @@ export const Finances: React.FC = () => {
       .then(data => {
         if (data.success && Array.isArray(data.data)) {
           ensureApprovedMembersHaveFeesAndMonthlyDues(data.data);
+          setCachedData(LOCAL_STORAGE_REC_KEY, data.data);
+          setCachedData('/api/mongodb/financeLogs', data.data);
+          saveToSession(LOCAL_STORAGE_REC_KEY, data.data);
           localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(data.data));
         } else {
           ensureApprovedMembersHaveFeesAndMonthlyDues(savedRecs);
@@ -746,20 +779,31 @@ export const Finances: React.FC = () => {
     try {
       const expItem = localStorage.getItem(LOCAL_STORAGE_EXPENSE_KEY);
       if (expItem) savedExpenses = JSON.parse(expItem);
+      if (!savedExpenses || savedExpenses.length === 0) {
+        savedExpenses = loadFromSession<ExpenseRecord[]>(LOCAL_STORAGE_EXPENSE_KEY, []);
+      }
     } catch (e) {
       console.error(e);
     }
 
     // Filter out sample records
-    savedExpenses = savedExpenses.filter(x => !sampleIds.includes(x.id));
+    savedExpenses = (savedExpenses || []).filter(x => !sampleIds.includes(x.id));
+    setCachedData(LOCAL_STORAGE_EXPENSE_KEY, savedExpenses);
+    setCachedData('/api/mongodb/liquidationLogs', savedExpenses);
+    saveToSession(LOCAL_STORAGE_EXPENSE_KEY, savedExpenses);
     localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(savedExpenses));
-    setExpenses(savedExpenses);
+    if (savedExpenses.length > 0) {
+      setExpenses(savedExpenses);
+    }
 
     safeFetchJson('/api/mongodb/liquidationLogs')
       .then(data => {
         if (data.success && Array.isArray(data.data) && data.data.length > 0) {
           const cleanData = data.data.filter((x: ExpenseRecord) => !sampleIds.includes(x.id));
           setExpenses(cleanData);
+          setCachedData(LOCAL_STORAGE_EXPENSE_KEY, cleanData);
+          setCachedData('/api/mongodb/liquidationLogs', cleanData);
+          saveToSession(LOCAL_STORAGE_EXPENSE_KEY, cleanData);
           localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(cleanData));
 
           sampleIds.forEach(id => {
@@ -773,6 +817,9 @@ export const Finances: React.FC = () => {
               if (expData.success && Array.isArray(expData.data)) {
                 const cleanData = expData.data.filter((x: ExpenseRecord) => !sampleIds.includes(x.id));
                 setExpenses(cleanData);
+                setCachedData(LOCAL_STORAGE_EXPENSE_KEY, cleanData);
+                setCachedData('/api/mongodb/liquidationLogs', cleanData);
+                saveToSession(LOCAL_STORAGE_EXPENSE_KEY, cleanData);
                 localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(cleanData));
 
                 sampleIds.forEach(id => {
@@ -790,6 +837,9 @@ export const Finances: React.FC = () => {
             if (expData.success && Array.isArray(expData.data)) {
               const cleanData = expData.data.filter((x: ExpenseRecord) => !sampleIds.includes(x.id));
               setExpenses(cleanData);
+              setCachedData(LOCAL_STORAGE_EXPENSE_KEY, cleanData);
+              setCachedData('/api/mongodb/liquidationLogs', cleanData);
+              saveToSession(LOCAL_STORAGE_EXPENSE_KEY, cleanData);
               localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(cleanData));
             }
           })

@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
-import { safeFetchJson, authFetch, store } from '../lib/db';
+import { safeFetchJson, authFetch, store, getCachedData } from '../lib/db';
+import { loadFromSession } from '../lib/storageSecurity';
 import { User as UserType } from '../types';
 import { OfficialDotSpinner } from './OfficialLoader';
 import { AttendanceTracker } from './AttendanceTracker';
+import { ModalPortal } from './ModalPortal';
 import {
   Calendar,
   CheckCircle,
@@ -87,10 +89,54 @@ export const ActivityLog: React.FC = () => {
     );
   });
 
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLogDoc[]>([]);
-  const [registeredCount, setRegisteredCount] = useState<number>(0);
-  const [isLoadingActivities, setIsLoadingActivities] = useState(true);
+  const [activities, setActivities] = useState<Activity[]>(() => {
+    const inMemOrSession =
+      getCachedData<Activity[]>('/api/mongodb/activities', null as any) ||
+      getCachedData<Activity[]>('bcc_activities_cache_v1', null as any) ||
+      loadFromSession<Activity[]>('bcc_activities_cache_v1', null as any);
+    if (inMemOrSession && Array.isArray(inMemOrSession) && inMemOrSession.length > 0) {
+      return inMemOrSession;
+    }
+    try {
+      const local = localStorage.getItem('bcc_activities_cache_v1');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    const storeEvts = store.getEvents() || [];
+    if (storeEvts.length > 0) {
+      return storeEvts.map((evt) => ({
+        id: evt.id,
+        name: evt.title,
+        date: evt.date,
+        status: (evt.status === 'Completed' || evt.status === 'Cancelled' ? 'Closed' : 'Open') as 'Open' | 'Closed',
+        attendance: [],
+      }));
+    }
+    return [];
+  });
+
+  const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLogDoc[]>(() => {
+    const inMemOrSession =
+      getCachedData<AttendanceLogDoc[]>('/api/mongodb/attendanceLogs', null as any) ||
+      getCachedData<AttendanceLogDoc[]>('bcc_attendance_logs_cache_v1', null as any) ||
+      loadFromSession<AttendanceLogDoc[]>('bcc_attendance_logs_cache_v1', null as any);
+    if (inMemOrSession && Array.isArray(inMemOrSession) && inMemOrSession.length > 0) {
+      return inMemOrSession;
+    }
+    try {
+      const local = localStorage.getItem('bcc_attendance_logs_cache_v1');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [registeredCount, setRegisteredCount] = useState<number>(() => usersList.length);
+  const [isLoadingActivities, setIsLoadingActivities] = useState<boolean>(() => activities.length === 0);
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [selectedActivityForModal, setSelectedActivityForModal] = useState<Activity | null>(null);
   const [logPage, setLogPage] = useState<number>(1);
@@ -107,11 +153,14 @@ export const ActivityLog: React.FC = () => {
   useModalDismiss(Boolean(activityToDelete), () => setActivityToDelete(null));
 
   const fetchActivities = (silent = false) => {
-    if (!silent) setIsLoadingActivities(true);
+    if (!silent && activities.length === 0) setIsLoadingActivities(true);
     safeFetchJson('/api/mongodb/activities')
       .then((data) => {
         if (data.data && Array.isArray(data.data)) {
           setActivities(data.data);
+          try {
+            localStorage.setItem('bcc_activities_cache_v1', JSON.stringify(data.data));
+          } catch {}
           // If modal is open, sync the open activity
           setSelectedActivityForModal((prev) => {
             if (!prev) return null;
@@ -122,28 +171,33 @@ export const ActivityLog: React.FC = () => {
       })
       .catch((err) => console.error(err))
       .finally(() => {
-        if (!silent) setIsLoadingActivities(false);
+        setIsLoadingActivities(false);
       });
   };
 
   const fetchAttendanceLogs = (silent = false) => {
-    if (!silent) setIsLoadingLogs(true);
+    if (!silent && attendanceLogs.length === 0) setIsLoadingLogs(true);
     safeFetchJson('/api/mongodb/attendanceLogs')
       .then((data) => {
         if (data.data && Array.isArray(data.data)) {
           setAttendanceLogs(data.data);
+          try {
+            localStorage.setItem('bcc_attendance_logs_cache_v1', JSON.stringify(data.data));
+          } catch {}
         }
       })
       .catch((err) => console.error('Error fetching attendanceLogs:', err))
       .finally(() => {
-        if (!silent) setIsLoadingLogs(false);
+        setIsLoadingLogs(false);
       });
   };
 
   useEffect(() => {
     if (!currentUser) return;
-    fetchActivities();
-    fetchAttendanceLogs();
+    const hasCachedActs = activities.length > 0;
+    const hasCachedLogs = attendanceLogs.length > 0;
+    fetchActivities(hasCachedActs);
+    fetchAttendanceLogs(hasCachedLogs);
 
     const localUsers = store.getUsers();
     const nonAdminLocal = (localUsers || []).filter(
@@ -577,7 +631,7 @@ export const ActivityLog: React.FC = () => {
           activities={allCombinedActivities}
           attendanceLogs={attendanceLogs}
           users={usersList}
-          isLoading={isLoadingActivities || isLoadingLogs}
+          isLoading={allCombinedActivities.length === 0 && isLoadingActivities}
         />
       </div>
     );
@@ -921,7 +975,7 @@ export const ActivityLog: React.FC = () => {
         const currentModalActivity = activities.find((a) => a.id === selectedActivityForModal.id) || selectedActivityForModal;
         const rawLogs = getLogsForActivity(currentModalActivity);
 
-        const ITEMS_PER_PAGE = 10;
+        const ITEMS_PER_PAGE = 8;
         const totalLogs = rawLogs.length;
         const totalPages = Math.max(1, Math.ceil(totalLogs / ITEMS_PER_PAGE));
         const currentPage = Math.min(Math.max(1, logPage), totalPages);
@@ -930,255 +984,293 @@ export const ActivityLog: React.FC = () => {
         const paginatedLogs = rawLogs.slice(startIndex, endIndex);
 
         return (
-          <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[100] p-3 sm:p-6 animate-fadeIn">
-            <div className="bg-white rounded-[32px] border border-[#e2ece2] w-full max-w-5xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden relative">
-              {/* Modal Header */}
-              <div className="p-5 sm:p-6 border-b border-[#e2ece2] bg-[#f7f9f7] flex flex-row items-center justify-between gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2.5 flex-wrap">
-                    <Table className="w-5 h-5 text-[#2d6a4f]" />
-                    <h3 className="font-extrabold text-base sm:text-lg text-[#1b4332]">
-                      {currentModalActivity.name}
-                    </h3>
+          <ModalPortal>
+            <div
+              className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-3 sm:p-5 animate-fadeIn overscroll-contain"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setSelectedActivityForModal(null);
+              }}
+            >
+              <div className="bg-white rounded-2xl sm:rounded-[28px] border border-[#e2ece2] w-full max-w-md sm:max-w-xl max-h-[78dvh] sm:max-h-[82dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
+                {/* Modal Header */}
+                <div className="p-3.5 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3 shrink-0">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <Table className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                      <h3 className="font-extrabold text-sm sm:text-base text-[#1b4332] truncate">
+                        {currentModalActivity.name}
+                      </h3>
+                    </div>
+                    <p className="text-[11px] text-[#52605d] flex items-center gap-1.5 font-medium mt-0.5 truncate">
+                      <Calendar className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                      <span>Event Date: {new Date(currentModalActivity.date).toLocaleDateString()}</span>
+                    </p>
                   </div>
-                  <p className="text-xs text-[#52605d] flex items-center gap-2">
-                    <Calendar className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                    <span>Event Date: {new Date(currentModalActivity.date).toLocaleDateString()}</span>
-                  </p>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="px-2.5 py-1 rounded-xl bg-white text-[#1b4332] border border-[#e2ece2] hidden sm:flex items-center gap-1 text-[11px] font-extrabold shadow-2xs">
+                      <Table className="w-3 h-3 text-[#2d6a4f]" />
+                      <span>Logs</span>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setSelectedActivityForModal(null)}
+                      className="p-1.5 sm:p-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl transition-colors cursor-pointer shrink-0"
+                      title="Close Modal"
+                    >
+                      <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0">
-                  {/* View Logs Label */}
-                  <div className="px-3 py-1.5 rounded-xl bg-white text-[#1b4332] border border-[#e2ece2] hidden sm:flex items-center gap-1.5 text-xs font-extrabold">
-                    <Table className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                    <span>View Logs</span>
-                  </div>
-
-                  <button
-                    onClick={() => setSelectedActivityForModal(null)}
-                    className="p-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl transition-colors cursor-pointer shrink-0"
-                    title="Close Modal"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Modal Body: Scanned Member Cards */}
-              <div className="p-3 sm:p-5 overflow-y-auto flex-1 flex flex-col justify-between max-h-[60vh]">
-                <div>
-                  {isLoadingLogs ? (
-                    <div className="p-8 text-center text-gray-500 font-medium bg-white rounded-2xl border border-[#e2ece2] shadow-2xs">
-                      <div className="flex flex-col items-center justify-center gap-2">
-                        <OfficialDotSpinner />
-                        <span className="font-extrabold text-[#1b4332] text-xs mt-2">Loading attendance logs...</span>
+                {/* Modal Body: Scanned Member Cards with Smooth Scroll */}
+                <div className="p-3 sm:p-4 overflow-y-auto flex-1 flex flex-col justify-between space-y-3 min-h-0 overscroll-contain">
+                  <div>
+                    {isLoadingLogs ? (
+                      <div className="py-8 text-center text-gray-500 font-medium bg-white rounded-2xl border border-[#e2ece2] shadow-2xs">
+                        <div className="flex flex-col items-center justify-center gap-2">
+                          <OfficialDotSpinner />
+                          <span className="font-extrabold text-[#1b4332] text-xs mt-1">Loading attendance logs...</span>
+                        </div>
                       </div>
-                    </div>
-                  ) : totalLogs === 0 ? (
-                    <div className="p-8 text-center text-stone-500 font-medium bg-white rounded-2xl border border-[#e2ece2] text-xs shadow-2xs">
-                      No attendance log records found for this event.
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 gap-2.5 sm:gap-3">
-                      {paginatedLogs.map((log, index) => {
-                        const lastName = (log['Last Name'] || log.lastName || '').trim();
-                        const firstName = (log['First Name'] || log.firstName || '').trim();
-                        let formattedName = '—';
-                        if (lastName && firstName) {
-                          formattedName = `${lastName}, ${firstName}`;
-                        } else if (lastName) {
-                          formattedName = lastName;
-                        } else if (firstName) {
-                          formattedName = firstName;
-                        } else if (log['Full Name'] || log.fullName || log.name) {
-                          formattedName = log['Full Name'] || log.fullName || log.name;
-                        }
+                    ) : totalLogs === 0 ? (
+                      <div className="py-8 text-center text-stone-500 font-medium bg-white rounded-2xl border border-[#e2ece2] text-xs shadow-2xs">
+                        No attendance log records found for this event.
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 gap-2">
+                        {paginatedLogs.map((log, index) => {
+                          const lastName = (log['Last Name'] || log.lastName || '').trim();
+                          const firstName = (log['First Name'] || log.firstName || '').trim();
+                          let formattedName = '—';
+                          if (lastName && firstName) {
+                            formattedName = `${lastName}, ${firstName}`;
+                          } else if (lastName) {
+                            formattedName = lastName;
+                          } else if (firstName) {
+                            formattedName = firstName;
+                          } else if (log['Full Name'] || log.fullName || log.name) {
+                            formattedName = log['Full Name'] || log.fullName || log.name;
+                          }
 
-                        const network = log['Network'] || log.network || 'Main Chapter';
-                        const rawTime = log['Time Stamp'] || log.timeStamp || log.time || 'N/A';
-                        const time = rawTime === 'N/A' ? 'N/A' : rawTime.replace(/(\d{1,2}:\d{2}):\d{2}/, '$1');
+                          const network = log['Network'] || log.network || 'Main Chapter';
+                          const rawTime = log['Time Stamp'] || log.timeStamp || log.time || 'N/A';
+                          const time = rawTime === 'N/A' ? 'N/A' : rawTime.replace(/(\d{1,2}:\d{2}):\d{2}/, '$1');
 
-                        return (
-                          <div
-                            key={log.id || index}
-                            className="bg-white px-4 py-3 rounded-2xl border border-[#e2ece2] shadow-2xs hover:border-[#b7d2b7] transition-all space-y-1"
-                          >
-                            <h4 className="text-sm font-extrabold text-[#1b4332] truncate">
-                              {formattedName}
-                            </h4>
-                            <div className="flex items-center justify-between text-xs font-semibold text-stone-500 gap-2">
-                              <span className="truncate">{network}</span>
-                              <span className="font-mono font-bold text-[#1b4332] shrink-0">{time}</span>
+                          return (
+                            <div
+                              key={log.id || index}
+                              className="bg-white p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-[#e2ece2] shadow-2xs hover:border-[#b7d2b7] transition-all space-y-0.5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <h4 className="text-xs sm:text-sm font-extrabold text-[#1b4332] truncate">
+                                  {formattedName}
+                                </h4>
+                                <span className="font-mono font-bold text-[11px] sm:text-xs text-[#2d6a4f] bg-[#d8f3dc]/70 px-2 py-0.5 rounded-lg shrink-0">
+                                  {time}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-stone-500 font-medium truncate">
+                                {network}
+                              </p>
                             </div>
-                          </div>
-                        );
-                      })}
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Pagination Controls */}
+                  {totalLogs > 0 && totalPages > 1 && (
+                    <div className="flex items-center justify-between pt-2.5 border-t border-[#e2ece2] text-xs">
+                      <span className="text-[#52605d] font-semibold text-[11px]">
+                        Showing <span className="font-extrabold text-[#1b4332]">{startIndex + 1}-{endIndex}</span> of <span className="font-extrabold text-[#1b4332]">{totalLogs}</span>
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => setLogPage((prev) => Math.max(prev - 1, 1))}
+                          disabled={currentPage === 1}
+                          className="p-1 sm:px-2 sm:py-1 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] font-extrabold text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#f7f9f7] active:scale-95 transition-all flex items-center gap-0.5 cursor-pointer shadow-2xs"
+                        >
+                          <ChevronLeft className="w-3.5 h-3.5" />
+                          <span className="hidden sm:inline">Prev</span>
+                        </button>
+                        <span className="px-1.5 font-extrabold text-[#1b4332] text-xs">
+                          {currentPage} / {totalPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setLogPage((prev) => Math.min(prev + 1, totalPages))}
+                          disabled={currentPage === totalPages}
+                          className="p-1 sm:px-2 sm:py-1 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] font-extrabold text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#f7f9f7] active:scale-95 transition-all flex items-center gap-0.5 cursor-pointer shadow-2xs"
+                        >
+                          <span className="hidden sm:inline">Next</span>
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
                     </div>
                   )}
                 </div>
 
-                {/* Pagination Controls */}
-                {totalLogs > 0 && totalPages > 1 && (
-                  <div className="flex items-center justify-between pt-3 mt-3 border-t border-[#e2ece2] text-xs">
-                    <span className="text-[#52605d] font-semibold text-[11px]">
-                      Showing <span className="font-extrabold text-[#1b4332]">{startIndex + 1}-{endIndex}</span> of <span className="font-extrabold text-[#1b4332]">{totalLogs}</span>
+                {/* Modal Footer */}
+                <div className="p-3 sm:p-4 bg-[#f7f9f7] border-t border-[#e2ece2] flex items-center justify-between gap-2 shrink-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-extrabold text-xs sm:text-sm text-[#1b4332] bg-white px-2.5 py-1 rounded-xl border border-[#e2ece2] shadow-2xs">
+                      {rawLogs.length} / {registeredCount}
                     </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setLogPage((prev) => Math.max(prev - 1, 1))}
-                        disabled={currentPage === 1}
-                        className="px-2.5 py-1 rounded-xl border border-[#e2ece2] bg-white text-[#1b4332] font-extrabold text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#f7f9f7] active:scale-95 transition-all flex items-center gap-1 cursor-pointer shadow-2xs"
-                      >
-                        <ChevronLeft className="w-3.5 h-3.5" />
-                        <span>Prev</span>
-                      </button>
-                      <span className="px-2 font-extrabold text-[#1b4332] text-xs">
-                        {currentPage} / {totalPages}
-                      </span>
-                      <button
-                        onClick={() => setLogPage((prev) => Math.min(prev + 1, totalPages))}
-                        disabled={currentPage === totalPages}
-                        className="px-2.5 py-1 rounded-xl border border-[#e2ece2] bg-white text-[#1b4332] font-extrabold text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#f7f9f7] active:scale-95 transition-all flex items-center gap-1 cursor-pointer shadow-2xs"
-                      >
-                        <span>Next</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
                   </div>
-                )}
-              </div>
-
-              {/* Modal Footer */}
-              <div className="p-4 bg-[#f7f9f7] border-t border-[#e2ece2] flex items-center justify-between">
-                <span className="font-extrabold text-base text-[#1b4332] pl-2">
-                  {rawLogs.length}/{registeredCount}
-                </span>
-                <div className="flex items-center gap-2.5">
-                  <button
-                    onClick={(e) => toggleStatus(e, currentModalActivity.id)}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      (currentModalActivity.status || 'Open') === 'Open'
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
-                        : 'bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200'
-                    }`}
-                    title="Toggle Event Status"
-                  >
-                    {(currentModalActivity.status || 'Open') === 'Open' ? (
-                      <>
-                        <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> Open
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="w-3.5 h-3.5 text-rose-600" /> Closed
-                      </>
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setActivityToDelete(currentModalActivity)}
-                    className="px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer shadow-2xs"
-                    title="Delete Activity"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Delete
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={(e) => toggleStatus(e, currentModalActivity.id)}
+                      className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                        (currentModalActivity.status || 'Open') === 'Open'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
+                          : 'bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200'
+                      }`}
+                      title="Toggle Event Status"
+                    >
+                      {(currentModalActivity.status || 'Open') === 'Open' ? (
+                        <>
+                          <CheckCircle className="w-3.5 h-3.5 text-emerald-600" /> Open
+                        </>
+                      ) : (
+                        <>
+                          <XCircle className="w-3.5 h-3.5 text-rose-600" /> Closed
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActivityToDelete(currentModalActivity)}
+                      className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer shadow-2xs"
+                      title="Delete Activity"
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Delete
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          </ModalPortal>
         );
       })()}
 
       {/* Modal for Creating New Activity */}
       {isCreateModalOpen && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[100] p-4 animate-fadeIn">
-          <div className="bg-white p-6 rounded-3xl border border-[#e2ece2] space-y-4 w-full max-w-sm shadow-2xl relative">
-            <button
-              onClick={() => setIsCreateModalOpen(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <h3 className="font-extrabold text-base text-[#1b4332]">Create New Event Activity</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="block text-[10px] font-extrabold text-[#52605d] uppercase mb-1">
-                  Event / Activity Name
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Annual Club Rally 2026"
-                  value={newActivityName}
-                  onChange={(e) => setNewActivityName(e.target.value)}
-                  className="w-full p-3 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
-                />
-              </div>
-              <div>
-                <label className="block text-[10px] font-extrabold text-[#52605d] uppercase mb-1">
-                  Event Date
-                </label>
-                <input
-                  type="date"
-                  value={newActivityDate}
-                  onChange={(e) => setNewActivityDate(e.target.value)}
-                  className="w-full p-3 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
+        <ModalPortal>
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-3 sm:p-4 animate-fadeIn overscroll-contain"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsCreateModalOpen(false);
+            }}
+          >
+            <div className="bg-white p-5 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e2ece2] space-y-4 w-full max-w-sm shadow-2xl relative my-auto max-h-[82dvh] overflow-y-auto">
               <button
+                type="button"
                 onClick={() => setIsCreateModalOpen(false)}
-                className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-extrabold cursor-pointer"
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 cursor-pointer p-1"
               >
-                Cancel
+                <X className="w-5 h-5" />
               </button>
-              <button
-                onClick={createActivity}
-                className="px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-xs font-extrabold cursor-pointer shadow-xs"
-              >
-                Create Event
-              </button>
+              <h3 className="font-extrabold text-base text-[#1b4332]">Create New Event Activity</h3>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[10px] font-extrabold text-[#52605d] uppercase mb-1">
+                    Event / Activity Name
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Annual Club Rally 2026"
+                    value={newActivityName}
+                    onChange={(e) => setNewActivityName(e.target.value)}
+                    className="w-full p-2.5 sm:p-3 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-extrabold text-[#52605d] uppercase mb-1">
+                    Event Date
+                  </label>
+                  <input
+                    type="date"
+                    value={newActivityDate}
+                    onChange={(e) => setNewActivityDate(e.target.value)}
+                    className="w-full p-2.5 sm:p-3 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCreateModalOpen(false)}
+                  className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-extrabold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={createActivity}
+                  className="px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-xs font-extrabold cursor-pointer shadow-xs"
+                >
+                  Create Event
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
+
       {/* Modal for Delete Activity Confirmation */}
       {activityToDelete && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-md flex items-center justify-center z-[110] p-4 animate-fadeIn">
-          <div className="bg-white p-6 rounded-3xl border border-[#e2ece2] space-y-4 w-full max-w-md shadow-2xl relative">
-            <button
-              onClick={() => setActivityToDelete(null)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <div className="flex items-center gap-3 text-rose-600">
-              <div className="p-2.5 rounded-2xl bg-rose-50 border border-rose-100">
-                <AlertTriangle className="w-6 h-6 text-rose-600" />
-              </div>
-              <div>
-                <h3 className="font-extrabold text-base text-[#1b4332]">Delete Activity</h3>
-                <p className="text-xs text-stone-500 font-medium">Confirm deletion of event</p>
-              </div>
-            </div>
-            <p className="text-xs text-[#52605d] leading-relaxed">
-              Are you sure you want to delete <span className="font-extrabold text-[#1b4332]">"{activityToDelete.name}"</span>? This action cannot be undone and will permanently remove this activity.
-            </p>
-            <div className="flex justify-end gap-2.5 pt-2">
+        <ModalPortal>
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-3 sm:p-4 animate-fadeIn overscroll-contain"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setActivityToDelete(null);
+            }}
+          >
+            <div className="bg-white p-5 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e2ece2] space-y-4 w-full max-w-md shadow-2xl relative my-auto max-h-[82dvh] overflow-y-auto">
               <button
+                type="button"
                 onClick={() => setActivityToDelete(null)}
-                className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-extrabold cursor-pointer transition-colors"
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 cursor-pointer p-1"
               >
-                Cancel
+                <X className="w-5 h-5" />
               </button>
-              <button
-                onClick={confirmDeleteActivity}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold cursor-pointer transition-colors shadow-xs flex items-center gap-1.5"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                Confirm Delete
-              </button>
+              <div className="flex items-center gap-3 text-rose-600">
+                <div className="p-2.5 rounded-2xl bg-rose-50 border border-rose-100 shrink-0">
+                  <AlertTriangle className="w-6 h-6 text-rose-600" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-[#1b4332]">Delete Activity</h3>
+                  <p className="text-xs text-stone-500 font-medium">Confirm deletion of event</p>
+                </div>
+              </div>
+              <p className="text-xs text-[#52605d] leading-relaxed">
+                Are you sure you want to delete <span className="font-extrabold text-[#1b4332]">"{activityToDelete.name}"</span>? This action cannot be undone and will permanently remove this activity.
+              </p>
+              <div className="flex justify-end gap-2.5 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setActivityToDelete(null)}
+                  className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-extrabold cursor-pointer transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteActivity}
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold cursor-pointer transition-colors shadow-xs flex items-center gap-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Confirm Delete
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </ModalPortal>
       )}
     </div>
   );
