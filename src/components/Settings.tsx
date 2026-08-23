@@ -24,6 +24,7 @@ import { ModalPortal } from './ModalPortal';
 import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import { InboundEmailViewer } from './InboundEmailViewer';
 import { EmailSender } from './EmailSender';
+import { PushNotificationSettings } from './PushNotificationSettings';
 import {
   Coins,
   Wallet,
@@ -38,6 +39,7 @@ import {
   Key,
   Lock,
   Mail,
+  Bell,
   Settings as SettingsIcon,
   Save,
   X,
@@ -96,6 +98,7 @@ const MONTH_OPTIONS = [
 const YEAR_OPTIONS = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 
 const SUB_TAB_OPTIONS = [
+  { id: 'push_notifications', label: 'Push Notifications', icon: Bell, description: 'Web push alerts & customizable triggers' },
   { id: 'finance', label: 'Finances & Fees', icon: Wallet, description: 'Fees, monthly dues & drives' },
   { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet, description: 'Export member & financial ledgers' },
   { id: 'security', label: 'System Security & Biometrics', icon: Shield, description: 'Fingerprint, Face ID & Admin 2FA' },
@@ -107,9 +110,9 @@ export const Settings: React.FC = () => {
   const { runWithLoader, refreshTick } = useLoader();
 
   // Settings Sub-Navigation Dropdown & Tabs
-  const [activeSubTab, setActiveSubTab] = useState<'finance' | 'reports' | 'security' | 'inbound'>(() => {
+  const [activeSubTab, setActiveSubTab] = useState<'push_notifications' | 'finance' | 'reports' | 'security' | 'inbound'>(() => {
     const saved = localStorage.getItem('bcc_settings_subtab');
-    return (saved === 'finance' || saved === 'reports' || saved === 'security' || saved === 'inbound') ? saved : 'finance';
+    return (saved === 'push_notifications' || saved === 'finance' || saved === 'reports' || saved === 'security' || saved === 'inbound') ? saved : 'push_notifications';
   });
 
   useEffect(() => {
@@ -2088,6 +2091,7 @@ export const Settings: React.FC = () => {
         >
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 rounded-xl bg-[#1b4332] text-white shrink-0 shadow-xs">
+              {activeSubTab === 'push_notifications' && <Bell className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'finance' && <Wallet className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'reports' && <FileSpreadsheet className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'security' && <Shield className="w-4 h-4 text-[#74c69d]" />}
@@ -2124,7 +2128,7 @@ export const Settings: React.FC = () => {
                     key={tab.id}
                     type="button"
                     onClick={() => {
-                      setActiveSubTab(tab.id as 'finance' | 'reports' | 'security' | 'inbound');
+                      setActiveSubTab(tab.id as 'push_notifications' | 'finance' | 'reports' | 'security' | 'inbound');
                       setIsSubTabDropdownOpen(false);
                     }}
                     className={`w-full flex items-center justify-between gap-3 p-3 rounded-xl transition-all cursor-pointer text-left ${
@@ -3824,6 +3828,11 @@ export const Settings: React.FC = () => {
           {/* Section 2: Receiving Email (Inbound Webhook Inbox) */}
           <InboundEmailViewer />
         </div>
+      )}
+
+      {/* SUB TAB 5: WEB PUSH NOTIFICATIONS & CHANNEL CUSTOMIZATION */}
+      {activeSubTab === 'push_notifications' && (
+        <PushNotificationSettings />
       )}
 
       {/* MODAL: CREATE / EDIT MONTHLY DUE */}

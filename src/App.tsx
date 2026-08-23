@@ -37,6 +37,17 @@ function MainAppContent() {
       localStorage.setItem('bcc_active_tab', activeTab);
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    const handleTabNavigate = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail) {
+        setActiveTab(customEvent.detail as TabType);
+      }
+    };
+    window.addEventListener('bcc_tab_navigate', handleTabNavigate);
+    return () => window.removeEventListener('bcc_tab_navigate', handleTabNavigate);
+  }, []);
   const [logRideModalTrigger, setLogRideModalTrigger] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [exportPdfTrigger, setExportPdfTrigger] = useState(0);

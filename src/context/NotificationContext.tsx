@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { NotificationItem } from '../types';
 import { store } from '../lib/db';
+import {
+  registerServiceWorker,
+  requestPushPermission as requestPushPermissionLib,
+  getPushNotificationConfig,
+  savePushNotificationConfig,
+} from '../lib/pushNotifications';
 
 interface NotificationContextType {
   notifications: NotificationItem[];
@@ -20,7 +26,7 @@ const NotificationContext = createContext<NotificationContextType | undefined>(u
 export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [notifications, setNotifications] = useState<NotificationItem[]>(() => store.getNotifications());
   const [pushEnabled, setPushEnabled] = useState<boolean>(() => {
-    return localStorage.getItem('bcc_push_enabled') === 'true';
+    return getPushNotificationConfig().enabled;
   });
   const [toastMessage, setToastMessage] = useState<{ title: string; message: string; type?: string } | null>(null);
 
@@ -30,24 +36,69 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const requestPushPermission = async (): Promise<boolean> => {
-    if ('Notification' in window) {
-      const perm = await window.Notification.requestPermission();
-      const granted = perm === 'granted';
-      setPushEnabled(granted);
-      localStorage.setItem('bcc_push_enabled', String(granted));
-      return granted;
-    } else {
-      setPushEnabled(true);
-      localStorage.setItem('bcc_push_enabled', 'true');
-      return true;
+  useEffect(() => {
+    // Register service worker on startup
+    registerServiceWorker();
+
+    // Listen for push notifications triggered across tabs / components
+    const handleInAppAlert = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      const detail = customEvent.detail;
+      if (detail) {
+        setToastMessage({
+          title: detail.title || 'Notification',
+          message: detail.body || detail.message || '',
+          type: detail.category || 'general',
+        });
+        refreshNotifs();
+      }
+    };
+
+    // Listen for service worker navigation messages
+    const handleSwMessage = (e: MessageEvent) => {
+      if (e.data && e.data.type === 'BCC_PUSH_NAVIGATE') {
+        const targetTab = e.data.tab;
+        if (targetTab) {
+          localStorage.setItem('bcc_active_tab', targetTab);
+          window.location.hash = targetTab;
+          window.dispatchEvent(new CustomEvent('bcc_tab_navigate', { detail: targetTab }));
+        }
+      }
+    };
+
+    const handleConfigChange = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      if (customEvent.detail) {
+        setPushEnabled(customEvent.detail.enabled);
+      }
+    };
+
+    window.addEventListener('bcc_inapp_push_alert', handleInAppAlert);
+    window.addEventListener('bcc_push_config_changed', handleConfigChange);
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', handleSwMessage);
     }
+
+    return () => {
+      window.removeEventListener('bcc_inapp_push_alert', handleInAppAlert);
+      window.removeEventListener('bcc_push_config_changed', handleConfigChange);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('message', handleSwMessage);
+      }
+    };
+  }, []);
+
+  const requestPushPermission = async (): Promise<boolean> => {
+    const granted = await requestPushPermissionLib();
+    setPushEnabled(granted);
+    return granted;
   };
 
   const togglePushNotifications = () => {
     const nextState = !pushEnabled;
     setPushEnabled(nextState);
-    localStorage.setItem('bcc_push_enabled', String(nextState));
+    const conf = getPushNotificationConfig();
+    savePushNotificationConfig({ ...conf, enabled: nextState });
     if (nextState) {
       requestPushPermission();
     }

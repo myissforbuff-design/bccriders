@@ -48,6 +48,12 @@ import {
   removeCachedData,
   clearAllApiCache,
 } from './apiCache';
+import {
+  triggerFinancePushNotification,
+  triggerMemberApprovalPushNotification,
+  triggerActivityCreatedPushNotification,
+  triggerAnnouncementPushNotification,
+} from './pushNotifications';
 
 export { getCachedData, setCachedData, removeCachedData, clearAllApiCache };
 
@@ -685,6 +691,9 @@ export class DataStoreService {
         console.error(e);
       }
       this.recordMembershipFeePayment(sanitized);
+
+      // Trigger Web Push Alert for Member Approval
+      triggerMemberApprovalPushNotification(sanitized.name, true).catch(() => {});
     }
 
     return sanitized;
@@ -1004,6 +1013,9 @@ export class DataStoreService {
       body: JSON.stringify(newEvent),
     }).catch((err) => console.warn('MongoDB addEvent sync error:', err));
 
+    // Trigger Web Push Alert for Activity Created
+    triggerActivityCreatedPushNotification(newEvent.title, newEvent.date, newEvent.startLocation).catch(() => {});
+
     return newEvent;
   }
 
@@ -1080,6 +1092,9 @@ export class DataStoreService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newPayment),
     }).catch((err) => console.warn('MongoDB addPayment sync error:', err));
+
+    // Trigger Web Push Alert for Finance Transaction
+    triggerFinancePushNotification(newPayment.type || 'payment', newPayment.amount, newPayment.description || `${newPayment.userName} - ${newPayment.type}`).catch(() => {});
 
     return newPayment;
   }
@@ -1255,6 +1270,9 @@ export class DataStoreService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newAnn),
     }).catch((err) => console.warn('MongoDB createAnnouncement sync error:', err));
+
+    // Trigger Web Push Alert for Announcement & Updates
+    triggerAnnouncementPushNotification(newAnn.title, newAnn.content).catch(() => {});
 
     return newAnn;
   }
