@@ -6,6 +6,7 @@ import { store } from '../lib/db';
 import { Event, EventType, PaceLevel } from '../types';
 import { PaymentModal } from './PaymentModal';
 import { CustomSelect } from './CustomSelect';
+import { ModalPortal } from './ModalPortal';
 import {
   Calendar,
   Plus,
@@ -15,6 +16,8 @@ import {
   DollarSign,
   Shield,
   CheckCircle,
+  CheckCircle2,
+  AlertTriangle,
   X,
   Bike,
   Sparkles,
@@ -37,6 +40,8 @@ export const EventScheduler: React.FC<EventSchedulerProps> = ({ onOpenMapRoute }
   // Payment Modal State
   const [payModalOpen, setPayModalOpen] = useState(false);
   const [eventToPay, setEventToPay] = useState<Event | null>(null);
+  const [rsvpModalNotice, setRsvpModalNotice] = useState<{ title: string; message: string } | null>(null);
+  const [showCreateConfirmModal, setShowCreateConfirmModal] = useState(false);
 
   // New Event Form Modal
   const [createModalOpen, setCreateModalOpen] = useState(false);
@@ -74,7 +79,10 @@ export const EventScheduler: React.FC<EventSchedulerProps> = ({ onOpenMapRoute }
 
     // Check if already registered
     if (evt.registeredUserIds.includes(currentUser.id)) {
-      alert('You are already registered for this event!');
+      setRsvpModalNotice({
+        title: 'Already Registered',
+        message: `You are already registered for "${evt.title}". We look forward to seeing you at the assembly point!`,
+      });
       return;
     }
 
@@ -97,16 +105,22 @@ export const EventScheduler: React.FC<EventSchedulerProps> = ({ onOpenMapRoute }
     }
   };
 
-  const handleCreateEventSubmit = async (e: React.FormEvent) => {
+  const handleCreateEventSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser || !newTitle.trim()) return;
+    setShowCreateConfirmModal(true);
+  };
+
+  const handleExecuteCreateEvent = async () => {
     if (!currentUser) return;
+    setShowCreateConfirmModal(false);
 
     await runWithLoader(
       async () => {
         store.createEvent({
-          title: newTitle,
+          title: newTitle.trim(),
           type: newType,
-          description: newDesc,
+          description: newDesc.trim(),
           date: newDate,
           time: newTime,
           startLocation: newStartLoc,
@@ -537,6 +551,112 @@ export const EventScheduler: React.FC<EventSchedulerProps> = ({ onOpenMapRoute }
           </div>
         )}
       </AnimatePresence>
+
+      {/* Schedule Event Confirmation Modal */}
+      <ModalPortal>
+        <AnimatePresence>
+          {showCreateConfirmModal && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-sm w-full p-4 sm:p-6 shadow-2xl border border-[#e2ece2] space-y-4"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-[#1b4332] border border-emerald-200 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6 text-[#2d6a4f]" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <h3 className="text-base sm:text-lg font-heading font-black text-[#1b4332]">
+                    Confirm Event Schedule
+                  </h3>
+                  <p className="text-xs text-[#52605d]">
+                    Please confirm the details before publishing this event to the club calendar.
+                  </p>
+                </div>
+
+                <div className="bg-[#f7f9f7] rounded-xl p-3 border border-[#e2ece2] space-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-[#52605d] font-bold">Event Title:</span>
+                    <span className="font-extrabold text-[#1b4332] truncate max-w-[170px]">{newTitle}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#52605d] font-bold">Category:</span>
+                    <span className="font-semibold text-stone-700">{newType}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#52605d] font-bold">Date & Time:</span>
+                    <span className="font-mono text-stone-700">{newDate} @ {newTime}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#52605d] font-bold">Start Location:</span>
+                    <span className="font-semibold text-stone-700 truncate max-w-[160px]">{newStartLoc}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-[#52605d] font-bold">Entry Fee:</span>
+                    <span className="font-mono font-bold text-emerald-800">${newFee}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateConfirmModal(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecuteCreateEvent}
+                    className="flex-1 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-colors"
+                  >
+                    Confirm & Publish
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
+
+      {/* RSVP Notification Modal */}
+      <ModalPortal>
+        <AnimatePresence>
+          {rsvpModalNotice && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-sm w-full p-4 sm:p-6 shadow-2xl border border-emerald-200 space-y-4"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-[#1b4332] border border-emerald-200 flex items-center justify-center mx-auto">
+                  <CheckCircle className="w-6 h-6 text-[#2d6a4f]" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <h3 className="text-base font-heading font-black text-[#1b4332]">
+                    {rsvpModalNotice.title}
+                  </h3>
+                  <p className="text-xs text-[#52605d] leading-relaxed">
+                    {rsvpModalNotice.message}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setRsvpModalNotice(null)}
+                  className="w-full py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black transition-colors cursor-pointer"
+                >
+                  Understood
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
     </div>
   );
 };

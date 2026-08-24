@@ -4,6 +4,7 @@ import {
   Send,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Clock,
   Sparkles,
   Users,
@@ -15,10 +16,16 @@ import {
   Check,
   FileText,
   MailCheck,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { authFetch } from '../lib/db';
 import { OutboundEmail, User as UserType } from '../types';
+import { ModalPortal } from './ModalPortal';
+import { OfficialLoader } from './OfficialLoader';
 
 interface EmailSenderProps {
   onEmailSent?: () => void;
@@ -50,6 +57,67 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
   const [outboxList, setOutboxList] = useState<OutboundEmail[]>([]);
   const [isLoadingOutbox, setIsLoadingOutbox] = useState(false);
   const [selectedSentEmail, setSelectedSentEmail] = useState<OutboundEmail | null>(null);
+  const [outboxPage, setOutboxPage] = useState<number>(1);
+  const outboxItemsPerPage = 10;
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isDeletingOutbox, setIsDeletingOutbox] = useState(false);
+  const [outboxItemToDelete, setOutboxItemToDelete] = useState<OutboundEmail | null>(null);
+  const [showConfirmSendModal, setShowConfirmSendModal] = useState(false);
+
+  const totalOutboxPages = Math.max(1, Math.ceil(outboxList.length / outboxItemsPerPage));
+  const validOutboxPage = Math.min(Math.max(1, outboxPage), totalOutboxPages);
+  const paginatedOutbox = outboxList.slice(
+    (validOutboxPage - 1) * outboxItemsPerPage,
+    validOutboxPage * outboxItemsPerPage
+  );
+
+  const handleOpenDeleteOutboxModal = (e: React.MouseEvent, item: OutboundEmail) => {
+    e.stopPropagation();
+    setOutboxItemToDelete(item);
+  };
+
+  const handleConfirmDeleteOutbox = async () => {
+    if (!outboxItemToDelete) return;
+    const targetItem = outboxItemToDelete;
+    const id = targetItem.id;
+    
+    // Close confirm modal immediately and activate full loader
+    setOutboxItemToDelete(null);
+    setDeletingId(id);
+    setIsDeletingOutbox(true);
+
+    try {
+      const res = await authFetch(`/api/emails/outbox/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (data.success) {
+        setOutboxList((prev) => prev.filter((item) => item.id !== id));
+        // Return / close details modal if open
+        if (selectedSentEmail?.id === id) {
+          setSelectedSentEmail(null);
+        }
+        setStatusFeedback({
+          type: 'info',
+          message: 'Sent message record deleted successfully from outbox.',
+        });
+      } else {
+        setStatusFeedback({
+          type: 'error',
+          message: data.error || 'Failed to delete outbox message',
+        });
+      }
+    } catch (err) {
+      console.error('Error deleting outbox message:', err);
+      setStatusFeedback({
+        type: 'error',
+        message: 'Failed to delete outbox message',
+      });
+    } finally {
+      setDeletingId(null);
+      setIsDeletingOutbox(false);
+    }
+  };
 
   // Members list for quick selection
   const [membersList, setMembersList] = useState<UserType[]>([]);
@@ -114,7 +182,9 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
     setBody(template.body);
   };
 
-  const handleSendEmail = async (e: React.FormEvent) => {
+  const [pendingRecipients, setPendingRecipients] = useState<string[]>([]);
+
+  const handleSendEmail = (e: React.FormEvent) => {
     e.preventDefault();
     setStatusFeedback(null);
 
@@ -170,6 +240,12 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
       return;
     }
 
+    setPendingRecipients(targetRecipients);
+    setShowConfirmSendModal(true);
+  };
+
+  const handleExecuteSendEmail = async () => {
+    setShowConfirmSendModal(false);
     setIsSending(true);
 
     try {
@@ -177,7 +253,7 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          to: targetRecipients,
+          to: pendingRecipients,
           subject: subject.trim(),
           body: body.trim(),
           from: fromAddress,
@@ -193,7 +269,7 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
       if (res.ok && data.success) {
         setStatusFeedback({
           type: 'success',
-          message: data.message || `Email sent successfully to ${targetRecipients.length} recipient(s)!`,
+          message: data.message || `Email sent successfully to ${pendingRecipients.length} recipient(s)!`,
         });
 
         // Reset inputs
@@ -577,159 +653,354 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {outboxList.map((item) => {
-              const formattedDate = new Date(item.sentAt || Date.now()).toLocaleString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              });
+          <>
+            <div className="space-y-2">
+              {paginatedOutbox.map((item) => {
+                const formattedDate = new Date(item.sentAt || Date.now()).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                });
 
-              return (
-                <div
-                  key={item.id}
-                  onClick={() => setSelectedSentEmail(item)}
-                  className="p-3 rounded-xl sm:rounded-2xl border border-[#e2ece2] hover:border-[#2d6a4f]/40 hover:bg-[#f7f9f7] transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-                >
-                  <div className="space-y-0.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[11px] sm:text-xs font-extrabold text-[#1b4332] truncate">
-                        To: {Array.isArray(item.to) ? item.to.join(', ') : item.to}
-                      </span>
-                      <span className="text-[10px] text-[#52605d] shrink-0 font-medium">
-                        • {formattedDate}
-                      </span>
-                      <span className={`px-1.5 py-0.2 rounded-md text-[9px] font-bold ${
-                        item.status === 'sent'
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                          : item.status === 'simulated'
-                          ? 'bg-blue-100 text-blue-800 border border-blue-300'
-                          : 'bg-rose-100 text-rose-800 border border-rose-300'
-                      }`}>
-                        {item.status === 'sent' ? 'Delivered' : item.status === 'simulated' ? 'Dispatched' : 'Failed'}
-                      </span>
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => setSelectedSentEmail(item)}
+                    className="p-3 rounded-xl sm:rounded-2xl border border-[#e2ece2] hover:border-[#2d6a4f]/40 hover:bg-[#f7f9f7] transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-2 group"
+                  >
+                    <div className="space-y-0.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="text-[11px] sm:text-xs font-extrabold text-[#1b4332] truncate">
+                          To: {Array.isArray(item.to) ? item.to.join(', ') : item.to}
+                        </span>
+                        <span className="text-[10px] text-[#52605d] shrink-0 font-medium">
+                          • {formattedDate}
+                        </span>
+                        <span
+                          className={`px-1.5 py-0.2 rounded-md text-[9px] font-bold ${
+                            item.status === 'sent'
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                              : item.status === 'simulated'
+                              ? 'bg-blue-100 text-blue-800 border border-blue-300'
+                              : 'bg-rose-100 text-rose-800 border border-rose-300'
+                          }`}
+                        >
+                          {item.status === 'sent' ? 'Delivered' : item.status === 'simulated' ? 'Dispatched' : 'Failed'}
+                        </span>
+                      </div>
+
+                      <h4 className="text-xs sm:text-sm font-bold text-stone-800 truncate">
+                        {item.subject}
+                      </h4>
+
+                      {item.bodyText && (
+                        <p className="text-[10.5px] sm:text-[11px] text-[#52605d] line-clamp-1">
+                          {item.bodyText}
+                        </p>
+                      )}
                     </div>
 
-                    <h4 className="text-xs sm:text-sm font-bold text-stone-800 truncate">
-                      {item.subject}
-                    </h4>
-
-                    {item.bodyText && (
-                      <p className="text-[10.5px] sm:text-[11px] text-[#52605d] line-clamp-1">
-                        {item.bodyText}
-                      </p>
-                    )}
+                    <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSentEmail(item)}
+                        className="p-1.5 rounded-lg sm:rounded-xl bg-white hover:bg-emerald-50 text-[#1b4332] border border-[#e2ece2] transition-colors cursor-pointer"
+                        title="View Sent Details"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingId === item.id}
+                        onClick={(e) => handleOpenDeleteOutboxModal(e, item)}
+                        className="p-1.5 rounded-lg sm:rounded-xl bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 transition-colors cursor-pointer disabled:opacity-50"
+                        title="Delete from Outbox"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
+                );
+              })}
+            </div>
 
-                  <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedSentEmail(item)}
-                      className="p-1.5 rounded-lg sm:rounded-xl bg-white hover:bg-emerald-50 text-[#1b4332] border border-[#e2ece2] transition-colors cursor-pointer"
-                      title="View Sent Details"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+            {/* Pagination Controls */}
+            {totalOutboxPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-[#e2ece2] text-xs text-[#52605d]">
+                <div>
+                  Showing <span className="font-extrabold text-[#1b4332]">{(validOutboxPage - 1) * outboxItemsPerPage + 1}</span> to{' '}
+                  <span className="font-extrabold text-[#1b4332]">
+                    {Math.min(validOutboxPage * outboxItemsPerPage, outboxList.length)}
+                  </span>{' '}
+                  of <span className="font-extrabold text-[#1b4332]">{outboxList.length}</span> sent emails
                 </div>
-              );
-            })}
-          </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={validOutboxPage === 1}
+                    onClick={() => setOutboxPage((prev) => Math.max(prev - 1, 1))}
+                    className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Previous</span>
+                  </button>
+
+                  <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                    {validOutboxPage} / {totalOutboxPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    disabled={validOutboxPage === totalOutboxPages}
+                    onClick={() => setOutboxPage((prev) => Math.min(prev + 1, totalOutboxPages))}
+                    className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {/* Sent Email Details Modal */}
-      <AnimatePresence>
-        {selectedSentEmail && (
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 z-50 overflow-y-auto">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.96 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.96 }}
-              className="bg-white rounded-2xl sm:rounded-3xl max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden shadow-2xl border border-[#e2ece2]"
-            >
-              {/* Modal Header */}
-              <div className="p-3.5 sm:p-4 border-b border-[#e2ece2] bg-[#fafcfa] flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-7 h-7 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-800 shrink-0">
-                    <Send className="w-3.5 h-3.5" />
+      <ModalPortal>
+        <AnimatePresence>
+          {selectedSentEmail && (
+            <div className="fixed inset-0 z-[9999] bg-black/75 backdrop-blur-xs flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.96 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-sm sm:max-w-md w-full max-h-[82vh] sm:max-h-[80vh] flex flex-col overflow-hidden shadow-2xl border border-[#e2ece2] my-auto"
+              >
+                {/* Modal Header */}
+                <div className="p-3 sm:p-3.5 border-b border-[#e2ece2] bg-[#fafcfa] flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="w-6 h-6 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center text-emerald-800 shrink-0">
+                      <Send className="w-3 h-3" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-xs sm:text-sm font-black text-[#1b4332] truncate">
+                        {selectedSentEmail.subject}
+                      </h3>
+                      <p className="text-[9.5px] sm:text-[10px] text-[#52605d]">
+                        Sent {new Date(selectedSentEmail.sentAt || Date.now()).toLocaleString()}
+                      </p>
+                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <h3 className="text-xs sm:text-sm font-black text-[#1b4332] truncate">
-                      {selectedSentEmail.subject}
-                    </h3>
-                    <p className="text-[10px] sm:text-[11px] text-[#52605d]">
-                      Sent {new Date(selectedSentEmail.sentAt || Date.now()).toLocaleString()}
-                    </p>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSentEmail(null)}
+                    className="p-1 rounded-lg hover:bg-stone-100 text-stone-400 hover:text-stone-700 cursor-pointer text-xs"
+                    title="Close"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedSentEmail(null)}
-                  className="p-1.5 rounded-lg hover:bg-stone-100 text-stone-500 cursor-pointer text-xs"
-                >
-                  ✕
-                </button>
-              </div>
 
-              {/* Modal Body */}
-              <div className="p-3.5 sm:p-5 overflow-y-auto space-y-3 flex-1">
-                {/* Meta details */}
-                <div className="bg-[#f7f9f7] rounded-xl p-2.5 sm:p-3 border border-[#e2ece2] space-y-1.5 text-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 pb-1 border-b border-[#e2ece2]">
-                    <span className="text-[#52605d] font-bold text-[11px]">To:</span>
-                    <span className="font-mono font-bold text-[11px] text-[#1b4332] break-all">
-                      {Array.isArray(selectedSentEmail.to) ? selectedSentEmail.to.join(', ') : selectedSentEmail.to}
-                    </span>
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 pb-1 border-b border-[#e2ece2]">
-                    <span className="text-[#52605d] font-bold text-[11px]">From:</span>
-                    <span className="font-mono text-[11px] text-[#1b4332] break-all">
-                      {selectedSentEmail.from}
-                    </span>
-                  </div>
-                  {selectedSentEmail.resendId && (
+                {/* Modal Body - Scrollable */}
+                <div className="p-3 sm:p-3.5 overflow-y-auto space-y-2.5 flex-1 min-h-0">
+                  {/* Meta details */}
+                  <div className="bg-[#f7f9f7] rounded-xl p-2.5 border border-[#e2ece2] space-y-1.5 text-xs">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 pb-1 border-b border-[#e2ece2]">
-                      <span className="text-[#52605d] font-bold text-[11px]">Resend Message ID:</span>
-                      <span className="font-mono text-[10px] text-[#52605d] truncate">
-                        {selectedSentEmail.resendId}
+                      <span className="text-[#52605d] font-bold text-[10px]">To:</span>
+                      <span className="font-mono font-bold text-[10.5px] sm:text-[11px] text-[#1b4332] break-all">
+                        {Array.isArray(selectedSentEmail.to) ? selectedSentEmail.to.join(', ') : selectedSentEmail.to}
                       </span>
                     </div>
-                  )}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0.5">
-                    <span className="text-[#52605d] font-bold text-[11px]">Delivery Status:</span>
-                    <span className="font-bold text-[11px] text-emerald-800 capitalize">
-                      {selectedSentEmail.status}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 pb-1 border-b border-[#e2ece2]">
+                      <span className="text-[#52605d] font-bold text-[10px]">From:</span>
+                      <span className="font-mono text-[10.5px] sm:text-[11px] text-[#1b4332] break-all">
+                        {selectedSentEmail.from}
+                      </span>
+                    </div>
+                    {selectedSentEmail.resendId && (
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-0.5 pb-1 border-b border-[#e2ece2]">
+                        <span className="text-[#52605d] font-bold text-[10px]">Resend Message ID:</span>
+                        <span className="font-mono text-[9.5px] sm:text-[10px] text-[#52605d] truncate">
+                          {selectedSentEmail.resendId}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-0.5">
+                      <span className="text-[#52605d] font-bold text-[10px]">Delivery Status:</span>
+                      <span className="text-[10px] font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200 capitalize">
+                        {selectedSentEmail.status}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Body Content */}
+                  <div className="space-y-1">
+                    <span className="text-[9.5px] font-black uppercase tracking-wider text-[#52605d]">
+                      Message Body
+                    </span>
+                    <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] text-[11px] sm:text-xs text-stone-700 leading-relaxed whitespace-pre-wrap font-sans max-h-40 sm:max-h-52 overflow-y-auto">
+                      {selectedSentEmail.bodyText || selectedSentEmail.bodyHtml || '(No text body content)'}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="p-2.5 sm:p-3 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-between gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={deletingId === selectedSentEmail.id}
+                    onClick={(e) => handleOpenDeleteOutboxModal(e, selectedSentEmail)}
+                    className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold transition-colors cursor-pointer flex items-center gap-1 disabled:opacity-50"
+                  >
+                    <Trash2 className="w-3 h-3 text-rose-600" />
+                    <span>Delete Outbox Log</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setSelectedSentEmail(null)}
+                    className="px-3.5 py-1.5 rounded-lg bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-[11px] font-black transition-colors cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
+
+      {/* Custom Confirmation Modal: Confirm Send Official Email */}
+      <ModalPortal>
+        <AnimatePresence>
+          {showConfirmSendModal && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-4 sm:p-6 shadow-2xl border border-[#e2ece2] space-y-4"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-[#1b4332] border border-emerald-200 flex items-center justify-center mx-auto">
+                  <Send className="w-6 h-6 text-[#2d6a4f]" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <h3 className="text-base sm:text-lg font-heading font-black text-[#1b4332]">
+                    Confirm Email Dispatch
+                  </h3>
+                  <p className="text-xs text-[#52605d]">
+                    Please verify message parameters before dispatching through Resend.
+                  </p>
+                </div>
+
+                <div className="bg-[#f7f9f7] rounded-xl p-3 border border-[#e2ece2] space-y-1.5 text-xs">
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="text-[#52605d] font-bold">Recipients ({pendingRecipients.length}):</span>
+                    <span className="font-mono font-bold text-[#1b4332] text-right break-all">
+                      {pendingRecipients.length > 2
+                        ? `${pendingRecipients.slice(0, 2).join(', ')} +${pendingRecipients.length - 2} more`
+                        : pendingRecipients.join(', ')}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="text-[#52605d] font-bold">Subject:</span>
+                    <span className="font-bold text-stone-800 text-right truncate max-w-[220px]">
+                      {subject}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-start gap-2">
+                    <span className="text-[#52605d] font-bold">From:</span>
+                    <span className="text-stone-700 text-right truncate max-w-[220px]">
+                      {fromAddress}
                     </span>
                   </div>
                 </div>
 
-                {/* Body Content */}
-                <div className="space-y-1">
-                  <span className="text-[10px] font-black uppercase tracking-wider text-[#52605d]">
-                    Message Body
-                  </span>
-                  <div className="p-3 rounded-xl bg-white border border-[#e2ece2] text-xs text-stone-800 leading-relaxed whitespace-pre-wrap font-sans min-h-[100px]">
-                    {selectedSentEmail.bodyText || selectedSentEmail.bodyHtml || '(No text body content)'}
-                  </div>
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmSendModal(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-stone-50 font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel / Edit
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecuteSendEmail}
+                    className="flex-1 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <Send className="w-3.5 h-3.5" />
+                    <span>Confirm & Send</span>
+                  </button>
                 </div>
-              </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
 
-              {/* Modal Footer */}
-              <div className="p-3 border-t border-[#e2ece2] bg-[#fafcfa] flex items-center justify-end shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setSelectedSentEmail(null)}
-                  className="px-3.5 py-1.5 rounded-lg bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-xs font-black transition-colors cursor-pointer"
-                >
-                  Close
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {/* Custom Confirmation Modal: Delete Outbox Item */}
+      <ModalPortal>
+        <AnimatePresence>
+          {outboxItemToDelete && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-sm w-full p-4 sm:p-6 shadow-2xl border border-rose-200 space-y-4"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center mx-auto">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <h3 className="text-base font-heading font-black text-rose-950">
+                    Delete Outbox Record?
+                  </h3>
+                  <p className="text-xs text-[#52605d]">
+                    Are you sure you want to permanently delete this sent message from your outbox log?
+                  </p>
+                </div>
+
+                <div className="bg-[#f7f9f7] rounded-xl p-2.5 border border-[#e2ece2] text-xs space-y-1">
+                  <p className="font-bold text-[#1b4332] truncate">
+                    Subject: {outboxItemToDelete.subject}
+                  </p>
+                  <p className="text-[#52605d] text-[11px] truncate">
+                    To: {Array.isArray(outboxItemToDelete.to) ? outboxItemToDelete.to.join(', ') : outboxItemToDelete.to}
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setOutboxItemToDelete(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletingId === outboxItemToDelete.id}
+                    onClick={handleConfirmDeleteOutbox}
+                    className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
+
+      {/* Outbox Deletion Official Loader */}
+      <OfficialLoader isLoading={isDeletingOutbox} message="Deleting Outbox Record..." />
     </div>
   );
 };

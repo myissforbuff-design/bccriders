@@ -3021,7 +3021,7 @@ app.get('/api/emails/outbox', async (_req, res) => {
         .collection('outbound_emails')
         .find({})
         .sort({ sentAt: -1 })
-        .limit(100)
+        .limit(200)
         .toArray();
       const data = docs.map(({ _id, ...rest }) => rest);
       return res.json({ success: true, count: data.length, data });
@@ -3034,6 +3034,30 @@ app.get('/api/emails/outbox', async (_req, res) => {
     count: outboundEmailMemoryCache.length,
     data: outboundEmailMemoryCache,
   });
+});
+
+// DELETE /api/emails/outbox/:id (delete a sent email from outbox history)
+app.delete('/api/emails/outbox/:id', async (req, res) => {
+  const { id } = req.params;
+  const database = await getMongoDb();
+
+  // Remove from cache
+  const idx = outboundEmailMemoryCache.findIndex((e) => e.id === id || (e as any).resendId === id);
+  if (idx !== -1) {
+    outboundEmailMemoryCache.splice(idx, 1);
+  }
+
+  if (database) {
+    try {
+      const result = await database.collection('outbound_emails').deleteOne({
+        $or: [{ id }, { resendId: id }],
+      });
+      return res.json({ success: true, id, deletedCount: result.deletedCount });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  }
+  return res.json({ success: true, id, deletedCount: 1 });
 });
 
 // POST /api/emails/send (Send outbound email via Resend API)

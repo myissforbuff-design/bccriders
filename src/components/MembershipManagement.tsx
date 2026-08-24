@@ -35,6 +35,7 @@ import {
   MoreVertical,
   FileText,
   Pencil,
+  ChevronLeft,
   ChevronRight,
   ChevronDown,
 } from 'lucide-react';
@@ -325,7 +326,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
   });
 
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 15;
+  const itemsPerPage = 10;
   const totalPages = Math.ceil(filteredMembers.length / itemsPerPage);
 
   useEffect(() => {
@@ -679,22 +680,38 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
           
           {/* Pagination Controls */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-3 mt-6 pt-6 border-t border-[#e2ece2]">
-              <button 
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                className="px-4 py-2 rounded-xl bg-white border border-[#e2ece2] text-xs font-bold text-[#1b4332] hover:bg-[#f7f9f7] disabled:opacity-50 cursor-pointer transition-colors"
-              >
-                Previous
-              </button>
-              <span className="text-xs font-bold text-[#52605d]">Page {currentPage} of {totalPages}</span>
-              <button 
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                className="px-4 py-2 rounded-xl bg-white border border-[#e2ece2] text-xs font-bold text-[#1b4332] hover:bg-[#f7f9f7] disabled:opacity-50 cursor-pointer transition-colors"
-              >
-                Next
-              </button>
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-6 pt-6 border-t border-[#e2ece2] text-xs text-[#52605d]">
+              <div>
+                Showing <span className="font-extrabold text-[#1b4332]">{(currentPage - 1) * itemsPerPage + 1}</span> to{' '}
+                <span className="font-extrabold text-[#1b4332]">
+                  {Math.min(currentPage * itemsPerPage, filteredMembers.length)}
+                </span>{' '}
+                of <span className="font-extrabold text-[#1b4332]">{filteredMembers.length}</span> {rosterTab === 'pending' ? 'applicants' : 'members'}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button 
+                  disabled={currentPage === 1}
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Previous</span>
+                </button>
+
+                <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                  {currentPage} / {totalPages}
+                </span>
+
+                <button 
+                  disabled={currentPage === totalPages}
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
           )}
         </>

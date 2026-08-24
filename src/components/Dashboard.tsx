@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   AlertCircle,
   ChevronRight,
+  ChevronLeft,
   Bike,
   ShieldCheck,
   Calendar,
@@ -152,6 +153,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const netBalance = totalCollected - totalExpenses;
   const totalPaidCount = validFinanceRecords.filter((r) => r.status === 'Paid').length;
 
+  const [dashboardPage, setDashboardPage] = useState(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    setDashboardPage(1);
+  }, [searchTerm]);
+
   const filteredMembersList = members.filter((m) => {
     if (!searchTerm.trim()) return true;
     const q = searchTerm.toLowerCase();
@@ -164,6 +172,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
       (m.bikeInfo?.model && m.bikeInfo.model.toLowerCase().includes(q))
     );
   });
+
+  const totalDashboardPages = Math.max(1, Math.ceil(filteredMembersList.length / itemsPerPage));
+  const validDashboardPage = Math.min(Math.max(1, dashboardPage), totalDashboardPages);
+  const paginatedMembersList = filteredMembersList.slice(
+    (validDashboardPage - 1) * itemsPerPage,
+    validDashboardPage * itemsPerPage
+  );
 
   return (
     <div className="space-y-3 sm:space-y-6 lg:space-y-8 pb-4 sm:pb-6">
@@ -371,7 +386,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <>
               {/* Mobile View: High-Density Compact Card List (visible on sm:hidden) */}
               <div className="block sm:hidden divide-y divide-[#e2ece2]">
-                {filteredMembersList.map((m) => {
+                {paginatedMembersList.map((m) => {
                   const isPending = m.approvalStatus === 'Pending' || m.approvalStatus?.toLowerCase() === 'pending';
                   return (
                     <div
@@ -443,7 +458,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e2ece2]">
-                    {filteredMembersList.map((m) => {
+                    {paginatedMembersList.map((m) => {
                       const isPending = m.approvalStatus === 'Pending' || m.approvalStatus?.toLowerCase() === 'pending';
                       return (
                         <tr
@@ -528,6 +543,45 @@ export const Dashboard: React.FC<DashboardProps> = ({
                   </tbody>
                 </table>
               </div>
+
+              {/* Pagination Controls */}
+              {totalDashboardPages > 1 && (
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+                  <div>
+                    Showing <span className="font-extrabold text-[#1b4332]">{(validDashboardPage - 1) * itemsPerPage + 1}</span> to{' '}
+                    <span className="font-extrabold text-[#1b4332]">
+                      {Math.min(validDashboardPage * itemsPerPage, filteredMembersList.length)}
+                    </span>{' '}
+                    of <span className="font-extrabold text-[#1b4332]">{filteredMembersList.length}</span> members
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      disabled={validDashboardPage === 1}
+                      onClick={() => setDashboardPage((prev) => Math.max(prev - 1, 1))}
+                      className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      <span>Previous</span>
+                    </button>
+
+                    <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                      {validDashboardPage} / {totalDashboardPages}
+                    </span>
+
+                    <button
+                      type="button"
+                      disabled={validDashboardPage === totalDashboardPages}
+                      onClick={() => setDashboardPage((prev) => Math.min(prev + 1, totalDashboardPages))}
+                      className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                    >
+                      <span>Next</span>
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

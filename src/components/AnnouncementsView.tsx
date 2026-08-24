@@ -25,6 +25,8 @@ import {
   Clock,
   ChevronDown,
   Check,
+  ChevronLeft,
+  ChevronRight,
   ExternalLink,
   Share2,
   Globe,
@@ -207,6 +209,13 @@ export const AnnouncementsView: React.FC = () => {
     );
   };
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedPriority]);
+
   // Filter & Search Logic
   const filteredAnnouncements = announcements
     .filter((a) => {
@@ -224,6 +233,13 @@ export const AnnouncementsView: React.FC = () => {
       if (!a.pinned && b.pinned) return 1;
       return 0;
     });
+
+  const totalPages = Math.max(1, Math.ceil(filteredAnnouncements.length / itemsPerPage));
+  const validPage = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedAnnouncements = filteredAnnouncements.slice(
+    (validPage - 1) * itemsPerPage,
+    validPage * itemsPerPage
+  );
 
   const getPriorityBadge = (priority: AnnouncementPriority) => {
     switch (priority) {
@@ -363,7 +379,7 @@ export const AnnouncementsView: React.FC = () => {
             </p>
           </div>
         ) : (
-          filteredAnnouncements.map((ann) => {
+          paginatedAnnouncements.map((ann) => {
             const badge = getPriorityBadge(ann.priority);
             return (
               <motion.div
@@ -486,6 +502,45 @@ export const AnnouncementsView: React.FC = () => {
               </motion.div>
             );
           })
+        )}
+
+        {/* Pagination Controls */}
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+            <div>
+              Showing <span className="font-extrabold text-[#1b4332]">{(validPage - 1) * itemsPerPage + 1}</span> to{' '}
+              <span className="font-extrabold text-[#1b4332]">
+                {Math.min(validPage * itemsPerPage, filteredAnnouncements.length)}
+              </span>{' '}
+              of <span className="font-extrabold text-[#1b4332]">{filteredAnnouncements.length}</span> news bulletins
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={validPage === 1}
+                onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Previous</span>
+              </button>
+
+              <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                {validPage} / {totalPages}
+              </span>
+
+              <button
+                type="button"
+                disabled={validPage === totalPages}
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+              >
+                <span>Next</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 

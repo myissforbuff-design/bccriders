@@ -68,6 +68,7 @@ export const TreasurerAuthModal: React.FC<TreasurerAuthModalProps> = ({
   };
 
   const [reason, setReason] = useState('');
+  const [reasonError, setReasonError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successToast, setSuccessToast] = useState('');
   const [activeMode, setActiveMode] = useState<'request' | 'instant'>('request');
@@ -89,8 +90,9 @@ export const TreasurerAuthModal: React.FC<TreasurerAuthModalProps> = ({
 
   const handleSubmitRequest = async (e: React.FormEvent) => {
     e.preventDefault();
+    setReasonError('');
     if (!reason.trim()) {
-      alert('Please provide a specific reason for this action.');
+      setReasonError('Please provide a specific reason for this action.');
       return;
     }
 
@@ -413,12 +415,20 @@ export const TreasurerAuthModal: React.FC<TreasurerAuthModalProps> = ({
                     </label>
                     <textarea
                       value={reason}
-                      onChange={(e) => setReason(e.target.value)}
+                      onChange={(e) => {
+                        setReason(e.target.value);
+                        if (reasonError) setReasonError('');
+                      }}
                       placeholder="Briefly explain the reason for this change..."
                       rows={2}
-                      className="w-full px-3 py-2 rounded-xl bg-white border border-[#e2ece2] text-[#2d3a3a] text-xs focus:outline-none focus:border-[#2d6a4f] resize-none"
+                      className={`w-full px-3 py-2 rounded-xl bg-white border text-[#2d3a3a] text-xs focus:outline-none resize-none ${
+                        reasonError ? 'border-rose-300 focus:border-rose-500' : 'border-[#e2ece2] focus:border-[#2d6a4f]'
+                      }`}
                       required
                     />
+                    {reasonError && (
+                      <p className="text-[10px] text-rose-600 font-bold mt-1">{reasonError}</p>
+                    )}
                   </div>
 
                   {/* Common Reason Chips */}

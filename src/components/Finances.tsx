@@ -203,10 +203,15 @@ export const Finances: React.FC = () => {
 
   const itemsPerPage = 10;
 
+  useEffect(() => {
+    setExpenseCurrentPage(1);
+  }, [expenseSearchQuery, expenseCategoryFilter]);
+
   // Modal State for Funds
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
   const [showConfirmRecordModal, setShowConfirmRecordModal] = useState(false);
   const [editingRecord, setEditingRecord] = useState<FinanceRecord | null>(null);
+  const [financeNoticeModal, setFinanceNoticeModal] = useState<{ title: string; message: string; isError?: boolean } | null>(null);
 
   // Form State for Payment Record
   const [recUserId, setRecUserId] = useState('');
@@ -987,7 +992,11 @@ export const Finances: React.FC = () => {
           setShowArchiveExportModal(true);
         } catch (err: any) {
           console.error('Error parsing zip archive:', err);
-          alert('Failed to read or parse the compressed archive (.zip) file. Please ensure it is a valid BCC financial archive package.');
+          setFinanceNoticeModal({
+            title: 'Archive Import Error',
+            message: 'Failed to read or parse the compressed archive (.zip) file. Please ensure it is a valid BCC financial archive package.',
+            isError: true,
+          });
         } finally {
           if (zipInputRef.current) {
             zipInputRef.current.value = '';
@@ -1425,7 +1434,11 @@ export const Finances: React.FC = () => {
     e.preventDefault();
     if (!canManageFinances) return;
     if (!hasMembers) {
-      alert('No registered members found. Please register members in the Members Directory first.');
+      setFinanceNoticeModal({
+        title: 'No Registered Members',
+        message: 'No registered members found. Please register members in the Members Directory before recording payments.',
+        isError: true,
+      });
       return;
     }
     if (!isRecordFormValid) {
@@ -4287,6 +4300,40 @@ export const Finances: React.FC = () => {
 
       {/* Official Processing Loader */}
       <OfficialLoader isLoading={isProcessing} message={processingMsg} />
+
+      {/* Finance Action / Error Notice Modal */}
+      <ModalPortal>
+        {financeNoticeModal && (
+          <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+            <div className="bg-white rounded-2xl sm:rounded-3xl max-w-sm w-full p-4 sm:p-6 shadow-2xl border border-stone-200 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+              <div className={`w-12 h-12 rounded-2xl ${financeNoticeModal.isError ? 'bg-rose-50 text-rose-600 border border-rose-200' : 'bg-emerald-50 text-[#1b4332] border border-emerald-200'} flex items-center justify-center mx-auto`}>
+                {financeNoticeModal.isError ? (
+                  <AlertCircle className="w-6 h-6" />
+                ) : (
+                  <CheckCircle2 className="w-6 h-6 text-[#2d6a4f]" />
+                )}
+              </div>
+
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-heading font-black text-stone-900">
+                  {financeNoticeModal.title}
+                </h3>
+                <p className="text-xs text-[#52605d] leading-relaxed">
+                  {financeNoticeModal.message}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setFinanceNoticeModal(null)}
+                className="w-full py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black transition-colors cursor-pointer"
+              >
+                Understood
+              </button>
+            </div>
+          </div>
+        )}
+      </ModalPortal>
     </div>
   );
 };

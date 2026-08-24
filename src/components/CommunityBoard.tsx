@@ -17,6 +17,8 @@ import {
   X,
   Send,
   UserCheck,
+  CheckCircle2,
+  Check,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -24,6 +26,8 @@ export const CommunityBoard: React.FC = () => {
   const { currentUser } = useAuth();
   const [posts, setPosts] = useState<CommunityPost[]>(() => store.getPosts());
   const [catFilter, setCatFilter] = useState<string>('All');
+  const [shareToast, setShareToast] = useState<string | null>(null);
+  const [showPublishConfirm, setShowPublishConfirm] = useState(false);
 
   const [createModalOpen, setCreateModalOpen] = useState(false);
   const [title, setTitle] = useState('');
@@ -63,15 +67,21 @@ export const CommunityBoard: React.FC = () => {
 
   const handleCreatePostSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentUser || !title.trim() || !content.trim()) return;
+    setShowPublishConfirm(true);
+  };
+
+  const handleExecutePublishPost = () => {
     if (!currentUser) return;
+    setShowPublishConfirm(false);
 
     store.createPost({
       authorId: currentUser.id,
       authorName: currentUser.name,
       authorAvatar: currentUser.avatar,
       authorRole: currentUser.role,
-      title,
-      content,
+      title: title.trim(),
+      content: content.trim(),
       category,
       paceLevel: category === 'Group Ride Setup' ? paceLevel : undefined,
       distanceMiles: category === 'Group Ride Setup' ? distanceMiles : undefined,
@@ -83,6 +93,16 @@ export const CommunityBoard: React.FC = () => {
     setTitle('');
     setContent('');
     refreshList();
+    setShareToast('Post published successfully to Community Board!');
+    setTimeout(() => setShareToast(null), 3500);
+  };
+
+  const handleSharePost = (post: CommunityPost) => {
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(window.location.href);
+    }
+    setShareToast(`Link to "${post.title}" copied to clipboard!`);
+    setTimeout(() => setShareToast(null), 3500);
   };
 
   const handleAddComment = (postId: string) => {
@@ -253,7 +273,7 @@ export const CommunityBoard: React.FC = () => {
                 </div>
 
                 <button
-                  onClick={() => alert('Post link copied to clipboard!')}
+                  onClick={() => handleSharePost(post)}
                   className="p-2 text-[#52605d] hover:text-[#1b4332] rounded-lg hover:bg-gray-100 cursor-pointer"
                   title="Share Post"
                 >
@@ -444,6 +464,77 @@ export const CommunityBoard: React.FC = () => {
         )}
       </AnimatePresence>
       </ModalPortal>
+
+      {/* Publish Post Confirmation Modal */}
+      <ModalPortal>
+        <AnimatePresence>
+          {showPublishConfirm && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-sm w-full p-4 sm:p-6 shadow-2xl border border-[#e2ece2] space-y-4"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-[#1b4332] border border-emerald-200 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6 text-[#2d6a4f]" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <h3 className="text-base sm:text-lg font-heading font-black text-[#1b4332]">
+                    Publish Community Post?
+                  </h3>
+                  <p className="text-xs text-[#52605d]">
+                    Your post will be visible to all BCC club members on the ride board.
+                  </p>
+                </div>
+
+                <div className="bg-[#f7f9f7] rounded-xl p-3 border border-[#e2ece2] space-y-1 text-xs">
+                  <p className="font-extrabold text-[#1b4332] truncate">{title}</p>
+                  <p className="text-[#52605d] text-[11px] line-clamp-2">{content}</p>
+                  <div className="pt-1 flex items-center gap-1.5 text-[10.5px] font-bold text-emerald-800">
+                    <span className="px-2 py-0.5 rounded-md bg-emerald-100 border border-emerald-200">
+                      {category}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowPublishConfirm(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecutePublishPost}
+                    className="flex-1 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-colors"
+                  >
+                    Confirm & Publish
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
+
+      {/* Share/Action Toast Notification */}
+      <AnimatePresence>
+        {shareToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            className="fixed bottom-5 right-5 z-[9999] bg-[#1b4332] text-white px-4 py-3 rounded-2xl shadow-xl border border-emerald-700 flex items-center gap-2 text-xs font-bold"
+          >
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>{shareToast}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

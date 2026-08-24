@@ -19,10 +19,13 @@ import {
   QrCode,
   ChevronDown,
   ChevronUp,
+  AlertTriangle,
+  CheckCircle2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageCropperModal } from './ImageCropperModal';
 import { OfficialLoader } from './OfficialLoader';
+import { ModalPortal } from './ModalPortal';
 
 interface RiderProfileProps {
   onOpenDuesModal?: () => void;
@@ -32,6 +35,8 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
   const { currentUser, updateUser } = useAuth();
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showSaveConfirm, setShowSaveConfirm] = useState(false);
+  const [fileErrorModalMessage, setFileErrorModalMessage] = useState<string | null>(null);
 
   useModalDismiss(editModalOpen, () => setEditModalOpen(false));
 
@@ -143,7 +148,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
     if (!file || !activeRider) return;
 
     if (file.size > 10 * 1024 * 1024) {
-      alert('Image file size exceeds the 10MB limit. Please select a smaller file.');
+      setFileErrorModalMessage('The selected avatar image exceeds the 10MB limit. Please choose a smaller image.');
       e.target.value = '';
       return;
     }
@@ -166,7 +171,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
     if (!file || !activeRider) return;
 
     if (file.size > 10 * 1024 * 1024) {
-      alert('Image file size exceeds the 10MB limit. Please select a smaller file.');
+      setFileErrorModalMessage('The selected motorcycle photo exceeds the 10MB limit. Please choose a smaller image.');
       e.target.value = '';
       return;
     }
@@ -213,7 +218,12 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
   const handleProfileSave = (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeRider) return;
+    setShowSaveConfirm(true);
+  };
 
+  const handleExecuteProfileSave = () => {
+    if (!activeRider) return;
+    setShowSaveConfirm(false);
     setIsSaving(true);
     const updated: UserType = {
       ...activeRider,
@@ -919,6 +929,108 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
         title={cropperTitle}
       />
       <OfficialLoader isLoading={isSaving} message="Updating Profile..." />
+
+      {/* Save Profile Changes Confirmation Modal */}
+      <ModalPortal>
+        <AnimatePresence>
+          {showSaveConfirm && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-sm w-full p-4 sm:p-6 shadow-2xl border border-[#e2ece2] space-y-4"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-[#1b4332] border border-emerald-200 flex items-center justify-center mx-auto">
+                  <CheckCircle2 className="w-6 h-6 text-[#2d6a4f]" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <h3 className="text-base sm:text-lg font-heading font-black text-[#1b4332]">
+                    Confirm Profile Updates
+                  </h3>
+                  <p className="text-xs text-[#52605d]">
+                    Are you sure you want to save the changes made to your rider profile details?
+                  </p>
+                </div>
+
+                <div className="bg-[#f7f9f7] rounded-xl p-3 border border-[#e2ece2] space-y-1 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-[#52605d] font-bold">Rider Name:</span>
+                    <span className="font-extrabold text-[#1b4332]">{name}</span>
+                  </div>
+                  {bikeMake && (
+                    <div className="flex justify-between">
+                      <span className="text-[#52605d] font-bold">Motorcycle:</span>
+                      <span className="font-semibold text-stone-700">{bikeMake} {bikeModel}</span>
+                    </div>
+                  )}
+                  {plateNumber && (
+                    <div className="flex justify-between">
+                      <span className="text-[#52605d] font-bold">Plate No:</span>
+                      <span className="font-mono text-stone-700">{plateNumber}</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowSaveConfirm(false)}
+                    className="flex-1 py-2.5 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-bold text-xs cursor-pointer transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExecuteProfileSave}
+                    className="flex-1 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md cursor-pointer transition-colors"
+                  >
+                    Confirm & Save
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
+
+      {/* File Size Error Modal */}
+      <ModalPortal>
+        <AnimatePresence>
+          {fileErrorModalMessage && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-sm w-full p-4 sm:p-6 shadow-2xl border border-amber-200 space-y-4"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-amber-50 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <h3 className="text-base font-heading font-black text-amber-950">
+                    File Size Notice
+                  </h3>
+                  <p className="text-xs text-[#52605d] leading-relaxed">
+                    {fileErrorModalMessage}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setFileErrorModalMessage(null)}
+                  className="w-full py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black transition-colors cursor-pointer"
+                >
+                  Got It
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
     </div>
   );
 };

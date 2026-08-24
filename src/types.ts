@@ -11,6 +11,17 @@ export type UserRole =
   | 'Member'
   | string;
 
+export const CLUB_OFFICER_ROLES = [
+  'President',
+  'Vice-President',
+  'Secretary',
+  'Treasurer',
+  'Road Captain',
+  'Safety Officer',
+  'Social Media',
+  'Members Representative',
+] as const;
+
 export const CLUB_ROLES = [
   'President',
   'Vice-President',
@@ -22,6 +33,67 @@ export const CLUB_ROLES = [
   'Members Representative',
   'Member',
 ] as const;
+
+export type ActivityAudience = 'Both' | 'Officers' | 'Members';
+
+export interface ActivityAttendance {
+  name: string;
+  memberId: string;
+  network: string;
+  date: string;
+  time: string;
+  avatar?: string;
+  bikeInfo?: BikeInfo;
+  isRegistered?: boolean;
+}
+
+export interface Activity {
+  id: string;
+  name: string;
+  date: string;
+  status: 'Open' | 'Closed';
+  attendance: ActivityAttendance[];
+  targetAudience?: ActivityAudience;
+  allowedRoles?: string[];
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export function isOfficerRole(role?: string | null): boolean {
+  if (!role) return false;
+  const r = role.toLowerCase().trim();
+  if (r === 'admin' || r === 'administrator') return false;
+  if (r === 'member' || r === 'regular' || r === 'regular member') return false;
+  return true;
+}
+
+export function isMemberOnlyRole(role?: string | null): boolean {
+  if (!role) return false;
+  const r = role.toLowerCase().trim();
+  if (r === 'admin' || r === 'administrator') return false;
+  return r === 'member' || r === 'regular' || r === 'regular member';
+}
+
+export function isActivityApplicableToUser(
+  activity: { targetAudience?: ActivityAudience; allowedRoles?: string[] } | null | undefined,
+  user: { role?: string; id?: string } | null | undefined
+): boolean {
+  if (!user) return false;
+  if (user.role?.toLowerCase() === 'admin' || user.id === 'usr_admin') return true;
+
+  const audience = activity?.targetAudience || 'Both';
+  const isOfficer = isOfficerRole(user.role);
+
+  if (audience === 'Officers') {
+    return isOfficer;
+  }
+  if (audience === 'Members') {
+    return !isOfficer;
+  }
+  return true;
+}
+
 export type MembershipType = 'Standard' | 'Premium' | 'VIP' | 'Executive';
 export type ApprovalStatus = 'Approved' | 'Pending' | 'Rejected';
 

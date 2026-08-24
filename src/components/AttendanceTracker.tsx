@@ -1,5 +1,12 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { User } from '../types';
+import {
+  User,
+  Activity,
+  ActivityAudience,
+  isOfficerRole,
+  isMemberOnlyRole,
+  isActivityApplicableToUser,
+} from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
 import { OfficialDotSpinner } from './OfficialLoader';
@@ -14,8 +21,8 @@ import {
   X,
   Users,
   Percent,
-  Sparkles,
   ChevronRight,
+  ChevronLeft,
   TrendingUp,
   Award,
   AlertCircle,
@@ -23,6 +30,9 @@ import {
   Filter,
   ChevronDown,
   Check,
+  Shield,
+  ShieldAlert,
+  Info,
 } from 'lucide-react';
 
 export interface Attendance {
@@ -32,14 +42,6 @@ export interface Attendance {
   date: string;
   time: string;
   avatar?: string;
-}
-
-export interface Activity {
-  id: string;
-  name: string;
-  date: string;
-  status: 'Open' | 'Closed';
-  attendance: Attendance[];
 }
 
 export interface AttendanceLogDoc {
@@ -85,8 +87,14 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
   const [sortBy, setSortBy] = useState<'name' | 'id' | 'present' | 'absent' | 'rate'>('present');
   const [selectedMember, setSelectedMember] = useState<User | null>(null);
   useModalDismiss(selectedMember !== null, () => setSelectedMember(null));
-  const [modalEventFilter, setModalEventFilter] = useState<'All' | 'Present' | 'Absent' | 'Upcoming'>('All');
+  const [modalEventFilter, setModalEventFilter] = useState<'All' | 'Present' | 'Absent' | 'Upcoming' | 'Officer Meetings'>('All');
   const [modalSearchTerm, setModalSearchTerm] = useState('');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, roleFilter, performanceFilter, sortBy]);
 
   // Interactive Dropdown States
   const [isSortOpen, setIsSortOpen] = useState(false);
@@ -123,8 +131,6 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
 
   const currentSortOption = sortOptions.find((opt) => opt.value === sortBy) || sortOptions[0];
   const CurrentSortIcon = currentSortOption.icon;
-
-  useModalDismiss(Boolean(selectedMember), () => setSelectedMember(null));
 
   // Helper to determine single member's status for a given activity
   const getMemberRecordForActivity = (activity: Activity, user: User) => {
@@ -210,30 +216,76 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
     return {
       attended: false,
       timestamp: null,
-      dateStamp: null,
+      dateStamp: activity.date,
       timeStamp: null,
       isFinished,
     };
   };
 
-  // Compile member stats
-  const memberStatsList = useMemo(() => {
-    return users.map((u) => {
-      const activityRecords = activities.map((act) => ({
-        activity: act,
-        record: getMemberRecordForActivity(act, u),
-      }));
+  // Helper for audience badge
+  const renderAudienceBadge = (targetAudience?: ActivityAudience) => {
+    const aud = targetAudience || 'Both';
+    if (aud === 'Officers') {
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1 shadow-2xs">
+          <Shield className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+          <span>Officers Only</span>
+        </span>
+      );
+    }
+    if (aud === 'Members') {
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1 shadow-2xs">
+          <Users className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+          <span>Members Only</span>
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-stone-100 text-stone-700 border border-stone-200 flex items-center gap-1 shadow-2xs">
+        <Users className="w-2.5 h-2.5 text-stone-500 shrink-0" />
+        <span>Officers & Members</span>
+      </span>
+    );
+  };
 
-      const totalEvents = activityRecords.length;
-      const presentCount = activityRecords.filter((item) => item.record.attended).length;
-      const absentCount = activityRecords.filter((item) => !item.record.attended && item.record.isFinished).length;
-      const upcomingCount = activityRecords.filter((item) => !item.record.attended && !item.record.isFinished).length;
+  // Build full statistics list for each member with Audience filtering support
+  const memberStatsList = useMemo(() => {
+    return users.map((user) => {
+      const isUserOfficer = isOfficerRole(user.role);
+
+      const allActivityRecords = activities.map((activity) => {
+        const isApplicable = isActivityApplicableToUser(activity, user);
+        const record = getMemberRecordForActivity(activity, user);
+        return {
+          activity,
+          record,
+          isApplicable,
+        };
+      });
+
+      // Relevant activities: activities applicable to this user's role OR activities the user attended
+      const relevantRecords = allActivityRecords.filter(
+        (item) => item.isApplicable || item.record.attended
+      );
+
+      const totalEvents = relevantRecords.length;
+      const presentCount = relevantRecords.filter((item) => item.record.attended).length;
+      const absentCount = relevantRecords.filter(
+        (item) => !item.record.attended && item.record.isFinished && item.isApplicable
+      ).length;
+      const upcomingCount = relevantRecords.filter(
+        (item) => !item.record.attended && !item.record.isFinished && item.isApplicable
+      ).length;
       const finishedEventsCount = presentCount + absentCount;
-      const attendanceRate = finishedEventsCount > 0 ? Math.round((presentCount / finishedEventsCount) * 100) : 0;
+      const attendanceRate =
+        finishedEventsCount > 0 ? Math.round((presentCount / finishedEventsCount) * 100) : 0;
 
       return {
-        user: u,
-        activityRecords,
+        user,
+        isUserOfficer,
+        allActivityRecords,
+        relevantRecords,
         totalEvents,
         presentCount,
         absentCount,
@@ -244,15 +296,25 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
     });
   }, [users, activities, attendanceLogs]);
 
-  // Overall Global Summary Stats
+  // Extract unique roles for dropdown
+  const uniqueRoles = useMemo(() => {
+    const set = new Set<string>();
+    users.forEach((u) => {
+      if (u.role) set.add(u.role);
+    });
+    return Array.from(set).sort();
+  }, [users]);
+
+  // Overall Global Summary
   const globalSummary = useMemo(() => {
     const totalMembers = memberStatsList.length;
     const totalEvents = activities.length;
     const totalPresentScans = memberStatsList.reduce((acc, m) => acc + m.presentCount, 0);
     const totalAbsences = memberStatsList.reduce((acc, m) => acc + m.absentCount, 0);
-    const avgRate = totalMembers > 0
-      ? Math.round(memberStatsList.reduce((acc, m) => acc + m.attendanceRate, 0) / totalMembers)
-      : 0;
+    const avgRate =
+      totalMembers > 0
+        ? Math.round(memberStatsList.reduce((acc, m) => acc + m.attendanceRate, 0) / totalMembers)
+        : 0;
 
     return {
       totalMembers,
@@ -263,39 +325,36 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
     };
   }, [memberStatsList, activities]);
 
-  // Extract unique roles for filter dropdown
-  const uniqueRoles = useMemo(() => {
-    const set = new Set<string>();
-    users.forEach((u) => {
-      if (u.role) set.add(u.role);
-    });
-    return Array.from(set);
-  }, [users]);
-
   // Filtered & Sorted Members
   const filteredMembers = useMemo(() => {
     return memberStatsList
-      .filter(({ user, attendanceRate, presentCount, absentCount }) => {
-        // Search term
+      .filter(({ user, attendanceRate }) => {
+        // 1. Search filter
         const q = searchTerm.toLowerCase().trim();
         if (q) {
-          const matchName = user.name?.toLowerCase().includes(q);
-          const matchId = user.memberNumber?.toLowerCase().includes(q) || user.id?.toLowerCase().includes(q);
-          const matchRole = user.role?.toLowerCase().includes(q);
-          const matchNetwork = user.network?.toLowerCase().includes(q);
+          const matchName = (user.name || '').toLowerCase().includes(q);
+          const matchId = (user.memberNumber || user.id || '').toLowerCase().includes(q);
+          const matchRole = (user.role || '').toLowerCase().includes(q);
+          const matchNetwork = (user.network || '').toLowerCase().includes(q);
           if (!matchName && !matchId && !matchRole && !matchNetwork) return false;
         }
 
-        // Role filter
-        if (roleFilter !== 'All' && user.role !== roleFilter) {
-          return false;
+        // 2. Role filter
+        if (roleFilter !== 'All') {
+          if (roleFilter === 'Officers') {
+            if (!isOfficerRole(user.role)) return false;
+          } else if (roleFilter === 'Members') {
+            if (!isMemberOnlyRole(user.role)) return false;
+          } else if (user.role !== roleFilter) {
+            return false;
+          }
         }
 
-        // Performance filter
-        if (performanceFilter === 'Perfect' && (attendanceRate < 100 || presentCount === 0)) return false;
-        if (performanceFilter === 'High' && (attendanceRate < 75 || attendanceRate === 100)) return false;
-        if (performanceFilter === 'Low' && (attendanceRate >= 75 || attendanceRate < 40)) return false;
-        if (performanceFilter === 'Needs Attention' && (attendanceRate >= 40 && absentCount > 0)) return false;
+        // 3. Performance Rate Filter
+        if (performanceFilter === 'Perfect' && attendanceRate !== 100) return false;
+        if (performanceFilter === 'High' && (attendanceRate < 80 || attendanceRate === 100)) return false;
+        if (performanceFilter === 'Low' && (attendanceRate < 50 || attendanceRate >= 80)) return false;
+        if (performanceFilter === 'Needs Attention' && attendanceRate >= 50) return false;
 
         return true;
       })
@@ -303,37 +362,50 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
         if (sortBy === 'present') return b.presentCount - a.presentCount;
         if (sortBy === 'absent') return b.absentCount - a.absentCount;
         if (sortBy === 'rate') return b.attendanceRate - a.attendanceRate;
-        if (sortBy === 'id') return (a.user.memberNumber || '').localeCompare(b.user.memberNumber || '');
-        return (a.user.name || '').localeCompare(b.user.name || '');
+        if (sortBy === 'name') return (a.user.name || '').localeCompare(b.user.name || '');
+        if (sortBy === 'id') return (a.user.memberNumber || a.user.id || '').localeCompare(b.user.memberNumber || b.user.id || '');
+        return 0;
       });
   }, [memberStatsList, searchTerm, roleFilter, performanceFilter, sortBy]);
 
-  // Selected member details data for modal
+  const totalPages = Math.max(1, Math.ceil(filteredMembers.length / itemsPerPage));
+  const validPage = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedMembers = filteredMembers.slice(
+    (validPage - 1) * itemsPerPage,
+    validPage * itemsPerPage
+  );
+
+  // Selected Member Details for Drilldown Modal
   const selectedMemberStats = useMemo(() => {
     if (!selectedMember) return null;
     return memberStatsList.find((m) => m.user.id === selectedMember.id) || null;
   }, [selectedMember, memberStatsList]);
 
-  // Filtered activities inside member modal
+  // Filtered Activities inside Selected Member Modal
   const modalFilteredActivities = useMemo(() => {
     if (!selectedMemberStats) return [];
-    return selectedMemberStats.activityRecords.filter(({ activity, record }) => {
+    return selectedMemberStats.allActivityRecords.filter(({ activity, record, isApplicable }) => {
       const q = modalSearchTerm.toLowerCase().trim();
-      if (q && !activity.name.toLowerCase().includes(q) && !activity.date.includes(q)) {
-        return false;
+      if (q) {
+        const matchesName = activity.name.toLowerCase().includes(q);
+        const matchesDate = activity.date.includes(q);
+        if (!matchesName && !matchesDate) return false;
       }
+
       if (modalEventFilter === 'Present') return record.attended;
-      if (modalEventFilter === 'Absent') return !record.attended && record.isFinished;
-      if (modalEventFilter === 'Upcoming') return !record.attended && !record.isFinished;
+      if (modalEventFilter === 'Absent') return !record.attended && record.isFinished && isApplicable;
+      if (modalEventFilter === 'Upcoming') return !record.attended && !record.isFinished && isApplicable;
+      if (modalEventFilter === 'Officer Meetings') return activity.targetAudience === 'Officers';
+
       return true;
     });
-  }, [selectedMemberStats, modalSearchTerm, modalEventFilter]);
+  }, [selectedMemberStats, modalEventFilter, modalSearchTerm]);
 
   return (
     <div className="space-y-3 sm:space-y-6">
       {/* Top Global Statistics Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3.5">
-        <div className="bg-white p-2.5 sm:p-4 md:p-5 rounded-2xl sm:rounded-3xl border border-[#e2ece2] shadow-2xs space-y-0.5 sm:space-y-1">
+        <div className="bg-white p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-[#e2ece2] shadow-2xs space-y-0.5 sm:space-y-1">
           <div className="flex items-center justify-between text-[#52605d]">
             <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider">Total Members</span>
             <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f]" />
@@ -342,7 +414,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
           <div className="text-[9.5px] sm:text-[11px] text-[#52605d] font-semibold truncate">{globalSummary.totalEvents} Activities Recorded</div>
         </div>
 
-        <div className="bg-emerald-50/70 p-2.5 sm:p-4 md:p-5 rounded-2xl sm:rounded-3xl border border-emerald-200/80 shadow-2xs space-y-0.5 sm:space-y-1">
+        <div className="bg-emerald-50/70 p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-emerald-200/80 shadow-2xs space-y-0.5 sm:space-y-1">
           <div className="flex items-center justify-between text-emerald-800">
             <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider">Total Present</span>
             <CheckCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600" />
@@ -351,16 +423,16 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
           <div className="text-[9.5px] sm:text-[11px] text-emerald-700 font-semibold truncate">Active attendances logged</div>
         </div>
 
-        <div className="bg-rose-50/70 p-2.5 sm:p-4 md:p-5 rounded-2xl sm:rounded-3xl border border-rose-200/80 shadow-2xs space-y-0.5 sm:space-y-1">
+        <div className="bg-rose-50/70 p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-rose-200/80 shadow-2xs space-y-0.5 sm:space-y-1">
           <div className="flex items-center justify-between text-rose-800">
             <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider">Total Absences</span>
             <XCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-600" />
           </div>
           <div className="text-lg sm:text-2xl font-black text-rose-900">{globalSummary.totalAbsences}</div>
-          <div className="text-[9.5px] sm:text-[11px] text-rose-700 font-semibold truncate">Missed completed events</div>
+          <div className="text-[9.5px] sm:text-[11px] text-rose-700 font-semibold truncate">Required events missed</div>
         </div>
 
-        <div className="bg-emerald-800 text-white p-2.5 sm:p-4 md:p-5 rounded-2xl sm:rounded-3xl border border-emerald-900 shadow-2xs space-y-0.5 sm:space-y-1">
+        <div className="bg-emerald-800 text-white p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-emerald-900 shadow-2xs space-y-0.5 sm:space-y-1">
           <div className="flex items-center justify-between text-emerald-200">
             <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider">Avg Attendance</span>
             <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-300" />
@@ -371,7 +443,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
       </div>
 
       {/* Search, Filters, and Sorting Controls */}
-      <div className="bg-white p-3 sm:p-4 md:p-5 rounded-2xl sm:rounded-3xl border border-[#e2ece2] shadow-xs space-y-2.5 sm:space-y-3.5">
+      <div className="bg-white p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-[#e2ece2] shadow-xs space-y-2.5 sm:space-y-3.5">
         <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2 sm:gap-3">
           {/* Search Input */}
           <div className="relative flex-1">
@@ -444,6 +516,43 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                       <span>All Roles</span>
                       {roleFilter === 'All' && <Check className="w-3.5 h-3.5 shrink-0" />}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRoleFilter('Officers');
+                        setIsRoleOpen(false);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
+                        roleFilter === 'Officers'
+                          ? 'bg-[#1b4332] text-white font-bold'
+                          : 'hover:bg-[#f7f9f7] text-[#1b4332]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">
+                        <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                        <span>All Officers</span>
+                      </span>
+                      {roleFilter === 'Officers' && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRoleFilter('Members');
+                        setIsRoleOpen(false);
+                      }}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer ${
+                        roleFilter === 'Members'
+                          ? 'bg-[#1b4332] text-white font-bold'
+                          : 'hover:bg-[#f7f9f7] text-[#1b4332]'
+                      }`}
+                    >
+                      <span className="flex items-center gap-1">
+                        <Users className="w-3.5 h-3.5 text-blue-600" />
+                        <span>General Members</span>
+                      </span>
+                      {roleFilter === 'Members' && <Check className="w-3.5 h-3.5 shrink-0" />}
+                    </button>
+                    <div className="my-1 border-t border-[#e2ece2]" />
                     {uniqueRoles.map((r) => (
                       <button
                         key={r}
@@ -529,7 +638,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                             <div className="flex items-center gap-2.5 min-w-0">
                               <div
                                 className={`p-1.5 rounded-lg shrink-0 ${
-                                  isSelected
+                                   isSelected
                                     ? 'bg-white/20 text-white'
                                     : 'bg-emerald-50 text-[#2d6a4f] border border-emerald-100'
                                 }`}
@@ -594,119 +703,167 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
           <p className="text-[11px] text-stone-500">Try adjusting your search keywords or filter options.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-4">
-          {filteredMembers.map(({ user, presentCount, absentCount, upcomingCount, attendanceRate, totalEvents }) => {
-            const memberNumber = user.memberNumber || user.id || 'N/A';
-            const role = user.role || 'Member';
-            const network = user.network || 'Main Chapter';
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-4">
+            {paginatedMembers.map(({ user, isUserOfficer, presentCount, absentCount, attendanceRate, totalEvents }) => {
+              const memberNumber = user.memberNumber || user.id || 'N/A';
+              const role = user.role || 'Member';
+              const network = user.network || 'Main Chapter';
 
-            return (
-              <div
-                key={user.id}
-                onClick={() => {
-                  setSelectedMember(user);
-                  setModalEventFilter('All');
-                  setModalSearchTerm('');
-                }}
-                className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] hover:border-[#74c69d] transition-all duration-200 overflow-hidden shadow-2xs hover:shadow-md cursor-pointer flex flex-col justify-between group p-3 sm:p-4 md:p-5 hover:bg-[#f7f9f7]/50 active:scale-[0.99]"
-              >
-                <div className="space-y-2.5 sm:space-y-3.5">
-                  {/* Card Header: Avatar & Details */}
-                  <div className="flex items-start justify-between gap-2.5">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-emerald-100/70 border border-emerald-200 text-[#1b4332] font-black text-xs sm:text-sm flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
-                        {user.avatar ? (
-                          <img
-                            src={user.avatar}
-                            alt={user.name}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <span>{(user.name || 'U').slice(0, 2).toUpperCase()}</span>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="font-extrabold text-xs sm:text-sm text-[#1b4332] group-hover:text-[#2d6a4f] transition-colors truncate">
-                          {user.name}
-                        </h4>
-                        <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold text-stone-500">
-                          <span className="font-mono text-[#2d6a4f] font-bold">{memberNumber}</span>
-                          <span>•</span>
-                          <span className="truncate">{network}</span>
+              return (
+                <div
+                  key={user.id}
+                  onClick={() => {
+                    setSelectedMember(user);
+                    setModalEventFilter('All');
+                    setModalSearchTerm('');
+                  }}
+                  className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] hover:border-[#74c69d] transition-all duration-200 overflow-hidden shadow-2xs hover:shadow-md cursor-pointer flex flex-col justify-between group p-3 sm:p-4 md:p-5 hover:bg-[#f7f9f7]/50 active:scale-[0.99]"
+                >
+                  <div className="space-y-2.5 sm:space-y-3.5">
+                    {/* Card Header: Avatar & Details */}
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-emerald-100/70 border border-emerald-200 text-[#1b4332] font-black text-xs sm:text-sm flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                          {user.avatar ? (
+                            <img
+                              src={user.avatar}
+                              alt={user.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <span>{(user.name || 'U').slice(0, 2).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-extrabold text-xs sm:text-sm text-[#1b4332] group-hover:text-[#2d6a4f] transition-colors truncate">
+                            {user.name}
+                          </h4>
+                          <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold text-stone-500">
+                            <span className="font-mono text-[#2d6a4f] font-bold">{memberNumber}</span>
+                            <span>•</span>
+                            <span className="truncate">{network}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Role Badge */}
-                    <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-[#f7f9f7] border border-[#e2ece2] text-[#1b4332] shrink-0">
-                      {role}
-                    </span>
-                  </div>
-
-                  {/* Attendance Performance Metric Badges */}
-                  <div className="grid grid-cols-2 gap-1.5 sm:gap-2 pt-0.5">
-                    {/* Present Badge */}
-                    <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-emerald-50/80 border border-emerald-100 flex items-center justify-between">
-                      <div className="flex items-center gap-1 sm:gap-1.5 text-emerald-800">
-                        <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600 shrink-0" />
-                        <span className="text-[10px] sm:text-[11px] font-extrabold">Present</span>
-                      </div>
-                      <span className="font-black text-xs sm:text-sm text-emerald-900">{presentCount}</span>
-                    </div>
-
-                    {/* Absent Badge */}
-                    <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-rose-50/80 border border-rose-100 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-rose-800">
-                        <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-600 shrink-0" />
-                        <span className="text-[10px] sm:text-[11px] font-extrabold">Absent</span>
-                      </div>
-                      <span className="font-black text-xs sm:text-sm text-rose-900">{absentCount}</span>
-                    </div>
-                  </div>
-
-                  {/* Progress Bar & Rate */}
-                  <div className="space-y-1 pt-0.5">
-                    <div className="flex items-center justify-between text-[10px] sm:text-[11px]">
-                      <span className="font-bold text-[#52605d]">Attendance Rate:</span>
+                      {/* Role Badge */}
                       <span
-                        className={`font-black ${
-                          attendanceRate >= 80
-                            ? 'text-emerald-700'
-                            : attendanceRate >= 50
-                            ? 'text-amber-700'
-                            : 'text-rose-700'
+                        className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-extrabold shrink-0 border flex items-center gap-1 ${
+                          isUserOfficer
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : 'bg-[#f7f9f7] text-[#1b4332] border-[#e2ece2]'
                         }`}
                       >
-                        {attendanceRate}%
+                        {isUserOfficer && <Shield className="w-2.5 h-2.5 text-emerald-600" />}
+                        <span className="truncate max-w-[80px]">{role}</span>
                       </span>
                     </div>
-                    <div className="w-full h-1.5 sm:h-2 bg-stone-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          attendanceRate >= 80
-                            ? 'bg-emerald-600'
-                            : attendanceRate >= 50
-                            ? 'bg-amber-500'
-                            : 'bg-rose-500'
-                        }`}
-                        style={{ width: `${Math.min(100, Math.max(0, attendanceRate))}%` }}
-                      />
+
+                    {/* Attendance Performance Metric Badges */}
+                    <div className="grid grid-cols-2 gap-1.5 sm:gap-2 pt-0.5">
+                      {/* Present Badge */}
+                      <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-emerald-50/80 border border-emerald-100 flex items-center justify-between">
+                        <div className="flex items-center gap-1 sm:gap-1.5 text-emerald-800">
+                          <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600 shrink-0" />
+                          <span className="text-[10px] sm:text-[11px] font-extrabold">Present</span>
+                        </div>
+                        <span className="font-black text-xs sm:text-sm text-emerald-900">{presentCount}</span>
+                      </div>
+
+                      {/* Absent Badge */}
+                      <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-rose-50/80 border border-rose-100 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-rose-800">
+                          <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-600 shrink-0" />
+                          <span className="text-[10px] sm:text-[11px] font-extrabold">Absent</span>
+                        </div>
+                        <span className="font-black text-xs sm:text-sm text-rose-900">{absentCount}</span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar & Rate */}
+                    <div className="space-y-1 pt-0.5">
+                      <div className="flex items-center justify-between text-[10px] sm:text-[11px]">
+                        <span className="font-bold text-[#52605d]">Required Compliance:</span>
+                        <span
+                          className={`font-black ${
+                            attendanceRate >= 80
+                              ? 'text-emerald-700'
+                              : attendanceRate >= 50
+                              ? 'text-amber-700'
+                              : 'text-rose-700'
+                          }`}
+                        >
+                          {attendanceRate}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 sm:h-2 bg-stone-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            attendanceRate >= 80
+                              ? 'bg-emerald-600'
+                              : attendanceRate >= 50
+                              ? 'bg-amber-500'
+                              : 'bg-rose-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.max(0, attendanceRate))}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Footer Action Hint */}
-                <div className="pt-2.5 sm:pt-3.5 mt-2 sm:mt-3 border-t border-[#e2ece2] flex items-center justify-between text-[10px] sm:text-[11px] text-[#2d6a4f] font-extrabold group-hover:text-[#1b4332]">
-                  <span>View detailed activity log</span>
-                  <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 transition-transform group-hover:translate-x-1" />
+                  {/* Footer Action Hint */}
+                  <div className="pt-2.5 sm:pt-3.5 mt-2 sm:mt-3 border-t border-[#e2ece2] flex items-center justify-between text-[10px] sm:text-[11px] text-[#2d6a4f] font-extrabold group-hover:text-[#1b4332]">
+                    <span>{totalEvents} required events • View logs</span>
+                    <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 transition-transform group-hover:translate-x-1" />
+                  </div>
                 </div>
+              );
+            })}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+              <div>
+                Showing <span className="font-extrabold text-[#1b4332]">{(validPage - 1) * itemsPerPage + 1}</span> to{' '}
+                <span className="font-extrabold text-[#1b4332]">
+                  {Math.min(validPage * itemsPerPage, filteredMembers.length)}
+                </span>{' '}
+                of <span className="font-extrabold text-[#1b4332]">{filteredMembers.length}</span> member profiles
               </div>
-            );
-          })}
-        </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={validPage === 1}
+                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Previous</span>
+                </button>
+
+                <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                  {validPage} / {totalPages}
+                </span>
+
+                <button
+                  type="button"
+                  disabled={validPage === totalPages}
+                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* MEMBER ATTENDANCE BREAKDOWN MODAL */}
@@ -718,218 +875,233 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
               if (e.target === e.currentTarget) setSelectedMember(null);
             }}
           >
-          <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] w-full max-w-2xl lg:max-w-3xl max-h-[78dvh] sm:max-h-[82dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
-            {/* Modal Header */}
-            <div className="p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3 shrink-0">
-              <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
-                <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-emerald-100 border border-emerald-200 text-[#1b4332] font-black text-xs sm:text-base flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
-                  {selectedMember.avatar ? (
-                    <img
-                      src={selectedMember.avatar}
-                      alt={selectedMember.name}
-                      className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLElement).style.display = 'none';
-                      }}
-                    />
-                  ) : (
-                    <span>{(selectedMember.name || 'U').slice(0, 2).toUpperCase()}</span>
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
-                    <h3 className="font-extrabold text-sm sm:text-base text-[#1b4332] truncate">{selectedMember.name}</h3>
-                    <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-[#1b4332] text-white shadow-2xs">
-                      {selectedMember.role || 'Member'}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 text-[10px] sm:text-xs font-semibold text-[#52605d] mt-0.5">
-                    <span className="font-mono text-[#2d6a4f] font-bold">
-                      {selectedMember.memberNumber || selectedMember.id}
-                    </span>
-                    <span>•</span>
-                    <span className="truncate">{selectedMember.network || 'Main Chapter'}</span>
-                    {selectedMember.email && (
-                      <>
-                        <span className="hidden sm:inline">•</span>
-                        <span className="truncate hidden sm:inline">{selectedMember.email}</span>
-                      </>
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] w-full max-w-2xl lg:max-w-3xl max-h-[78dvh] sm:max-h-[82dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
+              {/* Modal Header */}
+              <div className="p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3 shrink-0">
+                <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+                  <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-emerald-100 border border-emerald-200 text-[#1b4332] font-black text-xs sm:text-base flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                    {selectedMember.avatar ? (
+                      <img
+                        src={selectedMember.avatar}
+                        alt={selectedMember.name}
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLElement).style.display = 'none';
+                        }}
+                      />
+                    ) : (
+                      <span>{(selectedMember.name || 'U').slice(0, 2).toUpperCase()}</span>
                     )}
                   </div>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setSelectedMember(null)}
-                className="p-1.5 sm:p-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl transition-colors cursor-pointer shrink-0"
-                title="Close Modal"
-              >
-                <X className="w-4 h-4 sm:w-5 sm:h-5" />
-              </button>
-            </div>
-
-            {/* Modal Body: Stats & Activity Table */}
-            <div className="p-3 sm:p-5 overflow-y-auto flex-1 space-y-3.5 sm:space-y-4 overscroll-contain pr-2 scroll-smooth">
-              {/* Member KPI Summary */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
-                <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-emerald-50 border border-emerald-200/80 space-y-0.5">
-                  <div className="flex items-center justify-between text-emerald-800">
-                    <span className="text-[9px] sm:text-[10px] font-extrabold uppercase">Present</span>
-                    <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600" />
-                  </div>
-                  <div className="text-base sm:text-xl font-black text-emerald-900">{selectedMemberStats.presentCount}</div>
-                  <div className="text-[9px] sm:text-[10px] text-emerald-700 font-semibold truncate">Activities attended</div>
-                </div>
-
-                <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-rose-50 border border-rose-200/80 space-y-0.5">
-                  <div className="flex items-center justify-between text-rose-800">
-                    <span className="text-[9px] sm:text-[10px] font-extrabold uppercase">Absent</span>
-                    <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-600" />
-                  </div>
-                  <div className="text-base sm:text-xl font-black text-rose-900">{selectedMemberStats.absentCount}</div>
-                  <div className="text-[9px] sm:text-[10px] text-rose-700 font-semibold truncate">Completed missed</div>
-                </div>
-
-                <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-amber-50 border border-amber-200/80 space-y-0.5">
-                  <div className="flex items-center justify-between text-amber-800">
-                    <span className="text-[9px] sm:text-[10px] font-extrabold uppercase">Upcoming</span>
-                    <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-600" />
-                  </div>
-                  <div className="text-base sm:text-xl font-black text-amber-900">{selectedMemberStats.upcomingCount}</div>
-                  <div className="text-[9px] sm:text-[10px] text-amber-700 font-semibold truncate">Scheduled events</div>
-                </div>
-
-                <div className="p-2.5 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#1b4332] text-white border border-[#1b4332] space-y-0.5">
-                  <div className="flex items-center justify-between text-emerald-200">
-                    <span className="text-[9px] sm:text-[10px] font-extrabold uppercase">Rate</span>
-                    <TrendingUp className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-300" />
-                  </div>
-                  <div className="text-base sm:text-xl font-black text-white">{selectedMemberStats.attendanceRate}%</div>
-                  <div className="text-[9px] sm:text-[10px] text-emerald-200 font-semibold truncate">
-                    {selectedMemberStats.presentCount} of {selectedMemberStats.finishedEventsCount} past events
-                  </div>
-                </div>
-              </div>
-
-              {/* Modal Filters & Search */}
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-0.5">
-                <div className="relative flex-1 sm:max-w-xs">
-                  <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search member events..."
-                    value={modalSearchTerm}
-                    onChange={(e) => setModalSearchTerm(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
-                  />
-                </div>
-
-                <div className="flex items-center gap-1 overflow-x-auto pb-0.5 sm:pb-0">
-                  {(['All', 'Present', 'Absent', 'Upcoming'] as const).map((filter) => (
-                    <button
-                      key={filter}
-                      type="button"
-                      onClick={() => setModalEventFilter(filter)}
-                      className={`px-2.5 py-1 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
-                        modalEventFilter === filter
-                          ? 'bg-[#1b4332] text-white shadow-2xs'
-                          : 'bg-[#f7f9f7] text-[#52605d] hover:bg-stone-200/70 border border-[#e2ece2]'
-                      }`}
-                    >
-                      {filter}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Detailed Activity Rows */}
-              <div className="bg-white rounded-xl sm:rounded-2xl border border-[#e2ece2] overflow-hidden shadow-2xs">
-                {modalFilteredActivities.length === 0 ? (
-                  <div className="p-6 text-center text-xs text-stone-500 font-medium">
-                    No activity records found matching your filter.
-                  </div>
-                ) : (
-                  <div className="divide-y divide-[#e2ece2]">
-                    <div className="hidden md:grid md:grid-cols-12 gap-3 px-5 py-2.5 bg-[#f7f9f7] text-[9.5px] font-extrabold text-[#52605d] uppercase tracking-wider">
-                      <div className="col-span-5">Activity / Event Name</div>
-                      <div className="col-span-3">Event Date</div>
-                      <div className="col-span-4 text-right">Attendance Status & Timestamp</div>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                      <h3 className="font-extrabold text-sm sm:text-base text-[#1b4332] truncate">{selectedMember.name}</h3>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold flex items-center gap-1 ${
+                          selectedMemberStats.isUserOfficer
+                            ? 'bg-[#1b4332] text-white shadow-2xs'
+                            : 'bg-stone-200 text-stone-800'
+                        }`}
+                      >
+                        {selectedMemberStats.isUserOfficer && <Shield className="w-2.5 h-2.5 text-emerald-300" />}
+                        <span>{selectedMember.role || 'Member'}</span>
+                      </span>
                     </div>
-
-                    {modalFilteredActivities.map(({ activity, record }) => {
-                      const formattedDate = !isNaN(new Date(activity.date).getTime())
-                        ? new Date(activity.date).toLocaleDateString(undefined, {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                          })
-                        : activity.date;
-
-                      return (
-                        <div
-                          key={activity.id}
-                          className="p-3 sm:p-4 hover:bg-[#f7f9f7]/70 transition-colors flex flex-col md:grid md:grid-cols-12 gap-1.5 md:gap-3 items-start md:items-center"
-                        >
-                          <div className="col-span-5 space-y-0.5">
-                            <h5 className="font-extrabold text-xs text-[#1b4332]">{activity.name}</h5>
-                            <div className="md:hidden text-[10px] text-[#52605d]">Date: {formattedDate}</div>
-                          </div>
-
-                          <div className="hidden md:block col-span-3 text-xs font-semibold text-[#1b4332]">
-                            {formattedDate}
-                          </div>
-
-                          <div className="col-span-4 w-full md:w-auto flex md:justify-end">
-                            {record.attended ? (
-                              <div className="flex flex-col md:items-end gap-0.5">
-                                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
-                                  <CheckCircle className="w-3 h-3 text-emerald-600" />
-                                  <span>Present</span>
-                                </span>
-                                {record.timestamp && (
-                                  <span className="text-[9.5px] text-stone-500 font-mono font-medium">
-                                    {record.timestamp}
-                                  </span>
-                                )}
-                              </div>
-                            ) : record.isFinished ? (
-                              <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
-                                <XCircle className="w-3 h-3 text-rose-600" />
-                                <span>Absent</span>
-                              </span>
-                            ) : (
-                              <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1 shadow-2xs">
-                                <Clock className="w-3 h-3 text-amber-600" />
-                                <span>Upcoming Event</span>
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
+                    <div className="flex items-center gap-1.5 text-[10px] sm:text-xs font-semibold text-[#52605d] mt-0.5">
+                      <span className="font-mono text-[#2d6a4f] font-bold">
+                        {selectedMember.memberNumber || selectedMember.id}
+                      </span>
+                      <span>•</span>
+                      <span className="truncate">{selectedMember.network || 'Main Chapter'}</span>
+                      {selectedMember.email && (
+                        <>
+                          <span className="hidden sm:inline">•</span>
+                          <span className="truncate hidden sm:inline">{selectedMember.email}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
 
-            {/* Modal Footer */}
-            <div className="p-3 sm:p-4 bg-[#f7f9f7] border-t border-[#e2ece2] flex items-center justify-between">
-              <span className="text-[11px] sm:text-xs font-extrabold text-[#1b4332] pl-1">
-                Total Activities: {selectedMemberStats.totalEvents}
-              </span>
-              <button
-                type="button"
-                onClick={() => setSelectedMember(null)}
-                className="px-3 sm:px-4 py-1.5 sm:py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer transition-colors"
-              >
-                Close
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedMember(null)}
+                  className="p-1.5 sm:p-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl transition-colors cursor-pointer shrink-0"
+                  title="Close Modal"
+                >
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                </button>
+              </div>
+
+              {/* Modal Body: Stats & Activity Table */}
+              <div className="p-3 sm:p-5 overflow-y-auto flex-1 space-y-3.5 sm:space-y-4 overscroll-contain pr-2 scroll-smooth">
+                {/* Member KPI Summary */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+                  <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-emerald-50 border border-emerald-200/80 space-y-0.5">
+                    <div className="flex items-center justify-between text-emerald-800">
+                      <span className="text-[9px] sm:text-[10px] font-extrabold uppercase">Present</span>
+                      <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600" />
+                    </div>
+                    <div className="text-base sm:text-xl font-black text-emerald-900">{selectedMemberStats.presentCount}</div>
+                    <div className="text-[9px] sm:text-[10px] text-emerald-700 font-semibold truncate">Activities attended</div>
+                  </div>
+
+                  <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-rose-50 border border-rose-200/80 space-y-0.5">
+                    <div className="flex items-center justify-between text-rose-800">
+                      <span className="text-[9px] sm:text-[10px] font-extrabold uppercase">Absent</span>
+                      <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-600" />
+                    </div>
+                    <div className="text-base sm:text-xl font-black text-rose-900">{selectedMemberStats.absentCount}</div>
+                    <div className="text-[9px] sm:text-[10px] text-rose-700 font-semibold truncate">Required events missed</div>
+                  </div>
+
+                  <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-amber-50 border border-amber-200/80 space-y-0.5">
+                    <div className="flex items-center justify-between text-amber-800">
+                      <span className="text-[9px] sm:text-[10px] font-extrabold uppercase">Upcoming</span>
+                      <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-600" />
+                    </div>
+                    <div className="text-base sm:text-xl font-black text-amber-900">{selectedMemberStats.upcomingCount}</div>
+                    <div className="text-[9px] sm:text-[10px] text-amber-700 font-semibold truncate">Scheduled events</div>
+                  </div>
+
+                  <div className="p-2.5 sm:p-3 rounded-xl sm:rounded-2xl bg-[#1b4332] text-white border border-[#1b4332] space-y-0.5">
+                    <div className="flex items-center justify-between text-emerald-200">
+                      <span className="text-[9px] sm:text-[10px] font-extrabold uppercase">Compliance</span>
+                      <TrendingUp className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-300" />
+                    </div>
+                    <div className="text-base sm:text-xl font-black text-white">{selectedMemberStats.attendanceRate}%</div>
+                    <div className="text-[9px] sm:text-[10px] text-emerald-200 font-semibold truncate">
+                      {selectedMemberStats.presentCount} of {selectedMemberStats.finishedEventsCount} required
+                    </div>
+                  </div>
+                </div>
+
+                {/* Modal Filters & Search */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-0.5">
+                  <div className="relative flex-1 sm:max-w-xs">
+                    <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Search member events..."
+                      value={modalSearchTerm}
+                      onChange={(e) => setModalSearchTerm(e.target.value)}
+                      className="w-full pl-8 pr-3 py-1.5 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-1 overflow-x-auto pb-0.5 sm:pb-0">
+                    {(['All', 'Present', 'Absent', 'Upcoming', 'Officer Meetings'] as const).map((filter) => (
+                      <button
+                        key={filter}
+                        type="button"
+                        onClick={() => setModalEventFilter(filter)}
+                        className={`px-2.5 py-1 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
+                          modalEventFilter === filter
+                            ? 'bg-[#1b4332] text-white shadow-2xs'
+                            : 'bg-[#f7f9f7] text-[#52605d] hover:bg-stone-200/70 border border-[#e2ece2]'
+                        }`}
+                      >
+                        {filter}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Detailed Activity Rows */}
+                <div className="bg-white rounded-xl sm:rounded-2xl border border-[#e2ece2] overflow-hidden shadow-2xs">
+                  {modalFilteredActivities.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-stone-500 font-medium">
+                      No activity records found matching your filter.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-[#e2ece2]">
+                      <div className="hidden md:grid md:grid-cols-12 gap-3 px-5 py-2.5 bg-[#f7f9f7] text-[9.5px] font-extrabold text-[#52605d] uppercase tracking-wider">
+                        <div className="col-span-5">Activity & Audience</div>
+                        <div className="col-span-3">Event Date</div>
+                        <div className="col-span-4 text-right">Attendance Status & Timestamp</div>
+                      </div>
+
+                      {modalFilteredActivities.map(({ activity, record, isApplicable }) => {
+                        const formattedDate = !isNaN(new Date(activity.date).getTime())
+                          ? new Date(activity.date).toLocaleDateString(undefined, {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })
+                          : activity.date;
+
+                        return (
+                          <div
+                            key={activity.id}
+                            className="p-3 sm:p-4 hover:bg-[#f7f9f7]/70 transition-colors flex flex-col md:grid md:grid-cols-12 gap-1.5 md:gap-3 items-start md:items-center"
+                          >
+                            <div className="col-span-5 space-y-1">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <h5 className="font-extrabold text-xs text-[#1b4332]">{activity.name}</h5>
+                                {renderAudienceBadge(activity.targetAudience)}
+                              </div>
+                              <div className="md:hidden text-[10px] text-[#52605d]">Date: {formattedDate}</div>
+                            </div>
+
+                            <div className="hidden md:block col-span-3 text-xs font-semibold text-[#1b4332]">
+                              {formattedDate}
+                            </div>
+
+                            <div className="col-span-4 w-full md:w-auto flex md:justify-end">
+                              {record.attended ? (
+                                <div className="flex flex-col md:items-end gap-0.5">
+                                  <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                                    <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                    <span>Present</span>
+                                  </span>
+                                  {record.timestamp && (
+                                    <span className="text-[9.5px] text-stone-500 font-mono font-medium">
+                                      {record.timestamp}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : !isApplicable ? (
+                                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-stone-100 text-stone-600 border border-stone-200 flex items-center gap-1" title="This meeting was for officers only and not required for general members">
+                                  <Info className="w-3 h-3 text-stone-400" />
+                                  <span>Not Required</span>
+                                </span>
+                              ) : record.isFinished ? (
+                                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
+                                  <XCircle className="w-3 h-3 text-rose-600" />
+                                  <span>Absent</span>
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1 shadow-2xs">
+                                  <Clock className="w-3 h-3 text-amber-600" />
+                                  <span>Upcoming</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-3 sm:p-4 bg-[#f7f9f7] border-t border-[#e2ece2] flex items-center justify-between">
+                <span className="text-[11px] sm:text-xs font-extrabold text-[#1b4332] pl-1">
+                  Required Activities: {selectedMemberStats.totalEvents}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedMember(null)}
+                  className="px-3 sm:px-4 py-1.5 sm:py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer transition-colors"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      </ModalPortal>
-    )}
-  </div>
-);
+        </ModalPortal>
+      )}
+    </div>
+  );
 };

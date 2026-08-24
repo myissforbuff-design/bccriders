@@ -3,7 +3,14 @@ import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { safeFetchJson, authFetch, store, getCachedData } from '../lib/db';
 import { loadFromSession } from '../lib/storageSecurity';
-import { User as UserType } from '../types';
+import {
+  User as UserType,
+  Activity,
+  ActivityAudience,
+  isOfficerRole,
+  isMemberOnlyRole,
+  isActivityApplicableToUser,
+} from '../types';
 import { OfficialDotSpinner } from './OfficialLoader';
 import { AttendanceTracker } from './AttendanceTracker';
 import { ModalPortal } from './ModalPortal';
@@ -20,28 +27,14 @@ import {
   Plus,
   Trash2,
   AlertTriangle,
-  Loader2,
   ChevronLeft,
   ChevronRight,
   UserCheck,
+  Edit3,
+  Shield,
+  Check,
+  Filter,
 } from 'lucide-react';
-
-interface Attendance {
-  name: string;
-  memberId: string;
-  network: string;
-  date: string;
-  time: string;
-  avatar?: string;
-}
-
-interface Activity {
-  id: string;
-  name: string;
-  date: string;
-  status: 'Open' | 'Closed';
-  attendance: Attendance[];
-}
 
 interface AttendanceLogDoc {
   id: string;
@@ -62,6 +55,9 @@ interface AttendanceLogDoc {
   dateStamp?: string;
   timeStamp?: string;
   createdAt?: string;
+  'Activity ID'?: string;
+  activityId?: string;
+  [key: string]: any;
 }
 
 export const ActivityLog: React.FC = () => {
@@ -111,6 +107,7 @@ export const ActivityLog: React.FC = () => {
         name: evt.title,
         date: evt.date,
         status: (evt.status === 'Completed' || evt.status === 'Cancelled' ? 'Closed' : 'Open') as 'Open' | 'Closed',
+        targetAudience: 'Both' as ActivityAudience,
         attendance: [],
       }));
     }
@@ -141,15 +138,39 @@ export const ActivityLog: React.FC = () => {
   const [selectedActivityForModal, setSelectedActivityForModal] = useState<Activity | null>(null);
   const [logPage, setLogPage] = useState<number>(1);
   const [activityToDelete, setActivityToDelete] = useState<Activity | null>(null);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [audienceFilter, setAudienceFilter] = useState<'All' | 'Officers' | 'Members' | 'Both'>('All');
+  const [activityPage, setActivityPage] = useState<number>(1);
+
+  useEffect(() => {
+    setActivityPage(1);
+  }, [searchTerm, audienceFilter]);
+
+  // Create Activity Form State
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [newActivityName, setNewActivityName] = useState('');
   const [newActivityDate, setNewActivityDate] = useState('');
+  const [newOfficersSelected, setNewOfficersSelected] = useState<boolean>(true);
+  const [newMembersSelected, setNewMembersSelected] = useState<boolean>(true);
+  const [createAudienceError, setCreateAudienceError] = useState<string | null>(null);
+
+  // Edit Activity Form State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [activityToEdit, setActivityToEdit] = useState<Activity | null>(null);
+  const [editActivityName, setEditActivityName] = useState('');
+  const [editActivityDate, setEditActivityDate] = useState('');
+  const [editOfficersSelected, setEditOfficersSelected] = useState<boolean>(true);
+  const [editMembersSelected, setEditMembersSelected] = useState<boolean>(true);
+  const [editActivityStatus, setEditActivityStatus] = useState<'Open' | 'Closed'>('Open');
+  const [editAudienceError, setEditAudienceError] = useState<string | null>(null);
+
+  // Member View Filters
   const [memberStatusFilter, setMemberStatusFilter] = useState<'All' | 'Attended' | 'Absent' | 'Upcoming'>('All');
   const [memberPage, setMemberPage] = useState<number>(1);
 
   useModalDismiss(Boolean(selectedActivityForModal), () => setSelectedActivityForModal(null));
   useModalDismiss(isCreateModalOpen, () => setIsCreateModalOpen(false));
+  useModalDismiss(isEditModalOpen, () => setIsEditModalOpen(false));
   useModalDismiss(Boolean(activityToDelete), () => setActivityToDelete(null));
 
   const fetchActivities = (silent = false) => {
@@ -183,6 +204,7 @@ export const ActivityLog: React.FC = () => {
                   name: evt.title,
                   date: evt.date,
                   status: (evt.status === 'Completed' || evt.status === 'Cancelled' ? 'Closed' : 'Open') as 'Open' | 'Closed',
+                  targetAudience: 'Both',
                   attendance: [],
                 }));
                 mapped.forEach((act) => {
@@ -308,7 +330,7 @@ export const ActivityLog: React.FC = () => {
 
     // Cross-tab synchronization
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'bcc_activity_sync_time' || e.key === 'bcc_events_v2') {
+      if (e.key === 'bcc_activity_sync_time' || e.key === 'bcc_events_v2' || e.key === 'bcc_activities_cache_v1') {
         fetchActivities(true);
         fetchAttendanceLogs(true);
       }
@@ -332,7 +354,6 @@ export const ActivityLog: React.FC = () => {
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
 
-    // Periodic silent background polling (every 3.5s) to guarantee real-time updates across multiple devices/scanners
     const interval = setInterval(() => {
       fetchActivities(true);
       fetchAttendanceLogs(true);
@@ -348,21 +369,102 @@ export const ActivityLog: React.FC = () => {
     };
   }, []);
 
-  const filteredActivities = activities.filter((a) =>
-    a.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // Filter activities for Admin view
+  const filteredActivities = activities.filter((a) => {
+    const matchesSearch = a.name.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!matchesSearch) return false;
+
+    if (audienceFilter !== 'All') {
+      const aud = a.targetAudience || 'Both';
+      if (audienceFilter === 'Officers' && aud !== 'Officers') return false;
+      if (audienceFilter === 'Members' && aud !== 'Members') return false;
+      if (audienceFilter === 'Both' && aud !== 'Both') return false;
+    }
+    return true;
+  });
+
+  const activityItemsPerPage = 10;
+  const totalActivityPages = Math.max(1, Math.ceil(filteredActivities.length / activityItemsPerPage));
+  const currentActivityPage = Math.min(Math.max(1, activityPage), totalActivityPages);
+  const paginatedActivities = filteredActivities.slice(
+    (currentActivityPage - 1) * activityItemsPerPage,
+    currentActivityPage * activityItemsPerPage
   );
 
+  // Calculate officers vs members counts
+  const officersCount = usersList.filter((u) => isOfficerRole(u.role)).length;
+  const membersOnlyCount = usersList.filter((u) => isMemberOnlyRole(u.role)).length;
+  const totalClubMembersCount = usersList.length;
+
+  const getEligibleAudience = (activity: Activity) => {
+    const aud = activity.targetAudience || 'Both';
+    if (aud === 'Officers') {
+      return { count: officersCount || 1, label: 'Officers' };
+    }
+    if (aud === 'Members') {
+      return { count: membersOnlyCount || 1, label: 'Members' };
+    }
+    return { count: totalClubMembersCount || registeredCount || 1, label: 'Club Riders' };
+  };
+
+  // Helper for audience badge
+  const renderAudienceBadge = (targetAudience?: ActivityAudience) => {
+    const aud = targetAudience || 'Both';
+    if (aud === 'Officers') {
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1 shadow-2xs">
+          <Shield className="w-2.5 h-2.5 text-emerald-600 shrink-0" />
+          <span>Officers Only</span>
+        </span>
+      );
+    }
+    if (aud === 'Members') {
+      return (
+        <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-blue-50 text-blue-800 border border-blue-200 flex items-center gap-1 shadow-2xs">
+          <Users className="w-2.5 h-2.5 text-blue-600 shrink-0" />
+          <span>Members Only</span>
+        </span>
+      );
+    }
+    return (
+      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-stone-100 text-stone-700 border border-stone-200 flex items-center gap-1 shadow-2xs">
+        <Users className="w-2.5 h-2.5 text-stone-500 shrink-0" />
+        <span>Officers & Members</span>
+      </span>
+    );
+  };
+
+  // Create Activity
   const createActivity = async () => {
-    if (!newActivityName || !newActivityDate) return;
+    if (!newActivityName.trim() || !newActivityDate) return;
+    if (!newOfficersSelected && !newMembersSelected) {
+      setCreateAudienceError('Please select Officers, Members, or Both if everyone is involved.');
+      return;
+    }
+    setCreateAudienceError(null);
+
+    const targetAudience: ActivityAudience =
+      newOfficersSelected && newMembersSelected
+        ? 'Both'
+        : newOfficersSelected
+        ? 'Officers'
+        : 'Members';
+
     const newActivity: Activity = {
       id: Date.now().toString(),
-      name: newActivityName,
+      name: newActivityName.trim(),
       date: newActivityDate,
       status: 'Open',
+      targetAudience,
       attendance: [],
+      createdAt: new Date().toISOString(),
     };
 
-    setActivities([...activities, newActivity]);
+    const updated = [newActivity, ...activities];
+    setActivities(updated);
+    try {
+      localStorage.setItem('bcc_activities_cache_v1', JSON.stringify(updated));
+    } catch {}
 
     try {
       await authFetch('/api/mongodb/activities', {
@@ -383,11 +485,111 @@ export const ActivityLog: React.FC = () => {
 
     setNewActivityName('');
     setNewActivityDate('');
+    setNewOfficersSelected(true);
+    setNewMembersSelected(true);
     setIsCreateModalOpen(false);
   };
 
+  // Open Edit Modal
+  const handleOpenEditModal = (activity: Activity, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setActivityToEdit(activity);
+    setEditActivityName(activity.name);
+    setEditActivityDate(activity.date);
+    setEditActivityStatus(activity.status || 'Open');
+    const aud = activity.targetAudience || 'Both';
+    setEditOfficersSelected(aud === 'Officers' || aud === 'Both');
+    setEditMembersSelected(aud === 'Members' || aud === 'Both');
+    setEditAudienceError(null);
+    setIsEditModalOpen(true);
+  };
+
+  // Save Edit Activity
+  const saveEditActivity = async () => {
+    if (!activityToEdit || !editActivityName.trim() || !editActivityDate) return;
+    if (!editOfficersSelected && !editMembersSelected) {
+      setEditAudienceError('Please select Officers, Members, or Both if everyone is involved.');
+      return;
+    }
+    setEditAudienceError(null);
+
+    const targetAudience: ActivityAudience =
+      editOfficersSelected && editMembersSelected
+        ? 'Both'
+        : editOfficersSelected
+        ? 'Officers'
+        : 'Members';
+
+    const oldName = activityToEdit.name;
+    const newName = editActivityName.trim();
+
+    const updatedActivity: Activity = {
+      ...activityToEdit,
+      name: newName,
+      date: editActivityDate,
+      status: editActivityStatus,
+      targetAudience,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const updatedActivities = activities.map((a) =>
+      a.id === activityToEdit.id ? updatedActivity : a
+    );
+    setActivities(updatedActivities);
+    try {
+      localStorage.setItem('bcc_activities_cache_v1', JSON.stringify(updatedActivities));
+    } catch {}
+
+    // If activity name was updated, update corresponding attendanceLogs in memory & cache
+    if (oldName.toLowerCase().trim() !== newName.toLowerCase().trim()) {
+      const updatedLogs = attendanceLogs.map((log) => {
+        const eName = (log['Event Name'] || log.eventName || '').toLowerCase().trim();
+        if (eName === oldName.toLowerCase().trim() || log.activityId === activityToEdit.id || log['Activity ID'] === activityToEdit.id) {
+          return {
+            ...log,
+            'Event Name': newName,
+            eventName: newName,
+            'Event Date': editActivityDate,
+            eventDate: editActivityDate,
+            'Activity ID': activityToEdit.id,
+            activityId: activityToEdit.id,
+          };
+        }
+        return log;
+      });
+      setAttendanceLogs(updatedLogs);
+      try {
+        localStorage.setItem('bcc_attendance_logs_cache_v1', JSON.stringify(updatedLogs));
+      } catch {}
+    }
+
+    if (selectedActivityForModal?.id === activityToEdit.id) {
+      setSelectedActivityForModal(updatedActivity);
+    }
+
+    try {
+      await authFetch('/api/mongodb/activities', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedActivity),
+      });
+
+      window.dispatchEvent(
+        new CustomEvent('bcc_activities_updated', {
+          detail: { activity: updatedActivity },
+        })
+      );
+      localStorage.setItem('bcc_activity_sync_time', Date.now().toString());
+    } catch (err) {
+      console.error('Failed to update activity:', err);
+    }
+
+    setIsEditModalOpen(false);
+    setActivityToEdit(null);
+  };
+
   const toggleStatus = async (e: React.MouseEvent, activityId: string) => {
-    e.stopPropagation(); // prevent opening modal
+    e.stopPropagation();
     let updatedActivity: Activity | null = null;
     setActivities((prev) =>
       prev.map((a) => {
@@ -468,6 +670,9 @@ export const ActivityLog: React.FC = () => {
 
     // 1. Filter from MongoDB attendanceLogs
     const mongoMatches = attendanceLogs.filter((log) => {
+      const logActId = (log.activityId || log['Activity ID'] || '').trim();
+      if (logActId && logActId === activity.id) return true;
+
       const eName = (log['Event Name'] || log.eventName || '').toLowerCase().trim();
       return eName === actNameLower;
     });
@@ -514,6 +719,7 @@ export const ActivityLog: React.FC = () => {
         name: evt.title,
         date: evt.date,
         status: evt.status === 'Completed' || evt.status === 'Cancelled' ? 'Closed' : 'Open',
+        targetAudience: 'Both',
         attendance: [],
       });
     }
@@ -530,8 +736,10 @@ export const ActivityLog: React.FC = () => {
 
     // 1. Search in attendanceLogs
     const logMatch = attendanceLogs.find((log) => {
+      const logActId = (log.activityId || log['Activity ID'] || '').trim();
       const eName = (log['Event Name'] || log.eventName || '').toLowerCase().trim();
-      if (eName !== actNameLower) return false;
+      const isActMatch = (logActId && logActId === activity.id) || (eName && eName === actNameLower);
+      if (!isActMatch) return false;
 
       const logMemId = (log['Member ID'] || log.memberId || '').toLowerCase().trim();
       if (logMemId && (logMemId === memNo || logMemId === userId)) return true;
@@ -600,10 +808,15 @@ export const ActivityLog: React.FC = () => {
     };
   };
 
-  // Member stats
-  const memberActivityList = allCombinedActivities.map((act) => ({
+  // Member stats: Only count activities applicable to the user, or activities the member attended!
+  const applicableMemberActivities = allCombinedActivities.filter((act) => {
+    return isActivityApplicableToUser(act, currentUser) || getMemberRecord(act).attended;
+  });
+
+  const memberActivityList = applicableMemberActivities.map((act) => ({
     activity: act,
     record: getMemberRecord(act),
+    isApplicable: isActivityApplicableToUser(act, currentUser),
   }));
 
   const totalMemberEvents = memberActivityList.length;
@@ -634,32 +847,32 @@ export const ActivityLog: React.FC = () => {
 
   if (activeSubTab === 'tracker') {
     return (
-      <div className="space-y-4 sm:space-y-6 pb-12">
+      <div className="space-y-3 sm:space-y-6 pb-12">
         {/* Sub-Tab Navigation Header */}
         <div className="flex p-1 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] w-full sm:w-auto self-start overflow-x-auto shadow-2xs">
           <button
             type="button"
             onClick={() => setActiveSubTab('events')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-extrabold text-[10px] sm:text-xs transition-all cursor-pointer whitespace-nowrap min-w-0 ${
               activeSubTab === 'events'
                 ? 'bg-[#1b4332] text-white shadow-xs'
                 : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
             }`}
           >
-            <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
             <span>Activities & Events</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveSubTab('tracker')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-extrabold text-[10px] sm:text-xs transition-all cursor-pointer whitespace-nowrap min-w-0 ${
               activeSubTab === 'tracker'
                 ? 'bg-[#1b4332] text-white shadow-xs'
                 : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
             }`}
           >
-            <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <UserCheck className="w-3.5 h-3.5 shrink-0" />
             <span>Attendance Tracker</span>
           </button>
         </div>
@@ -677,60 +890,60 @@ export const ActivityLog: React.FC = () => {
 
   if (isMember) {
     return (
-      <div className="space-y-4 sm:space-y-6 pb-12">
+      <div className="space-y-3 sm:space-y-6 pb-12">
         {/* Sub-Tab Navigation Header */}
         <div className="flex p-1 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] w-full sm:w-auto self-start overflow-x-auto shadow-2xs">
           <button
             type="button"
             onClick={() => setActiveSubTab('events')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-extrabold text-[10px] sm:text-xs transition-all cursor-pointer whitespace-nowrap min-w-0 ${
               activeSubTab === 'events'
                 ? 'bg-[#1b4332] text-white shadow-xs'
                 : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
             }`}
           >
-            <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <Calendar className="w-3.5 h-3.5 shrink-0" />
             <span>Activities & Events</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveSubTab('tracker')}
-            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-extrabold text-[10px] sm:text-xs transition-all cursor-pointer whitespace-nowrap min-w-0 ${
               activeSubTab === 'tracker'
                 ? 'bg-[#1b4332] text-white shadow-xs'
                 : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
             }`}
           >
-            <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <UserCheck className="w-3.5 h-3.5 shrink-0" />
             <span>Attendance Tracker</span>
           </button>
         </div>
 
         {/* Member Summary Header */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white p-4 rounded-3xl border border-[#e2ece2] shadow-2xs space-y-1">
-            <span className="text-[10px] font-extrabold uppercase text-[#52605d] tracking-wider">Total Events</span>
-            <div className="text-xl font-black text-[#1b4332]">{totalMemberEvents}</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
+          <div className="bg-white p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-[#e2ece2] shadow-2xs space-y-0.5 sm:space-y-1">
+            <span className="text-[9px] sm:text-[10px] font-extrabold uppercase text-[#52605d] tracking-wider">Total Required</span>
+            <div className="text-lg sm:text-xl font-black text-[#1b4332]">{totalMemberEvents}</div>
           </div>
-          <div className="bg-emerald-50/60 p-4 rounded-3xl border border-emerald-100 shadow-2xs space-y-1">
-            <span className="text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider">Attended</span>
-            <div className="text-xl font-black text-emerald-800">{totalMemberAttended}</div>
+          <div className="bg-emerald-50/60 p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-emerald-100 shadow-2xs space-y-0.5 sm:space-y-1">
+            <span className="text-[9px] sm:text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider">Attended</span>
+            <div className="text-lg sm:text-xl font-black text-emerald-800">{totalMemberAttended}</div>
           </div>
-          <div className="bg-rose-50/60 p-4 rounded-3xl border border-rose-100 shadow-2xs space-y-1">
-            <span className="text-[10px] font-extrabold uppercase text-rose-700 tracking-wider">Absent</span>
-            <div className="text-xl font-black text-rose-800">{totalMemberAbsent}</div>
+          <div className="bg-rose-50/60 p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-rose-100 shadow-2xs space-y-0.5 sm:space-y-1">
+            <span className="text-[9px] sm:text-[10px] font-extrabold uppercase text-rose-700 tracking-wider">Absent</span>
+            <div className="text-lg sm:text-xl font-black text-rose-800">{totalMemberAbsent}</div>
           </div>
-          <div className="bg-amber-50/60 p-4 rounded-3xl border border-amber-100 shadow-2xs space-y-1">
-            <span className="text-[10px] font-extrabold uppercase text-amber-700 tracking-wider">Upcoming</span>
-            <div className="text-xl font-black text-amber-800">{totalMemberUpcoming}</div>
+          <div className="bg-amber-50/60 p-3 sm:p-4 rounded-2xl sm:rounded-3xl border border-amber-100 shadow-2xs space-y-0.5 sm:space-y-1">
+            <span className="text-[9px] sm:text-[10px] font-extrabold uppercase text-amber-700 tracking-wider">Upcoming</span>
+            <div className="text-lg sm:text-xl font-black text-amber-800">{totalMemberUpcoming}</div>
           </div>
         </div>
 
         {/* Search & Status Filters */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 p-4 bg-white rounded-3xl border border-[#e2ece2] shadow-xs">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 p-3 sm:p-4 bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] shadow-xs">
           <div className="relative flex-1 sm:max-w-md">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Search event name or date..."
@@ -739,12 +952,12 @@ export const ActivityLog: React.FC = () => {
                 setSearchTerm(e.target.value);
                 setMemberPage(1);
               }}
-              className="w-full pl-9 pr-3 py-2 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+              className="w-full pl-8 sm:pl-9 pr-3 py-1.5 sm:py-2 border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
             />
           </div>
 
           {/* Filter Pills */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 sm:pb-0">
+          <div className="flex items-center gap-1 sm:gap-1.5 overflow-x-auto pb-0.5 sm:pb-0">
             {(['All', 'Attended', 'Absent', 'Upcoming'] as const).map((filter) => (
               <button
                 key={filter}
@@ -752,10 +965,10 @@ export const ActivityLog: React.FC = () => {
                   setMemberStatusFilter(filter);
                   setMemberPage(1);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
+                className={`px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
                   memberStatusFilter === filter
                     ? 'bg-[#1b4332] text-white shadow-xs'
-                    : 'bg-[#f7f9f7] text-[#52605d] hover:bg-stone-200/70'
+                    : 'bg-[#f7f9f7] text-[#52605d] hover:bg-stone-200/70 border border-[#e2ece2]'
                 }`}
               >
                 {filter}
@@ -765,24 +978,24 @@ export const ActivityLog: React.FC = () => {
         </div>
 
         {/* Member Activity List Table / Cards */}
-        <div className="bg-white rounded-3xl border border-[#e2ece2] shadow-xs overflow-hidden">
+        <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] shadow-xs overflow-hidden">
           {isLoadingActivities ? (
-            <div className="p-12 text-center text-xs text-[#2d6a4f] flex flex-col items-center justify-center gap-3">
+            <div className="p-10 text-center text-xs text-[#2d6a4f] flex flex-col items-center justify-center gap-3">
               <OfficialDotSpinner />
-              <span className="font-extrabold text-[#1b4332] mt-2">Loading activity history...</span>
+              <span className="font-extrabold text-[#1b4332] mt-2 text-xs">Loading activity history...</span>
             </div>
           ) : filteredMemberActivities.length === 0 ? (
-            <div className="p-12 text-center text-xs text-stone-500 font-medium">
+            <div className="p-10 text-center text-xs text-stone-500 font-medium">
               No activity records matching your criteria.
             </div>
           ) : (
             <>
               <div className="divide-y divide-[#e2ece2]">
                 {/* Desktop Header */}
-                <div className="hidden md:grid md:grid-cols-12 gap-4 px-6 py-3.5 bg-[#f7f9f7] text-[11px] font-extrabold text-[#52605d] uppercase tracking-wider">
+                <div className="hidden md:grid md:grid-cols-12 gap-4 px-5 py-3 bg-[#f7f9f7] text-[10px] font-extrabold text-[#52605d] uppercase tracking-wider">
                   <div className="col-span-4 flex items-center gap-1.5">
                     <Calendar className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                    <span>Event Name</span>
+                    <span>Event & Audience</span>
                   </div>
                   <div className="col-span-3 flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-[#2d6a4f]" />
@@ -790,7 +1003,7 @@ export const ActivityLog: React.FC = () => {
                   </div>
                   <div className="col-span-3 flex items-center gap-1.5">
                     <User className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                    <span>Member Timestamp</span>
+                    <span>Your Timestamp</span>
                   </div>
                   <div className="col-span-2 text-right">Status</div>
                 </div>
@@ -804,12 +1017,15 @@ export const ActivityLog: React.FC = () => {
                   return (
                     <div
                       key={activity.id}
-                      className="p-4 sm:p-5 hover:bg-[#f7f9f7]/60 transition-colors flex flex-col md:grid md:grid-cols-12 gap-3 md:gap-4 items-start md:items-center"
+                      className="p-3 sm:p-4 hover:bg-[#f7f9f7]/60 transition-colors flex flex-col md:grid md:grid-cols-12 gap-2 md:gap-4 items-start md:items-center"
                     >
-                      {/* Event Name */}
-                      <div className="col-span-4 space-y-0.5">
-                        <h4 className="font-extrabold text-sm text-[#1b4332]">{activity.name}</h4>
-                        <div className="md:hidden text-xs text-[#52605d]">Date: {formattedEventDate}</div>
+                      {/* Event Name & Audience Badge */}
+                      <div className="col-span-4 space-y-1">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h4 className="font-extrabold text-xs sm:text-sm text-[#1b4332]">{activity.name}</h4>
+                          {renderAudienceBadge(activity.targetAudience)}
+                        </div>
+                        <div className="md:hidden text-[10px] sm:text-xs text-[#52605d]">Date: {formattedEventDate}</div>
                       </div>
 
                       {/* Event Date (Desktop) */}
@@ -818,10 +1034,10 @@ export const ActivityLog: React.FC = () => {
                       </div>
 
                       {/* Member Timestamp */}
-                      <div className="col-span-3 text-xs text-[#52605d]">
+                      <div className="col-span-3 text-[11px] sm:text-xs text-[#52605d]">
                         <span className="md:hidden font-bold text-[#1b4332] mr-1">Timestamp:</span>
                         {record.attended ? (
-                          <span className="font-mono font-bold text-[#1b4332] bg-[#f7f9f7] px-2 py-1 rounded-lg border border-[#e2ece2] inline-block">
+                          <span className="font-mono font-bold text-[#1b4332] bg-[#f7f9f7] px-2 py-0.5 sm:py-1 rounded-lg border border-[#e2ece2] inline-block">
                             {record.timestamp}
                           </span>
                         ) : (
@@ -832,18 +1048,18 @@ export const ActivityLog: React.FC = () => {
                       {/* Status Badge */}
                       <div className="col-span-2 w-full md:w-auto flex md:justify-end">
                         {record.attended ? (
-                          <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs">
-                            <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                          <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                            <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600" />
                             <span>Attended</span>
                           </span>
                         ) : record.isFinished ? (
-                          <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1.5 shadow-2xs">
-                            <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                          <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-extrabold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
+                            <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-600" />
                             <span>Absent</span>
                           </span>
                         ) : (
-                          <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1.5 shadow-2xs">
-                            <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          <span className="px-2.5 py-0.5 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-xs font-extrabold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1 shadow-2xs">
+                            <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-600" />
                             <span>Upcoming</span>
                           </span>
                         )}
@@ -854,8 +1070,8 @@ export const ActivityLog: React.FC = () => {
               </div>
 
               {/* Pagination Footer */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 px-6 py-4 bg-[#f7f9f7] border-t border-[#e2ece2] text-xs text-[#52605d]">
-                <div className="font-semibold text-stone-600">
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 px-4 sm:px-6 py-3 sm:py-4 bg-[#f7f9f7] border-t border-[#e2ece2] text-[11px] sm:text-xs text-[#52605d]">
+                <div className="font-semibold text-stone-600 text-[10.5px] sm:text-xs">
                   Showing <span className="font-extrabold text-[#1b4332]">{(currentMemberPage - 1) * memberItemsPerPage + 1}</span> to{' '}
                   <span className="font-extrabold text-[#1b4332]">
                     {Math.min(currentMemberPage * memberItemsPerPage, filteredMemberActivities.length)}
@@ -864,15 +1080,15 @@ export const ActivityLog: React.FC = () => {
                 </div>
 
                 {totalMemberPages > 1 && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() => setMemberPage((prev) => Math.max(1, prev - 1))}
                       disabled={currentMemberPage === 1}
-                      className="p-1.5 rounded-xl border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-stone-100 disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors"
+                      className="p-1 sm:p-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-stone-100 disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors"
                       title="Previous page"
                     >
-                      <ChevronLeft className="w-4 h-4" />
+                      <ChevronLeft className="w-3.5 h-3.5" />
                     </button>
 
                     <div className="flex items-center gap-1 px-1">
@@ -881,7 +1097,7 @@ export const ActivityLog: React.FC = () => {
                           key={pageNum}
                           type="button"
                           onClick={() => setMemberPage(pageNum)}
-                          className={`w-7 h-7 rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                          className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg sm:rounded-xl text-[10px] sm:text-xs font-extrabold transition-all cursor-pointer ${
                             currentMemberPage === pageNum
                               ? 'bg-[#1b4332] text-white shadow-xs'
                               : 'bg-white text-[#52605d] border border-[#e2ece2] hover:bg-stone-100'
@@ -896,10 +1112,10 @@ export const ActivityLog: React.FC = () => {
                       type="button"
                       onClick={() => setMemberPage((prev) => Math.min(totalMemberPages, prev + 1))}
                       disabled={currentMemberPage === totalMemberPages}
-                      className="p-1.5 rounded-xl border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-stone-100 disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors"
+                      className="p-1 sm:p-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-stone-100 disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors"
                       title="Next page"
                     >
-                      <ChevronRight className="w-4 h-4" />
+                      <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 )}
@@ -911,100 +1127,244 @@ export const ActivityLog: React.FC = () => {
     );
   }
 
+  // ADMIN VIEW
   return (
-    <div className="space-y-4 sm:space-y-6 pb-12">
+    <div className="space-y-3 sm:space-y-6 pb-12">
       {/* Sub-Tab Navigation Header */}
       <div className="flex p-1 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] w-full sm:w-auto self-start overflow-x-auto shadow-2xs">
         <button
           type="button"
           onClick={() => setActiveSubTab('events')}
-          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-extrabold text-[10px] sm:text-xs transition-all cursor-pointer whitespace-nowrap min-w-0 ${
             activeSubTab === 'events'
               ? 'bg-[#1b4332] text-white shadow-xs'
               : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
           }`}
         >
-          <Calendar className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+          <Calendar className="w-3.5 h-3.5 shrink-0" />
           <span>Activities & Events</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveSubTab('tracker')}
-          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-lg sm:rounded-xl font-extrabold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+          className={`flex-1 sm:flex-initial flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl font-extrabold text-[10px] sm:text-xs transition-all cursor-pointer whitespace-nowrap min-w-0 ${
             activeSubTab === 'tracker'
               ? 'bg-[#1b4332] text-white shadow-xs'
               : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
           }`}
         >
-          <UserCheck className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+          <UserCheck className="w-3.5 h-3.5 shrink-0" />
           <span>Attendance Tracker</span>
         </button>
       </div>
 
-      {/* Header with Search and Create Activity */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 p-4 bg-white rounded-3xl border border-[#e2ece2] shadow-xs">
-        <div className="flex items-center gap-2 flex-1 sm:max-w-md">
+      {/* Header with Search, Filter & Create Activity */}
+      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 sm:gap-3 p-3 sm:p-4 bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] shadow-xs">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 flex-1">
           <div className="relative flex-1">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Search activities..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+              className="w-full pl-8 sm:pl-9 pr-3 py-1.5 sm:py-2 border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
             />
           </div>
 
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors shadow-xs"
-          >
-            <Plus className="w-4 h-4" />
-            <span>Create Activity</span>
-          </button>
+          {/* Audience Filter Pills */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-0.5 sm:pb-0">
+            {(['All', 'Officers', 'Members', 'Both'] as const).map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => setAudienceFilter(filter)}
+                className={`px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-extrabold whitespace-nowrap transition-all cursor-pointer ${
+                  audienceFilter === filter
+                    ? 'bg-[#1b4332] text-white shadow-2xs'
+                    : 'bg-[#f7f9f7] text-[#52605d] hover:bg-stone-200/70 border border-[#e2ece2]'
+                }`}
+              >
+                {filter === 'All' ? 'All Audiences' : filter === 'Both' ? 'Officers & Members' : `${filter} Only`}
+              </button>
+            ))}
+          </div>
         </div>
+
+        <button
+          onClick={() => {
+            setNewActivityName('');
+            setNewActivityDate('');
+            setNewOfficersSelected(true);
+            setNewMembersSelected(true);
+            setCreateAudienceError(null);
+            setIsCreateModalOpen(true);
+          }}
+          className="px-3.5 py-1.5 sm:py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1.5 whitespace-nowrap cursor-pointer transition-colors shadow-xs shrink-0 active:scale-95"
+        >
+          <Plus className="w-3.5 h-3.5" />
+          <span>Create Activity</span>
+        </button>
       </div>
 
       {/* ACTIVITIES LIST */}
-      <div className="space-y-4">
+      <div className="space-y-2.5 sm:space-y-3.5">
         {isLoadingActivities ? (
-          <div className="p-12 text-center text-xs text-[#2d6a4f] bg-white rounded-3xl border border-[#e2ece2] flex flex-col items-center justify-center gap-3 shadow-2xs">
+          <div className="p-10 text-center text-xs text-[#2d6a4f] bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] flex flex-col items-center justify-center gap-3 shadow-2xs">
             <OfficialDotSpinner />
-            <span className="font-extrabold text-[#1b4332] mt-2">Loading event activities...</span>
+            <span className="font-extrabold text-[#1b4332] mt-2 text-xs">Loading event activities...</span>
           </div>
         ) : filteredActivities.length === 0 ? (
-          <div className="p-8 text-center text-xs text-gray-500 bg-white rounded-3xl border border-[#e2ece2]">
+          <div className="p-8 text-center text-xs text-gray-500 bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2]">
             No matching event activities found.
           </div>
         ) : (
-          filteredActivities.map((activity) => {
+          paginatedActivities.map((activity) => {
             const eventLogs = getLogsForActivity(activity);
+            const audienceInfo = getEligibleAudience(activity);
+            const isClosed = activity.status === 'Closed';
 
             return (
               <div
                 key={activity.id}
                 onClick={() => handleOpenActivityLogsModal(activity)}
-                className="bg-white rounded-3xl border border-[#e2ece2] hover:border-[#74c69d] transition-all duration-200 overflow-hidden shadow-xs p-5 sm:p-6 cursor-pointer flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:bg-[#f7f9f7]/60 group"
+                className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] hover:border-[#74c69d] transition-all duration-200 overflow-hidden shadow-xs p-3.5 sm:p-5 cursor-pointer flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 hover:bg-[#f7f9f7]/60 group"
               >
-                <div className="space-y-1.5 flex-1">
-                  <h3 className="font-extrabold text-base text-[#1b4332] group-hover:text-[#2d6a4f] transition-colors">
-                    {activity.name}
-                  </h3>
-                  <p className="text-xs text-[#52605d] flex items-center gap-2 font-medium">
-                    <span className="flex items-center gap-1">
-                      <Calendar className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                      {new Date(activity.date).toLocaleDateString()}
+                <div className="space-y-1.5 flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-extrabold text-xs sm:text-base text-[#1b4332] group-hover:text-[#2d6a4f] transition-colors truncate">
+                      {activity.name}
+                    </h3>
+                    {renderAudienceBadge(activity.targetAudience)}
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-extrabold ${
+                        !isClosed
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-rose-100 text-rose-800 border border-rose-300'
+                      }`}
+                    >
+                      {!isClosed ? 'Open' : 'Closed'}
+                    </span>
+                  </div>
+
+                  <p className="text-[10.5px] sm:text-xs text-[#52605d] flex items-center gap-2 font-medium flex-wrap">
+                    <span className="flex items-center gap-1 text-stone-600">
+                      <Calendar className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                      {!isNaN(new Date(activity.date).getTime())
+                        ? new Date(activity.date).toLocaleDateString()
+                        : activity.date}
                     </span>
                     <span>•</span>
-                    <span className="font-extrabold text-[#1b4332]">
-                      {eventLogs.length}/{registeredCount}
+                    <span className="font-extrabold text-[#1b4332] bg-[#f7f9f7] px-2 py-0.5 rounded-md border border-[#e2ece2]">
+                      {eventLogs.length} / {audienceInfo.count} {audienceInfo.label}
                     </span>
                   </p>
+                </div>
+
+                {/* Card Action Controls (Edit, Toggle Status, Logs, Delete) */}
+                <div
+                  className="flex items-center gap-1.5 w-full sm:w-auto justify-end shrink-0 pt-1 sm:pt-0 border-t sm:border-t-0 border-[#e2ece2]/60"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Edit Activity Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => handleOpenEditModal(activity, e)}
+                    className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-[10px] sm:text-xs font-extrabold bg-[#f7f9f7] hover:bg-[#e2ece2] text-[#1b4332] border border-[#e2ece2] transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                    title="Edit Activity Details"
+                  >
+                    <Edit3 className="w-3 h-3 text-[#2d6a4f]" />
+                    <span>Edit</span>
+                  </button>
+
+                  {/* Toggle Status Button */}
+                  <button
+                    type="button"
+                    onClick={(e) => toggleStatus(e, activity.id)}
+                    className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-[10px] sm:text-xs font-extrabold flex items-center gap-1 transition-colors cursor-pointer ${
+                      !isClosed
+                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                        : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
+                    }`}
+                    title="Toggle Open/Closed"
+                  >
+                    {!isClosed ? (
+                      <>
+                        <CheckCircle className="w-3 h-3 text-emerald-600" />
+                        <span>Open</span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-3 h-3 text-rose-600" />
+                        <span>Closed</span>
+                      </>
+                    )}
+                  </button>
+
+                  {/* View Attendance Logs Button */}
+                  <button
+                    type="button"
+                    onClick={() => handleOpenActivityLogsModal(activity)}
+                    className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-[10px] sm:text-xs font-extrabold bg-[#1b4332] text-white hover:bg-[#2d6a4f] transition-colors cursor-pointer flex items-center gap-1 shadow-2xs"
+                    title="View Attendance Logs"
+                  >
+                    <Table className="w-3 h-3" />
+                    <span>Logs</span>
+                  </button>
+
+                  {/* Delete Activity Button */}
+                  <button
+                    type="button"
+                    onClick={() => setActivityToDelete(activity)}
+                    className="p-1 sm:p-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
+                    title="Delete Activity"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  </button>
                 </div>
               </div>
             );
           })
+        )}
+
+        {/* Pagination Controls for Activities List */}
+        {totalActivityPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+            <div>
+              Showing <span className="font-extrabold text-[#1b4332]">{(currentActivityPage - 1) * activityItemsPerPage + 1}</span> to{' '}
+              <span className="font-extrabold text-[#1b4332]">
+                {Math.min(currentActivityPage * activityItemsPerPage, filteredActivities.length)}
+              </span>{' '}
+              of <span className="font-extrabold text-[#1b4332]">{filteredActivities.length}</span> activities
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={currentActivityPage === 1}
+                onClick={() => setActivityPage((prev) => Math.max(prev - 1, 1))}
+                className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>Previous</span>
+              </button>
+
+              <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                {currentActivityPage} / {totalActivityPages}
+              </span>
+
+              <button
+                type="button"
+                disabled={currentActivityPage === totalActivityPages}
+                onClick={() => setActivityPage((prev) => Math.min(prev + 1, totalActivityPages))}
+                className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+              >
+                <span>Next</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
@@ -1012,8 +1372,9 @@ export const ActivityLog: React.FC = () => {
       {selectedActivityForModal && (() => {
         const currentModalActivity = activities.find((a) => a.id === selectedActivityForModal.id) || selectedActivityForModal;
         const rawLogs = getLogsForActivity(currentModalActivity);
+        const audienceInfo = getEligibleAudience(currentModalActivity);
 
-        const ITEMS_PER_PAGE = 8;
+        const ITEMS_PER_PAGE = 10;
         const totalLogs = rawLogs.length;
         const totalPages = Math.max(1, Math.ceil(totalLogs / ITEMS_PER_PAGE));
         const currentPage = Math.min(Math.max(1, logPage), totalPages);
@@ -1031,33 +1392,44 @@ export const ActivityLog: React.FC = () => {
             >
               <div className="bg-white rounded-2xl sm:rounded-[28px] border border-[#e2ece2] w-full max-w-md sm:max-w-xl max-h-[78dvh] sm:max-h-[82dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
                 {/* Modal Header */}
-                <div className="p-3.5 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-3 shrink-0">
+                <div className="p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-2.5 shrink-0">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <Table className="w-4 h-4 text-[#2d6a4f] shrink-0" />
-                      <h3 className="font-extrabold text-sm sm:text-base text-[#1b4332] truncate">
+                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+                      <Table className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f] shrink-0" />
+                      <h3 className="font-extrabold text-xs sm:text-base text-[#1b4332] truncate">
                         {currentModalActivity.name}
                       </h3>
+                      {renderAudienceBadge(currentModalActivity.targetAudience)}
                     </div>
-                    <p className="text-[11px] text-[#52605d] flex items-center gap-1.5 font-medium mt-0.5 truncate">
-                      <Calendar className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
-                      <span>Event Date: {new Date(currentModalActivity.date).toLocaleDateString()}</span>
+                    <p className="text-[10px] sm:text-[11px] text-[#52605d] flex items-center gap-1.5 font-medium mt-0.5 truncate">
+                      <Calendar className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                      <span>
+                        Date:{' '}
+                        {!isNaN(new Date(currentModalActivity.date).getTime())
+                          ? new Date(currentModalActivity.date).toLocaleDateString()
+                          : currentModalActivity.date}
+                      </span>
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
-                    <div className="px-2.5 py-1 rounded-xl bg-white text-[#1b4332] border border-[#e2ece2] hidden sm:flex items-center gap-1 text-[11px] font-extrabold shadow-2xs">
-                      <Table className="w-3 h-3 text-[#2d6a4f]" />
-                      <span>Logs</span>
-                    </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditModal(currentModalActivity)}
+                      className="px-2 py-1 rounded-xl bg-white text-[#1b4332] border border-[#e2ece2] hover:bg-[#e2ece2] flex items-center gap-1 text-[10px] sm:text-[11px] font-extrabold shadow-2xs cursor-pointer transition-colors"
+                      title="Edit Activity"
+                    >
+                      <Edit3 className="w-3 h-3 text-[#2d6a4f]" />
+                      <span>Edit</span>
+                    </button>
 
                     <button
                       type="button"
                       onClick={() => setSelectedActivityForModal(null)}
-                      className="p-1.5 sm:p-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl transition-colors cursor-pointer shrink-0"
+                      className="p-1 sm:p-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl transition-colors cursor-pointer shrink-0"
                       title="Close Modal"
                     >
-                      <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                      <X className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -1105,11 +1477,11 @@ export const ActivityLog: React.FC = () => {
                                 <h4 className="text-xs sm:text-sm font-extrabold text-[#1b4332] truncate">
                                   {formattedName}
                                 </h4>
-                                <span className="font-mono font-bold text-[11px] sm:text-xs text-[#2d6a4f] bg-[#d8f3dc]/70 px-2 py-0.5 rounded-lg shrink-0">
+                                <span className="font-mono font-bold text-[10px] sm:text-xs text-[#2d6a4f] bg-[#d8f3dc]/70 px-2 py-0.5 rounded-lg shrink-0">
                                   {time}
                                 </span>
                               </div>
-                              <p className="text-[11px] text-stone-500 font-medium truncate">
+                              <p className="text-[10px] sm:text-[11px] text-stone-500 font-medium truncate">
                                 {network}
                               </p>
                             </div>
@@ -1121,8 +1493,8 @@ export const ActivityLog: React.FC = () => {
 
                   {/* Pagination Controls */}
                   {totalLogs > 0 && totalPages > 1 && (
-                    <div className="flex items-center justify-between pt-2.5 border-t border-[#e2ece2] text-xs">
-                      <span className="text-[#52605d] font-semibold text-[11px]">
+                    <div className="flex items-center justify-between pt-2 border-t border-[#e2ece2] text-xs">
+                      <span className="text-[#52605d] font-semibold text-[10px] sm:text-[11px]">
                         Showing <span className="font-extrabold text-[#1b4332]">{startIndex + 1}-{endIndex}</span> of <span className="font-extrabold text-[#1b4332]">{totalLogs}</span>
                       </span>
                       <div className="flex items-center gap-1">
@@ -1130,7 +1502,7 @@ export const ActivityLog: React.FC = () => {
                           type="button"
                           onClick={() => setLogPage((prev) => Math.max(prev - 1, 1))}
                           disabled={currentPage === 1}
-                          className="p-1 sm:px-2 sm:py-1 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] font-extrabold text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#f7f9f7] active:scale-95 transition-all flex items-center gap-0.5 cursor-pointer shadow-2xs"
+                          className="p-1 sm:px-2 sm:py-0.5 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] font-extrabold text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#f7f9f7] active:scale-95 transition-all flex items-center gap-0.5 cursor-pointer shadow-2xs"
                         >
                           <ChevronLeft className="w-3.5 h-3.5" />
                           <span className="hidden sm:inline">Prev</span>
@@ -1142,7 +1514,7 @@ export const ActivityLog: React.FC = () => {
                           type="button"
                           onClick={() => setLogPage((prev) => Math.min(prev + 1, totalPages))}
                           disabled={currentPage === totalPages}
-                          className="p-1 sm:px-2 sm:py-1 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] font-extrabold text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#f7f9f7] active:scale-95 transition-all flex items-center gap-0.5 cursor-pointer shadow-2xs"
+                          className="p-1 sm:px-2 sm:py-0.5 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] font-extrabold text-xs disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#f7f9f7] active:scale-95 transition-all flex items-center gap-0.5 cursor-pointer shadow-2xs"
                         >
                           <span className="hidden sm:inline">Next</span>
                           <ChevronRight className="w-3.5 h-3.5" />
@@ -1155,15 +1527,15 @@ export const ActivityLog: React.FC = () => {
                 {/* Modal Footer */}
                 <div className="p-3 sm:p-4 bg-[#f7f9f7] border-t border-[#e2ece2] flex items-center justify-between gap-2 shrink-0">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-extrabold text-xs sm:text-sm text-[#1b4332] bg-white px-2.5 py-1 rounded-xl border border-[#e2ece2] shadow-2xs">
-                      {rawLogs.length} / {registeredCount}
+                    <span className="font-extrabold text-[11px] sm:text-xs text-[#1b4332] bg-white px-2.5 py-1 rounded-xl border border-[#e2ece2] shadow-2xs">
+                      {rawLogs.length} / {audienceInfo.count} {audienceInfo.label}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
                     <button
                       type="button"
                       onClick={(e) => toggleStatus(e, currentModalActivity.id)}
-                      className={`px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      className={`px-2.5 py-1 sm:px-3.5 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center gap-1 transition-colors cursor-pointer ${
                         (currentModalActivity.status || 'Open') === 'Open'
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300 hover:bg-emerald-200'
                           : 'bg-rose-100 text-rose-800 border border-rose-300 hover:bg-rose-200'
@@ -1183,7 +1555,7 @@ export const ActivityLog: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setActivityToDelete(currentModalActivity)}
-                      className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl text-xs font-extrabold flex items-center gap-1.5 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer shadow-2xs"
+                      className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center gap-1 bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 transition-colors cursor-pointer shadow-2xs"
                       title="Delete Activity"
                     >
                       <Trash2 className="w-3.5 h-3.5 text-rose-600" /> Delete
@@ -1196,7 +1568,7 @@ export const ActivityLog: React.FC = () => {
         );
       })()}
 
-      {/* Modal for Creating New Activity */}
+      {/* MODAL FOR CREATING NEW ACTIVITY */}
       {isCreateModalOpen && (
         <ModalPortal>
           <div
@@ -1205,54 +1577,338 @@ export const ActivityLog: React.FC = () => {
               if (e.target === e.currentTarget) setIsCreateModalOpen(false);
             }}
           >
-            <div className="bg-white p-5 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e2ece2] space-y-4 w-full max-w-sm shadow-2xl relative my-auto max-h-[82dvh] overflow-y-auto">
+            <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e2ece2] space-y-3 sm:space-y-4 w-full max-w-sm sm:max-w-md shadow-2xl relative my-auto max-h-[85dvh] overflow-y-auto">
               <button
                 type="button"
                 onClick={() => setIsCreateModalOpen(false)}
-                className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 cursor-pointer p-1"
+                className="absolute top-3.5 right-3.5 text-gray-400 hover:text-gray-700 cursor-pointer p-1"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
-              <h3 className="font-extrabold text-base text-[#1b4332]">Create New Event Activity</h3>
+              <h3 className="font-extrabold text-sm sm:text-base text-[#1b4332]">Create New Activity</h3>
+
               <div className="space-y-3">
                 <div>
-                  <label className="block text-[10px] font-extrabold text-[#52605d] uppercase mb-1">
-                    Event / Activity Name
+                  <label className="block text-[9px] sm:text-[10px] font-extrabold text-[#52605d] uppercase mb-1 tracking-wider">
+                    Activity Name
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. Annual Club Rally 2026"
+                    placeholder="e.g. Monthly Officers Assembly / Sunday Club Ride"
                     value={newActivityName}
                     onChange={(e) => setNewActivityName(e.target.value)}
-                    className="w-full p-2.5 sm:p-3 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+                    className="w-full p-2 sm:p-2.5 border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-[10px] font-extrabold text-[#52605d] uppercase mb-1">
-                    Event Date
+                  <label className="block text-[9px] sm:text-[10px] font-extrabold text-[#52605d] uppercase mb-1 tracking-wider">
+                    Activity Date
                   </label>
                   <input
                     type="date"
                     value={newActivityDate}
                     onChange={(e) => setNewActivityDate(e.target.value)}
-                    className="w-full p-2.5 sm:p-3 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+                    className="w-full p-2 sm:p-2.5 border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
                   />
                 </div>
+
+                {/* TARGET AUDIENCE SELECTION (Officers, Members, or Both) */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[9px] sm:text-[10px] font-extrabold text-[#52605d] uppercase tracking-wider">
+                      Target Audience
+                    </label>
+                    <span className="text-[9.5px] text-[#2d6a4f] font-semibold">
+                      Select both if everyone is involved
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Officers Checkbox Button */}
+                    <button
+                      type="button"
+                      onClick={() => setNewOfficersSelected(!newOfficersSelected)}
+                      className={`p-2.5 rounded-xl border text-left flex items-start gap-2 cursor-pointer transition-all ${
+                        newOfficersSelected
+                          ? 'bg-emerald-50 border-emerald-400 ring-2 ring-emerald-500/20 text-[#1b4332]'
+                          : 'bg-[#f7f9f7] border-[#e2ece2] text-stone-500 hover:bg-stone-100'
+                      }`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 mt-0.5 border ${
+                          newOfficersSelected
+                            ? 'bg-[#1b4332] border-[#1b4332] text-white'
+                            : 'bg-white border-stone-300'
+                        }`}
+                      >
+                        {newOfficersSelected && <Check className="w-3 h-3" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] sm:text-xs font-extrabold flex items-center gap-1">
+                          <Shield className="w-3 h-3 text-emerald-600" />
+                          <span>Officers</span>
+                        </div>
+                        <div className="text-[9px] text-stone-500 font-medium leading-tight mt-0.5">
+                          Leadership & Officers
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Members Checkbox Button */}
+                    <button
+                      type="button"
+                      onClick={() => setNewMembersSelected(!newMembersSelected)}
+                      className={`p-2.5 rounded-xl border text-left flex items-start gap-2 cursor-pointer transition-all ${
+                        newMembersSelected
+                          ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/20 text-blue-950'
+                          : 'bg-[#f7f9f7] border-[#e2ece2] text-stone-500 hover:bg-stone-100'
+                      }`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 mt-0.5 border ${
+                          newMembersSelected
+                            ? 'bg-blue-700 border-blue-700 text-white'
+                            : 'bg-white border-stone-300'
+                        }`}
+                      >
+                        {newMembersSelected && <Check className="w-3 h-3" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] sm:text-xs font-extrabold flex items-center gap-1">
+                          <Users className="w-3 h-3 text-blue-600" />
+                          <span>Members</span>
+                        </div>
+                        <div className="text-[9px] text-stone-500 font-medium leading-tight mt-0.5">
+                          General Club Riders
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {createAudienceError && (
+                    <p className="text-[10px] text-rose-600 font-bold">{createAudienceError}</p>
+                  )}
+
+                  <div className="p-2 rounded-xl bg-stone-50 border border-stone-200 text-[10px] text-stone-600">
+                    <span className="font-bold text-[#1b4332]">Target: </span>
+                    {newOfficersSelected && newMembersSelected
+                      ? '🌐 Everyone (All Officers and Members are expected to attend)'
+                      : newOfficersSelected
+                      ? '🛡️ Officers Only (Attendance restricted to Club Officers)'
+                      : newMembersSelected
+                      ? '👥 Members Only (Attendance expected from general club members)'
+                      : 'None selected'}
+                  </div>
+                </div>
               </div>
+
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setIsCreateModalOpen(false)}
-                  className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-extrabold cursor-pointer"
+                  className="px-3.5 py-1.5 sm:py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={createActivity}
-                  className="px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-xs font-extrabold cursor-pointer shadow-xs"
+                  className="px-4 py-1.5 sm:py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer shadow-xs"
                 >
-                  Create Event
+                  Create Activity
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {/* MODAL FOR EDITING CREATED ACTIVITY */}
+      {isEditModalOpen && activityToEdit && (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-3 sm:p-4 animate-fadeIn overscroll-contain"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setIsEditModalOpen(false);
+            }}
+          >
+            <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e2ece2] space-y-3 sm:space-y-4 w-full max-w-sm sm:max-w-md shadow-2xl relative my-auto max-h-[85dvh] overflow-y-auto">
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="absolute top-3.5 right-3.5 text-gray-400 hover:text-gray-700 cursor-pointer p-1"
+              >
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+              <div className="flex items-center gap-2 text-[#1b4332]">
+                <Edit3 className="w-4 h-4 text-[#2d6a4f]" />
+                <h3 className="font-extrabold text-sm sm:text-base text-[#1b4332]">Edit Activity</h3>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[9px] sm:text-[10px] font-extrabold text-[#52605d] uppercase mb-1 tracking-wider">
+                    Activity Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editActivityName}
+                    onChange={(e) => setEditActivityName(e.target.value)}
+                    className="w-full p-2 sm:p-2.5 border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[9px] sm:text-[10px] font-extrabold text-[#52605d] uppercase mb-1 tracking-wider">
+                    Activity Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editActivityDate}
+                    onChange={(e) => setEditActivityDate(e.target.value)}
+                    className="w-full p-2 sm:p-2.5 border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+                  />
+                </div>
+
+                {/* Status Toggle */}
+                <div>
+                  <label className="block text-[9px] sm:text-[10px] font-extrabold text-[#52605d] uppercase mb-1 tracking-wider">
+                    Activity Status
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditActivityStatus('Open')}
+                      className={`p-2 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        editActivityStatus === 'Open'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-400 ring-2 ring-emerald-500/20'
+                          : 'bg-[#f7f9f7] text-stone-500 border border-[#e2ece2]'
+                      }`}
+                    >
+                      <CheckCircle className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Open</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setEditActivityStatus('Closed')}
+                      className={`p-2 rounded-xl text-[11px] sm:text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                        editActivityStatus === 'Closed'
+                          ? 'bg-rose-100 text-rose-800 border border-rose-400 ring-2 ring-rose-500/20'
+                          : 'bg-[#f7f9f7] text-stone-500 border border-[#e2ece2]'
+                      }`}
+                    >
+                      <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Closed</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* TARGET AUDIENCE SELECTION IN EDIT */}
+                <div className="space-y-1.5 pt-1">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-[9px] sm:text-[10px] font-extrabold text-[#52605d] uppercase tracking-wider">
+                      Target Audience
+                    </label>
+                    <span className="text-[9.5px] text-[#2d6a4f] font-semibold">
+                      Select both if everyone is involved
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    {/* Officers Checkbox Button */}
+                    <button
+                      type="button"
+                      onClick={() => setEditOfficersSelected(!editOfficersSelected)}
+                      className={`p-2.5 rounded-xl border text-left flex items-start gap-2 cursor-pointer transition-all ${
+                        editOfficersSelected
+                          ? 'bg-emerald-50 border-emerald-400 ring-2 ring-emerald-500/20 text-[#1b4332]'
+                          : 'bg-[#f7f9f7] border-[#e2ece2] text-stone-500 hover:bg-stone-100'
+                      }`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 mt-0.5 border ${
+                          editOfficersSelected
+                            ? 'bg-[#1b4332] border-[#1b4332] text-white'
+                            : 'bg-white border-stone-300'
+                        }`}
+                      >
+                        {editOfficersSelected && <Check className="w-3 h-3" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] sm:text-xs font-extrabold flex items-center gap-1">
+                          <Shield className="w-3 h-3 text-emerald-600" />
+                          <span>Officers</span>
+                        </div>
+                        <div className="text-[9px] text-stone-500 font-medium leading-tight mt-0.5">
+                          Leadership & Officers
+                        </div>
+                      </div>
+                    </button>
+
+                    {/* Members Checkbox Button */}
+                    <button
+                      type="button"
+                      onClick={() => setEditMembersSelected(!editMembersSelected)}
+                      className={`p-2.5 rounded-xl border text-left flex items-start gap-2 cursor-pointer transition-all ${
+                        editMembersSelected
+                          ? 'bg-blue-50 border-blue-400 ring-2 ring-blue-500/20 text-blue-950'
+                          : 'bg-[#f7f9f7] border-[#e2ece2] text-stone-500 hover:bg-stone-100'
+                      }`}
+                    >
+                      <div
+                        className={`w-4 h-4 rounded-md flex items-center justify-center shrink-0 mt-0.5 border ${
+                          editMembersSelected
+                            ? 'bg-blue-700 border-blue-700 text-white'
+                            : 'bg-white border-stone-300'
+                        }`}
+                      >
+                        {editMembersSelected && <Check className="w-3 h-3" />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-[11px] sm:text-xs font-extrabold flex items-center gap-1">
+                          <Users className="w-3 h-3 text-blue-600" />
+                          <span>Members</span>
+                        </div>
+                        <div className="text-[9px] text-stone-500 font-medium leading-tight mt-0.5">
+                          General Club Riders
+                        </div>
+                      </div>
+                    </button>
+                  </div>
+
+                  {editAudienceError && (
+                    <p className="text-[10px] text-rose-600 font-bold">{editAudienceError}</p>
+                  )}
+
+                  <div className="p-2 rounded-xl bg-stone-50 border border-stone-200 text-[10px] text-stone-600">
+                    <span className="font-bold text-[#1b4332]">Target: </span>
+                    {editOfficersSelected && editMembersSelected
+                      ? '🌐 Everyone (All Officers and Members are expected to attend)'
+                      : editOfficersSelected
+                      ? '🛡️ Officers Only (Attendance restricted to Club Officers)'
+                      : editMembersSelected
+                      ? '👥 Members Only (Attendance expected from general club members)'
+                      : 'None selected'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  className="px-3.5 py-1.5 sm:py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveEditActivity}
+                  className="px-4 py-1.5 sm:py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer shadow-xs"
+                >
+                  Save Changes
                 </button>
               </div>
             </div>
@@ -1269,41 +1925,41 @@ export const ActivityLog: React.FC = () => {
               if (e.target === e.currentTarget) setActivityToDelete(null);
             }}
           >
-            <div className="bg-white p-5 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e2ece2] space-y-4 w-full max-w-md shadow-2xl relative my-auto max-h-[82dvh] overflow-y-auto">
+            <div className="bg-white p-4 sm:p-6 rounded-2xl sm:rounded-3xl border border-[#e2ece2] space-y-3 sm:space-y-4 w-full max-w-md shadow-2xl relative my-auto max-h-[82dvh] overflow-y-auto">
               <button
                 type="button"
                 onClick={() => setActivityToDelete(null)}
-                className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 cursor-pointer p-1"
+                className="absolute top-3.5 right-3.5 text-gray-400 hover:text-gray-700 cursor-pointer p-1"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
               </button>
               <div className="flex items-center gap-3 text-rose-600">
                 <div className="p-2.5 rounded-2xl bg-rose-50 border border-rose-100 shrink-0">
-                  <AlertTriangle className="w-6 h-6 text-rose-600" />
+                  <AlertTriangle className="w-5 h-5 sm:w-6 sm:h-6 text-rose-600" />
                 </div>
                 <div>
-                  <h3 className="font-extrabold text-base text-[#1b4332]">Delete Activity</h3>
-                  <p className="text-xs text-stone-500 font-medium">Confirm deletion of event</p>
+                  <h3 className="font-extrabold text-sm sm:text-base text-[#1b4332]">Delete Activity</h3>
+                  <p className="text-[11px] text-stone-500 font-medium">Confirm deletion of event</p>
                 </div>
               </div>
               <p className="text-xs text-[#52605d] leading-relaxed">
                 Are you sure you want to delete <span className="font-extrabold text-[#1b4332]">"{activityToDelete.name}"</span>? This action cannot be undone and will permanently remove this activity.
               </p>
-              <div className="flex justify-end gap-2.5 pt-2">
+              <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setActivityToDelete(null)}
-                  className="px-4 py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-xs font-extrabold cursor-pointer transition-colors"
+                  className="px-3.5 py-1.5 sm:py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
                   onClick={confirmDeleteActivity}
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-extrabold cursor-pointer transition-colors shadow-xs flex items-center gap-1.5"
+                  className="px-4 py-1.5 sm:py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer transition-colors shadow-xs flex items-center gap-1.5"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
-                  Confirm Delete
+                  <span>Confirm Delete</span>
                 </button>
               </div>
             </div>

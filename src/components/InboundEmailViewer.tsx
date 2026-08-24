@@ -9,6 +9,8 @@ import {
   Paperclip,
   Inbox,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { InboundEmail } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -22,6 +24,15 @@ export const InboundEmailViewer: React.FC = () => {
   const [emailToDelete, setEmailToDelete] = useState<InboundEmail | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteSuccessMessage, setDeleteSuccessMessage] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const itemsPerPage = 10;
+
+  const totalPages = Math.max(1, Math.ceil(emails.length / itemsPerPage));
+  const validPage = Math.min(Math.max(1, currentPage), totalPages);
+  const paginatedEmails = emails.slice(
+    (validPage - 1) * itemsPerPage,
+    validPage * itemsPerPage
+  );
 
   const fetchEmails = async () => {
     if (!isAuthenticated || !isAdmin) return;
@@ -164,86 +175,127 @@ export const InboundEmailViewer: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className="space-y-2">
-            {emails.map((email) => {
-              const isUnread = !email.read;
-              const formattedDate = new Date(email.receivedAt || email.createdAt || Date.now()).toLocaleString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit',
-              });
+          <>
+            <div className="space-y-2">
+              {paginatedEmails.map((email) => {
+                const isUnread = !email.read;
+                const formattedDate = new Date(email.receivedAt || email.createdAt || Date.now()).toLocaleString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                });
 
-              return (
-                <div
-                  key={email.id}
-                  onClick={() => handleMarkAsRead(email)}
-                  className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
-                    isUnread
-                      ? 'bg-emerald-50/50 border-emerald-200 hover:border-emerald-300 shadow-xs'
-                      : 'bg-white border-[#e2ece2] hover:border-[#2d6a4f]/40 hover:bg-[#f7f9f7]'
-                  }`}
-                >
-                  <div className="space-y-0.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      {isUnread && (
-                        <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />
-                      )}
-                      <span className={`text-[11px] sm:text-xs truncate ${isUnread ? 'font-black text-[#1b4332]' : 'font-bold text-[#52605d]'}`}>
-                        {email.from}
-                      </span>
-                      <span className="text-[10px] text-[#52605d] shrink-0 font-medium">
-                        • {formattedDate}
-                      </span>
-                    </div>
-
-                    <h4 className={`text-xs sm:text-sm truncate ${isUnread ? 'font-black text-[#1b4332]' : 'font-bold text-stone-800'}`}>
-                      {email.subject || '(No Subject)'}
-                    </h4>
-
-                    {email.bodyText && (
-                      <p className="text-[10.5px] sm:text-[11px] text-[#52605d] line-clamp-1">
-                        {email.bodyText}
-                      </p>
-                    )}
-
-                    <div className="flex items-center gap-1.5 pt-0.5">
-                      <span className="text-[9.5px] sm:text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-white border border-[#e2ece2] text-[#1b4332] truncate max-w-[180px]">
-                        To: {Array.isArray(email.to) ? email.to.join(', ') : email.to}
-                      </span>
-                      {email.attachments && email.attachments.length > 0 && (
-                        <span className="text-[9.5px] sm:text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-amber-50 border border-amber-200 text-amber-900 flex items-center gap-1">
-                          <Paperclip className="w-2.5 h-2.5" />
-                          {email.attachments.length}
+                return (
+                  <div
+                    key={email.id}
+                    onClick={() => handleMarkAsRead(email)}
+                    className={`p-3 sm:p-3.5 rounded-xl sm:rounded-2xl border transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-2 ${
+                      isUnread
+                        ? 'bg-emerald-50/50 border-emerald-200 hover:border-emerald-300 shadow-xs'
+                        : 'bg-white border-[#e2ece2] hover:border-[#2d6a4f]/40 hover:bg-[#f7f9f7]'
+                    }`}
+                  >
+                    <div className="space-y-0.5 min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {isUnread && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-600 shrink-0" />
+                        )}
+                        <span className={`text-[11px] sm:text-xs truncate ${isUnread ? 'font-black text-[#1b4332]' : 'font-bold text-[#52605d]'}`}>
+                          {email.from}
                         </span>
-                      )}
-                    </div>
-                  </div>
+                        <span className="text-[10px] text-[#52605d] shrink-0 font-medium">
+                          • {formattedDate}
+                        </span>
+                      </div>
 
-                  <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => handleMarkAsRead(email)}
-                      className="p-1.5 rounded-lg sm:rounded-xl bg-white hover:bg-emerald-50 text-[#1b4332] border border-[#e2ece2] transition-colors cursor-pointer"
-                      title="View Details"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                    {isAdmin && (
+                      <h4 className={`text-xs sm:text-sm truncate ${isUnread ? 'font-black text-[#1b4332]' : 'font-bold text-stone-800'}`}>
+                        {email.subject || '(No Subject)'}
+                      </h4>
+
+                      {email.bodyText && (
+                        <p className="text-[10.5px] sm:text-[11px] text-[#52605d] line-clamp-1">
+                          {email.bodyText}
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-1.5 pt-0.5">
+                        <span className="text-[9.5px] sm:text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-white border border-[#e2ece2] text-[#1b4332] truncate max-w-[180px]">
+                          To: {Array.isArray(email.to) ? email.to.join(', ') : email.to}
+                        </span>
+                        {email.attachments && email.attachments.length > 0 && (
+                          <span className="text-[9.5px] sm:text-[10px] font-bold px-1.5 py-0.2 rounded-md bg-amber-50 border border-amber-200 text-amber-900 flex items-center gap-1">
+                            <Paperclip className="w-2.5 h-2.5" />
+                            {email.attachments.length}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 self-end sm:self-center shrink-0">
                       <button
                         type="button"
-                        onClick={(e) => openDeleteModal(email, e)}
-                        className="p-1.5 rounded-lg sm:rounded-xl bg-white hover:bg-rose-50 text-rose-600 border border-[#e2ece2] transition-colors cursor-pointer"
-                        title="Delete Email"
+                        onClick={() => handleMarkAsRead(email)}
+                        className="p-1.5 rounded-lg sm:rounded-xl bg-white hover:bg-emerald-50 text-[#1b4332] border border-[#e2ece2] transition-colors cursor-pointer"
+                        title="View Details"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Eye className="w-3.5 h-3.5" />
                       </button>
-                    )}
+                      {isAdmin && (
+                        <button
+                          type="button"
+                          onClick={(e) => openDeleteModal(email, e)}
+                          className="p-1.5 rounded-lg sm:rounded-xl bg-white hover:bg-rose-50 text-rose-600 border border-[#e2ece2] transition-colors cursor-pointer"
+                          title="Delete Email"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
+                );
+              })}
+            </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-[#e2ece2] text-xs text-[#52605d]">
+                <div>
+                  Showing <span className="font-extrabold text-[#1b4332]">{(validPage - 1) * itemsPerPage + 1}</span> to{' '}
+                  <span className="font-extrabold text-[#1b4332]">
+                    {Math.min(validPage * itemsPerPage, emails.length)}
+                  </span>{' '}
+                  of <span className="font-extrabold text-[#1b4332]">{emails.length}</span> messages
                 </div>
-              );
-            })}
-          </div>
+
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={validPage === 1}
+                    onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                    className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                  >
+                    <ChevronLeft className="w-3.5 h-3.5" />
+                    <span>Previous</span>
+                  </button>
+
+                  <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                    {validPage} / {totalPages}
+                  </span>
+
+                  <button
+                    type="button"
+                    disabled={validPage === totalPages}
+                    onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                    className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-xs"
+                  >
+                    <span>Next</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 
