@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { User } from '../types';
+import { User, isUserTargetedForActivity, ActivityAudience } from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
 import { OfficialDotSpinner } from './OfficialLoader';
@@ -15,6 +15,7 @@ import {
   Users,
   Percent,
   Sparkles,
+  ChevronLeft,
   ChevronRight,
   TrendingUp,
   Award,
@@ -23,6 +24,7 @@ import {
   Filter,
   ChevronDown,
   Check,
+  Shield,
 } from 'lucide-react';
 
 export interface Attendance {
@@ -40,6 +42,7 @@ export interface Activity {
   date: string;
   status: 'Open' | 'Closed';
   attendance: Attendance[];
+  targetAudience?: ActivityAudience[];
 }
 
 export interface AttendanceLogDoc {
@@ -136,6 +139,8 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
     const userUsername = (user.username || '').toLowerCase().trim();
     const actNameLower = activity.name.toLowerCase().trim();
 
+    const isTargeted = isUserTargetedForActivity(user, activity);
+
     // 1. Search in MongoDB attendanceLogs
     const logMatch = attendanceLogs.find((log) => {
       const logActId = (log.activityId || log['Activity ID'] || '').trim();
@@ -165,6 +170,8 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
         dateStamp,
         timeStamp,
         isFinished: true,
+        isApplicable: true,
+        isTargeted,
       };
     }
 
@@ -189,6 +196,8 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
           dateStamp: attMatch.date || activity.date,
           timeStamp: attMatch.time || 'Recorded',
           isFinished: true,
+          isApplicable: true,
+          isTargeted,
         };
       }
     }
@@ -213,6 +222,8 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
       dateStamp: null,
       timeStamp: null,
       isFinished,
+      isApplicable: isTargeted,
+      isTargeted,
     };
   };
 
@@ -224,17 +235,25 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
         record: getMemberRecordForActivity(act, u),
       }));
 
-      const totalEvents = activityRecords.length;
+      const applicableRecords = activityRecords.filter((item) => item.record.isApplicable);
+      const totalEvents = applicableRecords.length;
       const presentCount = activityRecords.filter((item) => item.record.attended).length;
-      const absentCount = activityRecords.filter((item) => !item.record.attended && item.record.isFinished).length;
-      const upcomingCount = activityRecords.filter((item) => !item.record.attended && !item.record.isFinished).length;
+      const absentCount = applicableRecords.filter((item) => !item.record.attended && item.record.isFinished).length;
+      const upcomingCount = applicableRecords.filter((item) => !item.record.attended && !item.record.isFinished).length;
       const finishedEventsCount = presentCount + absentCount;
-      const attendanceRate = finishedEventsCount > 0 ? Math.round((presentCount / finishedEventsCount) * 100) : 0;
+      const attendanceRate =
+        finishedEventsCount > 0
+          ? Math.round((presentCount / finishedEventsCount) * 100)
+          : totalEvents === 0
+          ? 100
+          : 0;
 
       return {
         user: u,
         activityRecords,
+        applicableRecords,
         totalEvents,
+        allTotalEvents: activities.length,
         presentCount,
         absentCount,
         upcomingCount,
@@ -250,9 +269,10 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
     const totalEvents = activities.length;
     const totalPresentScans = memberStatsList.reduce((acc, m) => acc + m.presentCount, 0);
     const totalAbsences = memberStatsList.reduce((acc, m) => acc + m.absentCount, 0);
-    const avgRate = totalMembers > 0
-      ? Math.round(memberStatsList.reduce((acc, m) => acc + m.attendanceRate, 0) / totalMembers)
-      : 0;
+    const avgRate =
+      totalMembers > 0
+        ? Math.round(memberStatsList.reduce((acc, m) => acc + m.attendanceRate, 0) / totalMembers)
+        : 0;
 
     return {
       totalMembers,
@@ -308,6 +328,21 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
       });
   }, [memberStatsList, searchTerm, roleFilter, performanceFilter, sortBy]);
 
+  // Pagination for main attendance member cards (10 items per batch)
+  const [page, setPage] = useState(1);
+  const itemsPerPage = 10;
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, roleFilter, performanceFilter, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredMembers.length / itemsPerPage));
+  const currentTrackerPage = Math.min(Math.max(1, page), totalPages);
+  const paginatedMembers = filteredMembers.slice(
+    (currentTrackerPage - 1) * itemsPerPage,
+    currentTrackerPage * itemsPerPage
+  );
+
   // Selected member details data for modal
   const selectedMemberStats = useMemo(() => {
     if (!selectedMember) return null;
@@ -323,11 +358,26 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
         return false;
       }
       if (modalEventFilter === 'Present') return record.attended;
-      if (modalEventFilter === 'Absent') return !record.attended && record.isFinished;
-      if (modalEventFilter === 'Upcoming') return !record.attended && !record.isFinished;
+      if (modalEventFilter === 'Absent') return !record.attended && record.isFinished && record.isApplicable;
+      if (modalEventFilter === 'Upcoming') return !record.attended && !record.isFinished && record.isApplicable;
       return true;
     });
   }, [selectedMemberStats, modalSearchTerm, modalEventFilter]);
+
+  // Pagination for activities within member modal (10 items per batch)
+  const [modalPage, setModalPage] = useState(1);
+  const modalItemsPerPage = 10;
+
+  useEffect(() => {
+    setModalPage(1);
+  }, [modalSearchTerm, modalEventFilter, selectedMember]);
+
+  const modalTotalPages = Math.max(1, Math.ceil(modalFilteredActivities.length / modalItemsPerPage));
+  const currentModalPage = Math.min(Math.max(1, modalPage), modalTotalPages);
+  const paginatedModalActivities = modalFilteredActivities.slice(
+    (currentModalPage - 1) * modalItemsPerPage,
+    currentModalPage * modalItemsPerPage
+  );
 
   return (
     <div className="space-y-3 sm:space-y-6">
@@ -575,7 +625,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                   : 'bg-[#f7f9f7] text-[#52605d] hover:bg-stone-200/70 border border-[#e2ece2]'
               }`}
             >
-              {filter === 'Perfect' ? '🌟 100% Perfect' : filter}
+              {filter === 'Perfect' ? '100% Perfect' : filter}
             </button>
           ))}
         </div>
@@ -594,119 +644,173 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
           <p className="text-[11px] text-stone-500">Try adjusting your search keywords or filter options.</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-4">
-          {filteredMembers.map(({ user, presentCount, absentCount, upcomingCount, attendanceRate, totalEvents }) => {
-            const memberNumber = user.memberNumber || user.id || 'N/A';
-            const role = user.role || 'Member';
-            const network = user.network || 'Main Chapter';
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2.5 sm:gap-4">
+            {paginatedMembers.map(({ user, presentCount, absentCount, upcomingCount, attendanceRate, totalEvents }) => {
+              const memberNumber = user.memberNumber || user.id || 'N/A';
+              const role = user.role || 'Member';
+              const network = user.network || 'Main Chapter';
 
-            return (
-              <div
-                key={user.id}
-                onClick={() => {
-                  setSelectedMember(user);
-                  setModalEventFilter('All');
-                  setModalSearchTerm('');
-                }}
-                className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] hover:border-[#74c69d] transition-all duration-200 overflow-hidden shadow-2xs hover:shadow-md cursor-pointer flex flex-col justify-between group p-3 sm:p-4 md:p-5 hover:bg-[#f7f9f7]/50 active:scale-[0.99]"
-              >
-                <div className="space-y-2.5 sm:space-y-3.5">
-                  {/* Card Header: Avatar & Details */}
-                  <div className="flex items-start justify-between gap-2.5">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-emerald-100/70 border border-emerald-200 text-[#1b4332] font-black text-xs sm:text-sm flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
-                        {user.avatar ? (
-                          <img
-                            src={user.avatar}
-                            alt={user.name}
-                            className="w-full h-full object-cover"
-                            onError={(e) => {
-                              (e.target as HTMLElement).style.display = 'none';
-                            }}
-                          />
-                        ) : (
-                          <span>{(user.name || 'U').slice(0, 2).toUpperCase()}</span>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <h4 className="font-extrabold text-xs sm:text-sm text-[#1b4332] group-hover:text-[#2d6a4f] transition-colors truncate">
-                          {user.name}
-                        </h4>
-                        <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold text-stone-500">
-                          <span className="font-mono text-[#2d6a4f] font-bold">{memberNumber}</span>
-                          <span>•</span>
-                          <span className="truncate">{network}</span>
+              return (
+                <div
+                  key={user.id}
+                  onClick={() => {
+                    setSelectedMember(user);
+                    setModalEventFilter('All');
+                    setModalSearchTerm('');
+                  }}
+                  className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] hover:border-[#74c69d] transition-all duration-200 overflow-hidden shadow-2xs hover:shadow-md cursor-pointer flex flex-col justify-between group p-3 sm:p-4 md:p-5 hover:bg-[#f7f9f7]/50 active:scale-[0.99]"
+                >
+                  <div className="space-y-2.5 sm:space-y-3.5">
+                    {/* Card Header: Avatar & Details */}
+                    <div className="flex items-start justify-between gap-2.5">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-9 h-9 sm:w-11 sm:h-11 rounded-xl sm:rounded-2xl bg-emerald-100/70 border border-emerald-200 text-[#1b4332] font-black text-xs sm:text-sm flex items-center justify-center shrink-0 shadow-2xs overflow-hidden">
+                          {user.avatar ? (
+                            <img
+                              src={user.avatar}
+                              alt={user.name}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.target as HTMLElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <span>{(user.name || 'U').slice(0, 2).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <h4 className="font-extrabold text-xs sm:text-sm text-[#1b4332] group-hover:text-[#2d6a4f] transition-colors truncate">
+                            {user.name}
+                          </h4>
+                          <div className="flex items-center gap-1.5 text-[10px] sm:text-[11px] font-semibold text-stone-500">
+                            <span className="font-mono text-[#2d6a4f] font-bold">{memberNumber}</span>
+                            <span>•</span>
+                            <span className="truncate">{network}</span>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Role Badge */}
-                    <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-[#f7f9f7] border border-[#e2ece2] text-[#1b4332] shrink-0">
-                      {role}
-                    </span>
-                  </div>
-
-                  {/* Attendance Performance Metric Badges */}
-                  <div className="grid grid-cols-2 gap-1.5 sm:gap-2 pt-0.5">
-                    {/* Present Badge */}
-                    <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-emerald-50/80 border border-emerald-100 flex items-center justify-between">
-                      <div className="flex items-center gap-1 sm:gap-1.5 text-emerald-800">
-                        <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600 shrink-0" />
-                        <span className="text-[10px] sm:text-[11px] font-extrabold">Present</span>
-                      </div>
-                      <span className="font-black text-xs sm:text-sm text-emerald-900">{presentCount}</span>
-                    </div>
-
-                    {/* Absent Badge */}
-                    <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-rose-50/80 border border-rose-100 flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 text-rose-800">
-                        <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-600 shrink-0" />
-                        <span className="text-[10px] sm:text-[11px] font-extrabold">Absent</span>
-                      </div>
-                      <span className="font-black text-xs sm:text-sm text-rose-900">{absentCount}</span>
-                    </div>
-                  </div>
-
-                  {/* Progress Bar & Rate */}
-                  <div className="space-y-1 pt-0.5">
-                    <div className="flex items-center justify-between text-[10px] sm:text-[11px]">
-                      <span className="font-bold text-[#52605d]">Attendance Rate:</span>
-                      <span
-                        className={`font-black ${
-                          attendanceRate >= 80
-                            ? 'text-emerald-700'
-                            : attendanceRate >= 50
-                            ? 'text-amber-700'
-                            : 'text-rose-700'
-                        }`}
-                      >
-                        {attendanceRate}%
+                      {/* Role Badge */}
+                      <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] font-extrabold bg-[#f7f9f7] border border-[#e2ece2] text-[#1b4332] shrink-0">
+                        {role}
                       </span>
                     </div>
-                    <div className="w-full h-1.5 sm:h-2 bg-stone-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-300 ${
-                          attendanceRate >= 80
-                            ? 'bg-emerald-600'
-                            : attendanceRate >= 50
-                            ? 'bg-amber-500'
-                            : 'bg-rose-500'
-                        }`}
-                        style={{ width: `${Math.min(100, Math.max(0, attendanceRate))}%` }}
-                      />
+
+                    {/* Attendance Performance Metric Badges */}
+                    <div className="grid grid-cols-2 gap-1.5 sm:gap-2 pt-0.5">
+                      {/* Present Badge */}
+                      <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-emerald-50/80 border border-emerald-100 flex items-center justify-between">
+                        <div className="flex items-center gap-1 sm:gap-1.5 text-emerald-800">
+                          <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-emerald-600 shrink-0" />
+                          <span className="text-[10px] sm:text-[11px] font-extrabold">Present</span>
+                        </div>
+                        <span className="font-black text-xs sm:text-sm text-emerald-900">{presentCount}</span>
+                      </div>
+
+                      {/* Absent Badge */}
+                      <div className="p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl bg-rose-50/80 border border-rose-100 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-rose-800">
+                          <XCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-rose-600 shrink-0" />
+                          <span className="text-[10px] sm:text-[11px] font-extrabold">Absent</span>
+                        </div>
+                        <span className="font-black text-xs sm:text-sm text-rose-900">{absentCount}</span>
+                      </div>
+                    </div>
+
+                    {/* Progress Bar & Rate */}
+                    <div className="space-y-1 pt-0.5">
+                      <div className="flex items-center justify-between text-[10px] sm:text-[11px]">
+                        <span className="font-bold text-[#52605d]">Attendance Rate:</span>
+                        <span
+                          className={`font-black ${
+                            attendanceRate >= 80
+                              ? 'text-emerald-700'
+                              : attendanceRate >= 50
+                              ? 'text-amber-700'
+                              : 'text-rose-700'
+                          }`}
+                        >
+                          {attendanceRate}%
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 sm:h-2 bg-stone-100 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-300 ${
+                            attendanceRate >= 80
+                              ? 'bg-emerald-600'
+                              : attendanceRate >= 50
+                              ? 'bg-amber-500'
+                              : 'bg-rose-500'
+                          }`}
+                          style={{ width: `${Math.min(100, Math.max(0, attendanceRate))}%` }}
+                        />
+                      </div>
                     </div>
                   </div>
+
+                  {/* Footer Action Hint */}
+                  <div className="pt-2.5 sm:pt-3.5 mt-2 sm:mt-3 border-t border-[#e2ece2] flex items-center justify-between text-[10px] sm:text-[11px] text-[#2d6a4f] font-extrabold group-hover:text-[#1b4332]">
+                    <span>View detailed activity log</span>
+                    <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 transition-transform group-hover:translate-x-1" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Pagination Controls */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-3 mt-4 p-3 bg-white rounded-2xl border border-[#e2ece2] shadow-2xs text-xs text-[#52605d]">
+            <div className="font-semibold">
+              Showing <span className="font-extrabold text-[#1b4332]">{(currentTrackerPage - 1) * itemsPerPage + 1}</span> to{' '}
+              <span className="font-extrabold text-[#1b4332]">
+                {Math.min(currentTrackerPage * itemsPerPage, filteredMembers.length)}
+              </span>{' '}
+              of <span className="font-extrabold text-[#1b4332]">{filteredMembers.length}</span> members tracked
+            </div>
+
+            {totalPages > 1 && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  disabled={currentTrackerPage === 1}
+                  onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+                  className="px-3 py-1.5 rounded-xl bg-white border border-[#e2ece2] text-xs font-bold text-[#1b4332] hover:bg-[#f7f9f7] disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors flex items-center gap-1 shadow-2xs"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Prev</span>
+                </button>
+
+                <div className="flex items-center gap-1 px-1">
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
+                    <button
+                      key={pageNum}
+                      type="button"
+                      onClick={() => setPage(pageNum)}
+                      className={`w-7 h-7 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        currentTrackerPage === pageNum
+                          ? 'bg-[#1b4332] text-white shadow-xs'
+                          : 'bg-white text-[#52605d] border border-[#e2ece2] hover:bg-stone-100'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  ))}
                 </div>
 
-                {/* Footer Action Hint */}
-                <div className="pt-2.5 sm:pt-3.5 mt-2 sm:mt-3 border-t border-[#e2ece2] flex items-center justify-between text-[10px] sm:text-[11px] text-[#2d6a4f] font-extrabold group-hover:text-[#1b4332]">
-                  <span>View detailed activity log</span>
-                  <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5 transition-transform group-hover:translate-x-1" />
-                </div>
+                <button
+                  type="button"
+                  disabled={currentTrackerPage === totalPages}
+                  onClick={() => setPage((prev) => Math.min(prev + 1, totalPages))}
+                  className="px-3 py-1.5 rounded-xl bg-white border border-[#e2ece2] text-xs font-bold text-[#1b4332] hover:bg-[#f7f9f7] disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors flex items-center gap-1 shadow-2xs"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
               </div>
-            );
-          })}
-        </div>
+            )}
+          </div>
+        </>
       )}
 
       {/* MEMBER ATTENDANCE BREAKDOWN MODAL */}
@@ -857,7 +961,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                       <div className="col-span-4 text-right">Attendance Status & Timestamp</div>
                     </div>
 
-                    {modalFilteredActivities.map(({ activity, record }) => {
+                    {paginatedModalActivities.map(({ activity, record }) => {
                       const formattedDate = !isNaN(new Date(activity.date).getTime())
                         ? new Date(activity.date).toLocaleDateString(undefined, {
                             year: 'numeric',
@@ -866,13 +970,34 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                           })
                         : activity.date;
 
+                      const audience = activity.targetAudience && activity.targetAudience.length > 0
+                        ? activity.targetAudience
+                        : ['Officers', 'Members'];
+                      const isOfficersOnly = audience.length === 1 && (audience[0] === 'Officers' || (audience[0] as string).toLowerCase() === 'officers');
+                      const isMembersOnly = audience.length === 1 && (audience[0] === 'Members' || (audience[0] as string).toLowerCase() === 'members');
+
                       return (
                         <div
                           key={activity.id}
                           className="p-3 sm:p-4 hover:bg-[#f7f9f7]/70 transition-colors flex flex-col md:grid md:grid-cols-12 gap-1.5 md:gap-3 items-start md:items-center"
                         >
-                          <div className="col-span-5 space-y-0.5">
-                            <h5 className="font-extrabold text-xs text-[#1b4332]">{activity.name}</h5>
+                          <div className="col-span-5 space-y-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <h5 className="font-extrabold text-xs text-[#1b4332]">{activity.name}</h5>
+                              {isOfficersOnly ? (
+                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-purple-100 text-purple-800 border border-purple-200">
+                                  Officers Only
+                                </span>
+                              ) : isMembersOnly ? (
+                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200">
+                                  Members Only
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                  All Club
+                                </span>
+                              )}
+                            </div>
                             <div className="md:hidden text-[10px] text-[#52605d]">Date: {formattedDate}</div>
                           </div>
 
@@ -893,6 +1018,16 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                                   </span>
                                 )}
                               </div>
+                            ) : !record.isApplicable ? (
+                              <div className="flex flex-col md:items-end gap-0.5">
+                                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-slate-100 text-slate-600 border border-slate-300 flex items-center gap-1 shadow-2xs">
+                                  <Shield className="w-3 h-3 text-slate-500" />
+                                  <span>N/A ({isOfficersOnly ? 'Officers Only' : 'Members Only'})</span>
+                                </span>
+                                <span className="text-[9px] text-stone-400 font-medium">
+                                  Not required for this role
+                                </span>
+                              </div>
                             ) : record.isFinished ? (
                               <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
                                 <XCircle className="w-3 h-3 text-rose-600" />
@@ -908,6 +1043,53 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                         </div>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* Modal Pagination Controls */}
+                {modalTotalPages > 1 && (
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-2 p-2.5 sm:p-3 bg-[#f7f9f7] border-t border-[#e2ece2] text-[10.5px] sm:text-xs text-[#52605d]">
+                    <span className="font-semibold">
+                      Showing {(currentModalPage - 1) * modalItemsPerPage + 1} to{' '}
+                      {Math.min(currentModalPage * modalItemsPerPage, modalFilteredActivities.length)} of{' '}
+                      {modalFilteredActivities.length} activities
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        disabled={currentModalPage === 1}
+                        onClick={() => setModalPage((prev) => Math.max(prev - 1, 1))}
+                        className="px-2 py-1 rounded-lg bg-white border border-[#e2ece2] font-bold text-[#1b4332] hover:bg-stone-100 disabled:opacity-40 cursor-pointer flex items-center gap-0.5"
+                      >
+                        <ChevronLeft className="w-3 h-3" />
+                        <span>Prev</span>
+                      </button>
+                      <div className="flex items-center gap-1 px-1">
+                        {Array.from({ length: modalTotalPages }, (_, i) => i + 1).map((pageNum) => (
+                          <button
+                            key={pageNum}
+                            type="button"
+                            onClick={() => setModalPage(pageNum)}
+                            className={`w-6 h-6 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                              currentModalPage === pageNum
+                                ? 'bg-[#1b4332] text-white'
+                                : 'bg-white text-[#52605d] border border-[#e2ece2] hover:bg-stone-100'
+                            }`}
+                          >
+                            {pageNum}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={currentModalPage === modalTotalPages}
+                        onClick={() => setModalPage((prev) => Math.min(prev + 1, modalTotalPages))}
+                        className="px-2 py-1 rounded-lg bg-white border border-[#e2ece2] font-bold text-[#1b4332] hover:bg-stone-100 disabled:opacity-40 cursor-pointer flex items-center gap-0.5"
+                      >
+                        <span>Next</span>
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>

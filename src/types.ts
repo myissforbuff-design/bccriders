@@ -104,6 +104,63 @@ export interface User {
 export type EventType = 'Group Ride' | 'Club Meeting' | 'Workshop' | 'Rally' | 'Charity Run';
 export type PaceLevel = 'Casual 15-20mph' | 'Moderate 20-25mph' | 'Fast 25+mph' | 'All Pace';
 
+export type ActivityAudience = 'Officers' | 'Members';
+
+export interface ActivityAttendance {
+  name: string;
+  memberId: string;
+  network: string;
+  date: string;
+  time: string;
+  avatar?: string;
+  bikeInfo?: BikeInfo;
+  isRegistered?: boolean;
+}
+
+export interface Activity {
+  id: string;
+  name: string;
+  date: string;
+  status: 'Open' | 'Closed';
+  attendance: ActivityAttendance[];
+  targetAudience?: ActivityAudience[];
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const isOfficerRole = (role?: string): boolean => {
+  if (!role) return false;
+  const r = role.trim().toLowerCase();
+  return r !== 'member';
+};
+
+export const isMemberRole = (role?: string): boolean => {
+  if (!role) return true;
+  const r = role.trim().toLowerCase();
+  return r === 'member';
+};
+
+export const isUserTargetedForActivity = (
+  user: { role?: string } | null | undefined,
+  activity: { targetAudience?: (ActivityAudience | string)[] } | null | undefined
+): boolean => {
+  if (!user) return false;
+  const targets = activity?.targetAudience && activity.targetAudience.length > 0
+    ? activity.targetAudience
+    : ['Officers', 'Members'];
+
+  const hasOfficers = targets.some((t) => t.toLowerCase() === 'officers');
+  const hasMembers = targets.some((t) => t.toLowerCase() === 'members');
+
+  const isOfficer = isOfficerRole(user.role);
+  const isMember = isMemberRole(user.role);
+
+  if (isOfficer && hasOfficers) return true;
+  if (isMember && hasMembers) return true;
+  return false;
+};
+
 export interface Event {
   id: string;
   title: string;
@@ -215,18 +272,55 @@ export interface MilestoneBadge {
   reqValue: number;
 }
 
+export type PushNotificationCategory = 'finance' | 'members' | 'activities' | 'announcements' | 'system';
+
+export type PushNotificationMode = 'all' | 'custom' | 'targeted';
+
+export interface PushNotificationSettings {
+  masterEnabled: boolean;
+  mode: PushNotificationMode; // 'all': receive everything; 'custom': category filtered; 'targeted': only alerts specific to me
+  notifyFinance: boolean;
+  notifyMembers: boolean;
+  notifyActivities: boolean;
+  notifyAnnouncements: boolean;
+  soundEnabled: boolean;
+  vibrateEnabled: boolean;
+  lastUpdated?: string;
+}
+
+export interface TriggerPushOptions {
+  title: string;
+  message: string;
+  category: PushNotificationCategory;
+  type?: NotificationItem['type'];
+  userId?: string; // targeted user id (empty for broadcast)
+  actionUrl?: string;
+  meta?: Record<string, any>;
+}
+
 export interface NotificationItem {
   id: string;
   userId?: string; // empty means broadcast to all
   title: string;
   message: string;
   type: 'ride' | 'due' | 'meeting' | 'social' | 'system';
+  category?: PushNotificationCategory;
   timestamp: string;
   read: boolean;
   actionUrl?: string;
 }
 
 export type AnnouncementPriority = 'Important' | 'General' | 'Event' | 'Emergency';
+
+export interface AnnouncementReactionUser {
+  userId: string;
+  userName: string;
+}
+
+export interface AnnouncementReaction {
+  emoji: string;
+  users: AnnouncementReactionUser[];
+}
 
 export interface Announcement {
   id: string;
@@ -240,6 +334,7 @@ export interface Announcement {
   facebookUrl?: string;
   createdAt: string;
   updatedAt?: string;
+  reactions?: AnnouncementReaction[];
 }
 
 export interface FinanceSettings {

@@ -901,6 +901,20 @@ export class DataStoreService {
 
     this.recordMembershipFeePayment(sanitized);
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('bcc_push_alert', {
+          detail: {
+            title: 'New Member Approved',
+            message: `${sanitized.name} (${sanitized.memberNumber || 'BRC-MEMBER'}) is now an official BCC Rider!`,
+            category: 'members',
+            type: 'system',
+            userId: sanitized.id,
+          },
+        })
+      );
+    }
+
     return sanitized;
   }
 
@@ -1017,6 +1031,19 @@ export class DataStoreService {
       body: JSON.stringify(newEvent),
     }).catch((err) => console.warn('MongoDB addEvent sync error:', err));
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('bcc_push_alert', {
+          detail: {
+            title: `New Activity: ${newEvent.title}`,
+            message: `${newEvent.startLocation || 'Club Run'} on ${newEvent.date || 'upcoming date'}`,
+            category: 'activities',
+            type: 'ride',
+          },
+        })
+      );
+    }
+
     return newEvent;
   }
 
@@ -1093,6 +1120,20 @@ export class DataStoreService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newPayment),
     }).catch((err) => console.warn('MongoDB addPayment sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('bcc_push_alert', {
+          detail: {
+            title: 'Finance Transaction Logged',
+            message: `Payment of ₱${Number(newPayment.amount).toLocaleString()} (${newPayment.type}) logged for ${newPayment.userName || 'Member'}.`,
+            category: 'finance',
+            type: 'due',
+            userId: newPayment.userId,
+          },
+        })
+      );
+    }
 
     return newPayment;
   }
@@ -1241,6 +1282,25 @@ export class DataStoreService {
   markAllNotificationsRead(): void {
     this.notifications.forEach((n) => (n.read = true));
     saveToStorage(STORAGE_KEYS.NOTIFS, this.notifications);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_notifications_updated'));
+    }
+  }
+
+  deleteNotification(id: string): void {
+    this.notifications = this.notifications.filter((n) => n.id !== id);
+    saveToStorage(STORAGE_KEYS.NOTIFS, this.notifications);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_notifications_updated'));
+    }
+  }
+
+  clearNotifications(): void {
+    this.notifications = [];
+    saveToStorage(STORAGE_KEYS.NOTIFS, []);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_notifications_updated'));
+    }
   }
 
   // Announcements
@@ -1268,6 +1328,19 @@ export class DataStoreService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newAnn),
     }).catch((err) => console.warn('MongoDB createAnnouncement sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('bcc_push_alert', {
+          detail: {
+            title: `Bulletin: ${newAnn.title}`,
+            message: newAnn.content.length > 120 ? `${newAnn.content.slice(0, 117)}...` : newAnn.content,
+            category: 'announcements',
+            type: 'social',
+          },
+        })
+      );
+    }
 
     return newAnn;
   }
@@ -1320,6 +1393,57 @@ export class DataStoreService {
       return ann;
     }
     throw new Error('Announcement not found');
+  }
+
+  toggleAnnouncementReaction(
+    id: string,
+    emoji: string,
+    user: { id: string; name: string }
+  ): Announcement {
+    const ann = this.announcements.find((a) => a.id === id);
+    if (!ann) {
+      throw new Error('Announcement not found');
+    }
+
+    if (!ann.reactions) {
+      ann.reactions = [];
+    }
+
+    const existingReaction = ann.reactions.find((r) => r.emoji === emoji);
+    if (existingReaction) {
+      const userIndex = existingReaction.users.findIndex((u) => u.userId === user.id);
+      if (userIndex > -1) {
+        // User already reacted with this emoji -> remove their reaction
+        existingReaction.users.splice(userIndex, 1);
+        // If no users left for this emoji, remove the emoji reaction entry
+        if (existingReaction.users.length === 0) {
+          ann.reactions = ann.reactions.filter((r) => r.emoji !== emoji);
+        }
+      } else {
+        // Add user reaction
+        existingReaction.users.push({ userId: user.id, userName: user.name });
+      }
+    } else {
+      // New emoji reaction entry
+      ann.reactions.push({
+        emoji,
+        users: [{ userId: user.id, userName: user.name }],
+      });
+    }
+
+    saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
+
+    authFetch('/api/mongodb/updates', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ann),
+    }).catch((err) => console.warn('MongoDB toggleReaction sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_announcements_updated'));
+    }
+
+    return ann;
   }
 
   // Finance Settings & Configs
@@ -1552,7 +1676,7 @@ export class DataStoreService {
     // Create immediate notification for the Admin
     const actionLabel = newReq.actionType === 'edit' ? 'edit/modify' : 'permanently delete';
     this.addNotification({
-      title: '🛡️ Treasurer Authorization Request',
+      title: 'Treasurer Authorization Request',
       message: `${newReq.requesterName} (Treasurer) requested admin approval to ${actionLabel} "${newReq.targetTitle}". Reason: ${newReq.reason || 'Not specified'}`,
       type: 'system',
       read: false,
@@ -1588,7 +1712,7 @@ export class DataStoreService {
     // Notify the Treasurer of the Admin's decision
     const statusText = status === 'Granted' ? 'GRANTED access' : status === 'Denied' ? 'DENIED access' : status;
     this.addNotification({
-      title: status === 'Granted' ? '✅ Treasurer Access Granted' : '❌ Treasurer Access Denied',
+      title: status === 'Granted' ? 'Treasurer Access Granted' : 'Treasurer Access Denied',
       message: `Admin ${adminName} has ${statusText} for your request to ${req.actionType} "${req.targetTitle}".${adminNotes ? ` Note: "${adminNotes}"` : ''}`,
       type: 'system',
       read: false,

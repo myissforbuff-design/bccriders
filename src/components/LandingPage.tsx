@@ -609,7 +609,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                       <Fingerprint className={`w-6 h-6 text-[#1b4332] group-hover:scale-110 transition-transform ${isBioLoading ? 'animate-pulse text-[#2d6a4f]' : ''}`} />
                     </button>
                     <span className="text-[10px] text-[#52605d] font-semibold">
-                      Fingerprint Sign-in
+                      Biometric Sign-in
                     </span>
                   </div>
                 </form>

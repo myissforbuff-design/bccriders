@@ -220,8 +220,15 @@ function MainAppContent() {
             exit={{ opacity: 0, y: 50, scale: 0.9 }}
             className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl bg-[#1b4332] text-white border border-[#2d6a4f] shadow-2xl max-w-sm flex items-start gap-3 glow-forest"
           >
-            <div className="p-2 rounded-xl bg-[#74c69d]/20 text-[#74c69d] shrink-0">
-              <CheckCircle2 className="w-5 h-5" />
+            <div className="w-9 h-9 rounded-xl bg-white p-1 shrink-0 flex items-center justify-center shadow-xs border border-[#74c69d]/40">
+              <img
+                src="/logo.png"
+                alt="BCC Logo"
+                className="w-full h-full object-contain"
+                onError={(e) => {
+                  (e.target as HTMLElement).style.display = 'none';
+                }}
+              />
             </div>
             <div className="flex-1 min-w-0 text-xs">
               <h4 className="font-bold text-white text-sm">{toastMessage.title}</h4>

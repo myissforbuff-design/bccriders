@@ -2257,25 +2257,25 @@ export const Finances: React.FC = () => {
       )}
 
       {/* Global Overview Stats Banner */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3 lg:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-1.5 sm:gap-3 lg:gap-4">
         {/* Total Funds Collected */}
-        <div className="p-2.5 sm:p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
-            <Coins className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
+        <div className="p-2 sm:p-4 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-1.5 sm:gap-3 min-w-0">
+          <div className="w-7 h-7 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-lg sm:rounded-xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+            <Coins className="w-3.5 h-3.5 sm:w-5 sm:h-5 stroke-[2.2]" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
+            <span className="text-[8.5px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               <span className="hidden sm:inline">Total </span>Funds
             </span>
-            <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-[#1b4332] truncate">
+            <p className="font-heading text-xs sm:text-base lg:text-lg font-black text-[#1b4332] truncate">
               ₱{(Number(totalFundsWithCarryOver) || 0).toLocaleString()}.00
             </p>
             <div className="space-y-0.5">
-              <span className="text-[9px] sm:text-[10px] text-[#2d6a4f] font-semibold block truncate">
+              <span className="text-[8px] sm:text-[10px] text-[#2d6a4f] font-semibold block truncate leading-tight">
                 {totalPaidCount} {totalPaidCount === 1 ? 'payment' : 'payments'}
               </span>
               {totalArchivedCarryOver > 0 && (
-                <span className="text-[8.5px] font-extrabold text-emerald-800 bg-emerald-100/80 px-1.5 py-0.2 rounded-md block truncate">
+                <span className="text-[7.5px] sm:text-[8.5px] font-extrabold text-emerald-800 bg-emerald-100/80 px-1 sm:px-1.5 py-0.2 rounded-md block truncate">
                   +₱{totalArchivedCarryOver.toLocaleString()} carryover
                 </span>
               )}
@@ -2284,76 +2284,76 @@ export const Finances: React.FC = () => {
         </div>
 
         {/* Total Liquidated Expenses */}
-        <div className="p-2.5 sm:p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-xl bg-rose-100 text-rose-800 flex items-center justify-center shrink-0">
-            <TrendingDown className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
+        <div className="p-2 sm:p-4 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-1.5 sm:gap-3 min-w-0">
+          <div className="w-7 h-7 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-lg sm:rounded-xl bg-rose-100 text-rose-800 flex items-center justify-center shrink-0">
+            <TrendingDown className="w-3.5 h-3.5 sm:w-5 sm:h-5 stroke-[2.2]" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
+            <span className="text-[8.5px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               <span className="hidden sm:inline">Total </span>Expenses
             </span>
-            <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-rose-800 truncate">
+            <p className="font-heading text-xs sm:text-base lg:text-lg font-black text-rose-800 truncate">
               ₱{(Number(totalExpenses) || 0).toLocaleString()}.00
             </p>
-            <span className="text-[9px] sm:text-[10px] text-rose-700 font-semibold block truncate">
+            <span className="text-[8px] sm:text-[10px] text-rose-700 font-semibold block truncate leading-tight">
               {expenses.length} {expenses.length === 1 ? 'expense' : 'expenses'}
             </span>
           </div>
         </div>
 
         {/* Net Treasury Balance */}
-        <div className="p-2.5 sm:p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className={`w-8 h-8 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-xl flex items-center justify-center shrink-0 ${
+        <div className="p-2 sm:p-4 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-1.5 sm:gap-3 min-w-0">
+          <div className={`w-7 h-7 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-lg sm:rounded-xl flex items-center justify-center shrink-0 ${
             netBalance >= 0 ? 'bg-emerald-100 text-emerald-900' : 'bg-rose-100 text-rose-900'
           }`}>
-            <Wallet className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
+            <Wallet className="w-3.5 h-3.5 sm:w-5 sm:h-5 stroke-[2.2]" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
+            <span className="text-[8.5px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               Net Treasury
             </span>
-            <p className={`font-heading text-sm sm:text-base lg:text-lg font-black truncate ${
+            <p className={`font-heading text-xs sm:text-base lg:text-lg font-black truncate ${
               netBalance >= 0 ? 'text-[#1b4332]' : 'text-rose-700'
             }`}>
               ₱{(Number(netBalance) || 0).toLocaleString()}.00
             </p>
-            <span className="text-[9px] sm:text-[10px] text-[#52605d] font-semibold block truncate">
+            <span className="text-[8px] sm:text-[10px] text-[#52605d] font-semibold block truncate leading-tight">
               {totalArchivedCarryOver > 0 ? `Net + ₱${totalArchivedCarryOver.toLocaleString()} carryover` : 'Funds - Expenses'}
             </span>
           </div>
         </div>
 
         {/* Discount Card */}
-        <div className="p-2.5 sm:p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center shrink-0">
-            <Tag className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
+        <div className="p-2 sm:p-4 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-1.5 sm:gap-3 min-w-0">
+          <div className="w-7 h-7 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-lg sm:rounded-xl bg-indigo-100 text-indigo-800 flex items-center justify-center shrink-0">
+            <Tag className="w-3.5 h-3.5 sm:w-5 sm:h-5 stroke-[2.2]" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
+            <span className="text-[8.5px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               Discount
             </span>
-            <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-indigo-950 truncate">
+            <p className="font-heading text-xs sm:text-base lg:text-lg font-black text-indigo-950 truncate">
               ₱{(Number(totalDiscount) || 0).toLocaleString()}.00
             </p>
-            <span className="text-[9px] sm:text-[10px] text-indigo-700 font-semibold block truncate">
+            <span className="text-[8px] sm:text-[10px] text-indigo-700 font-semibold block truncate leading-tight">
               {paidAnnualPromos.length} Promo{paidAnnualPromos.length === 1 ? '' : 's'}
             </span>
           </div>
         </div>
 
         {/* Pending Collections */}
-        <div className="col-span-2 sm:col-span-1 p-2.5 sm:p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-            <Clock className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
+        <div className="col-span-2 sm:col-span-1 p-2 sm:p-4 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-1.5 sm:gap-3 min-w-0">
+          <div className="w-7 h-7 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-lg sm:rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
+            <Clock className="w-3.5 h-3.5 sm:w-5 sm:h-5 stroke-[2.2]" />
           </div>
           <div className="min-w-0 flex-1">
-            <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
+            <span className="text-[8.5px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               Pending<span className="hidden sm:inline"> Dues</span>
             </span>
-            <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-amber-900 truncate">
+            <p className="font-heading text-xs sm:text-base lg:text-lg font-black text-amber-900 truncate">
               ₱{(Number(totalPending) || 0).toLocaleString()}.00
             </p>
-            <span className="text-[9px] sm:text-[10px] text-amber-700 font-semibold block truncate">
+            <span className="text-[8px] sm:text-[10px] text-amber-700 font-semibold block truncate leading-tight">
               Uncollected balance
             </span>
           </div>
@@ -2361,20 +2361,20 @@ export const Finances: React.FC = () => {
       </div>
 
       {/* THREE-BUTTON GROUP / TAB NAVIGATION & ARCHIVE ACTION CONTROLS */}
-      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 sm:gap-4 bg-white p-2 sm:p-2.5 rounded-2xl border border-[#e2ece2] shadow-xs">
+      <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 sm:gap-4 bg-white p-1.5 sm:p-2.5 rounded-xl sm:rounded-2xl border border-[#e2ece2] shadow-xs">
         {/* Navigation Tabs */}
-        <div className="flex p-1 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] w-full lg:w-auto overflow-x-auto">
+        <div className="flex p-0.5 sm:p-1 bg-[#f7f9f7] rounded-lg sm:rounded-xl border border-[#e2ece2] w-full lg:w-auto overflow-x-auto">
           {/* Button 1: Funds */}
           <button
             type="button"
             onClick={() => setActiveTab('funds')}
-            className={`flex-1 lg:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            className={`flex-1 lg:flex-none flex items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-5 py-1.5 sm:py-2.5 rounded-md sm:rounded-lg font-bold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
               activeTab === 'funds'
-                ? 'bg-[#1b4332] text-white shadow-sm'
+                ? 'bg-[#1b4332] text-white shadow-2xs'
                 : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
             }`}
           >
-            <Coins className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <Coins className="w-3 h-3 sm:w-4 sm:h-4 shrink-0" />
             <span>Funds</span>
           </button>
 
@@ -2382,13 +2382,13 @@ export const Finances: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('expenses')}
-            className={`flex-1 lg:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            className={`flex-1 lg:flex-none flex items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-5 py-1.5 sm:py-2.5 rounded-md sm:rounded-lg font-bold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
               activeTab === 'expenses'
-                ? 'bg-[#1b4332] text-white shadow-sm'
+                ? 'bg-[#1b4332] text-white shadow-2xs'
                 : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
             }`}
           >
-            <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <Receipt className="w-3 h-3 sm:w-4 sm:h-4 shrink-0" />
             <span>Expenses</span>
           </button>
 
@@ -2396,13 +2396,13 @@ export const Finances: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('accounts')}
-            className={`flex-1 lg:flex-none flex items-center justify-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2 sm:py-2.5 rounded-lg font-bold text-xs sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
+            className={`flex-1 lg:flex-none flex items-center justify-center gap-1 sm:gap-2 px-2.5 sm:px-5 py-1.5 sm:py-2.5 rounded-md sm:rounded-lg font-bold text-[11px] sm:text-sm transition-all cursor-pointer whitespace-nowrap min-w-0 ${
               activeTab === 'accounts'
-                ? 'bg-[#1b4332] text-white shadow-sm'
+                ? 'bg-[#1b4332] text-white shadow-2xs'
                 : 'text-[#52605d] hover:text-[#1b4332] hover:bg-[#e2ece2]'
             }`}
           >
-            <UserIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <UserIcon className="w-3 h-3 sm:w-4 sm:h-4 shrink-0" />
             <span>Accounts</span>
           </button>
         </div>
@@ -2415,18 +2415,18 @@ export const Finances: React.FC = () => {
               <button
                 type="button"
                 onClick={() => handleOpenLogRecord()}
-                className="w-full sm:w-auto px-4 py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-3.5 sm:px-4 py-2 sm:py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5 sm:gap-2"
               >
-                <Plus className="w-4 h-4 text-[#74c69d]" />
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#74c69d]" />
                 <span>Record Payment</span>
               </button>
             ) : (
               <button
                 type="button"
                 onClick={() => handleOpenExpenseModal()}
-                className="w-full sm:w-auto px-4 py-2.5 bg-rose-800 hover:bg-rose-900 text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-2"
+                className="w-full sm:w-auto px-3.5 sm:px-4 py-2 sm:py-2.5 bg-rose-800 hover:bg-rose-900 text-white rounded-xl text-[11px] sm:text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-1.5 sm:gap-2"
               >
-                <Plus className="w-4 h-4 text-rose-200" />
+                <Plus className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-200" />
                 <span>Liquidate Expense</span>
               </button>
             )}
@@ -2436,30 +2436,30 @@ export const Finances: React.FC = () => {
 
       {/* TAB CONTENT 1: FUNDS (PAYMENT RECORDS & TRANSACTIONS) */}
       {activeTab === 'funds' && (
-        <div className="bg-white rounded-3xl p-4 sm:p-6 border border-[#e2ece2] shadow-xs space-y-5">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-2 border-b border-[#e2ece2]">
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-6 border border-[#e2ece2] shadow-xs space-y-3.5 sm:space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-1.5 sm:gap-2 pb-2 border-b border-[#e2ece2]">
             <div>
-              <h3 className="font-heading text-base font-extrabold text-[#1b4332] flex items-center gap-2">
-                <Coins className="w-4 h-4 text-[#2d6a4f]" />
+              <h3 className="font-heading text-xs sm:text-base font-extrabold text-[#1b4332] flex items-center gap-1.5 sm:gap-2">
+                <Coins className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f]" />
                 <span>Payment Records & Transactions</span>
               </h3>
-              <p className="text-xs text-[#52605d]">
+              <p className="text-[10px] sm:text-xs text-[#52605d] mt-0.5">
                 Manage all member payments for membership fees, monthly dues, and vest orders.
               </p>
             </div>
           </div>
 
           {/* SEARCH & FILTERS BAR */}
-          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 pt-1">
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 sm:gap-3 pt-0.5">
             {/* Search Box */}
             <div className="relative w-full lg:w-80">
-              <Search className="w-4 h-4 text-[#52605d] absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-[#52605d] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Search member name, ref #, or item..."
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+                className="w-full pl-8 pr-3 py-1.5 sm:py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
               />
               {searchQuery && (
                 <button
@@ -2472,10 +2472,10 @@ export const Finances: React.FC = () => {
               )}
             </div>
 
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-2 sm:gap-3">
               {/* Item Type Filter */}
-              <div className="flex items-center gap-1.5 min-w-[160px]">
-                <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Item:</span>
+              <div className="flex items-center gap-1.5 min-w-[140px] sm:min-w-[160px]">
+                <span className="text-[10.5px] sm:text-xs font-bold text-[#52605d] whitespace-nowrap">Item:</span>
                 <div className="flex-1">
                   <CustomSelect
                     value={itemTypeFilter}
@@ -2494,16 +2494,16 @@ export const Finances: React.FC = () => {
               </div>
 
               {/* Status Filter */}
-              <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
-                <span className="text-xs font-bold text-[#52605d] mr-1 whitespace-nowrap">Status:</span>
+              <div className="flex items-center gap-1 overflow-x-auto pb-0.5 sm:pb-0">
+                <span className="text-[10.5px] sm:text-xs font-bold text-[#52605d] mr-0.5 whitespace-nowrap">Status:</span>
                 {(['All', 'Paid', 'Waived'] as const).map(st => (
                   <button
                     key={st}
                     type="button"
                     onClick={() => setStatusFilter(st)}
-                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                    className={`px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg sm:rounded-xl text-[10.5px] sm:text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
                       statusFilter === st
-                        ? 'bg-[#2d6a4f] text-white shadow-xs'
+                        ? 'bg-[#2d6a4f] text-white shadow-2xs'
                         : 'bg-[#f7f9f7] hover:bg-[#e2ece2] text-[#52605d]'
                     }`}
                   >
@@ -2515,12 +2515,12 @@ export const Finances: React.FC = () => {
           </div>
 
           {/* MOBILE TRANSACTION CARDS VIEW */}
-          <div className="block md:hidden space-y-3">
+          <div className="block md:hidden space-y-2 sm:space-y-3">
             {filteredRecords.length === 0 ? (
-              <div className="p-8 rounded-2xl bg-white border border-[#e2ece2] text-center text-[#52605d] space-y-2">
-                <AlertCircle className="w-8 h-8 text-stone-300 mx-auto" />
-                <p className="font-bold text-stone-600">No payment records found</p>
-                <p className="text-xs text-stone-400">
+              <div className="p-6 rounded-2xl bg-white border border-[#e2ece2] text-center text-[#52605d] space-y-1.5">
+                <AlertCircle className="w-6 h-6 text-stone-300 mx-auto" />
+                <p className="font-bold text-stone-600 text-xs">No payment records found</p>
+                <p className="text-[11px] text-stone-400">
                   Click "Record Payment" to log a new member payment transaction.
                 </p>
               </div>
@@ -2533,14 +2533,14 @@ export const Finances: React.FC = () => {
                 return (
                   <div
                     key={rec.id}
-                    className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3"
+                    className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2 sm:space-y-3"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <p className="font-black text-[#1b4332] text-sm">{rec.userName}</p>
+                        <p className="font-black text-[#1b4332] text-xs sm:text-sm">{rec.userName}</p>
                       </div>
                       <span
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[8.5px] sm:text-[10px] font-black uppercase tracking-wider ${
                           isPaid
                             ? 'bg-emerald-100 text-emerald-800'
                             : isPending
@@ -2554,51 +2554,51 @@ export const Finances: React.FC = () => {
                       </span>
                     </div>
 
-                    <div className="flex items-center justify-between text-xs pt-1 border-t border-[#e2ece2]">
+                    <div className="flex items-center justify-between text-[11px] sm:text-xs pt-1 border-t border-[#e2ece2]">
                       <div>
-                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Item</span>
-                        <span className="font-bold text-[#1b4332]">{getItemTitle(rec)}</span>
+                        <span className="text-[8.5px] sm:text-[10px] text-[#52605d] block uppercase font-bold tracking-wider">Item</span>
+                        <span className="font-bold text-[#1b4332] text-[11px] sm:text-xs">{getItemTitle(rec)}</span>
                       </div>
                       <div className="text-right">
-                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Amount</span>
-                        <span className="font-black text-[#1b4332] text-sm">₱{(Number(rec.amount) || 0).toLocaleString()}.00</span>
+                        <span className="text-[8.5px] sm:text-[10px] text-[#52605d] block uppercase font-bold tracking-wider">Amount</span>
+                        <span className="font-black text-[#1b4332] text-xs sm:text-sm">₱{(Number(rec.amount) || 0).toLocaleString()}.00</span>
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-xs pt-1 border-t border-[#e2ece2]">
+                    <div className="flex items-center justify-between text-[11px] sm:text-xs pt-1 border-t border-[#e2ece2]">
                       <div>
-                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Payment Method</span>
-                        <span className="text-[#1b4332] font-semibold">{rec.status === 'Pending' ? '-' : (rec.paymentMethod || 'Cash')}</span>
+                        <span className="text-[8.5px] sm:text-[10px] text-[#52605d] block uppercase font-bold tracking-wider">Payment Method</span>
+                        <span className="text-[#1b4332] font-semibold text-[10.5px] sm:text-xs">{rec.status === 'Pending' ? '-' : (rec.paymentMethod || 'Cash')}</span>
                       </div>
 
                       <div className="text-right">
-                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Date Paid</span>
-                        <span className="font-medium text-[#1b4332] text-xs">{rec.status === 'Pending' ? '-' : formatDisplayDate(rec.paidDate || rec.dueDate)}</span>
+                        <span className="text-[8.5px] sm:text-[10px] text-[#52605d] block uppercase font-bold tracking-wider">Date Paid</span>
+                        <span className="font-medium text-[#1b4332] text-[10.5px] sm:text-xs">{rec.status === 'Pending' ? '-' : formatDisplayDate(rec.paidDate || rec.dueDate)}</span>
                       </div>
                     </div>
 
                     {rec.notes && (
-                      <p className="text-[11px] text-[#52605d] bg-white p-2 rounded-xl border border-[#e2ece2] italic">
+                      <p className="text-[9.5px] sm:text-[11px] text-[#52605d] bg-white p-1.5 sm:p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] italic">
                         "{rec.notes}"
                       </p>
                     )}
 
                     {canManageFinances && (
-                      <div className="flex items-center justify-end gap-2 pt-2">
+                      <div className="flex items-center justify-end gap-1.5 pt-1.5">
                         <button
                           type="button"
                           onClick={() => handleOpenLogRecord(rec)}
-                          className="px-3 py-1.5 rounded-lg bg-white border border-[#e2ece2] text-[#1b4332] hover:bg-[#e2ece2] font-bold text-xs flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-white border border-[#e2ece2] text-[#1b4332] hover:bg-[#e2ece2] font-bold text-[10.5px] sm:text-xs flex items-center gap-1 cursor-pointer shadow-2xs"
                         >
-                          <Edit3 className="w-3.5 h-3.5" />
+                          <Edit3 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                           <span>Edit</span>
                         </button>
                         <button
                           type="button"
                           onClick={() => handleRequestDeleteRecord(rec)}
-                          className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                          className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-[10.5px] sm:text-xs flex items-center gap-1 cursor-pointer shadow-2xs"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                           <span>Delete</span>
                         </button>
                       </div>
@@ -2728,7 +2728,7 @@ export const Finances: React.FC = () => {
 
           {/* PAGINATION CONTROLS FOR FUNDS */}
           {filteredRecords.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3 pt-3 sm:pt-4 border-t border-[#e2ece2] text-[11px] sm:text-xs text-[#52605d]">
               <div>
                 Showing{' '}
                 <span className="font-extrabold text-[#1b4332]">
@@ -2746,13 +2746,13 @@ export const Finances: React.FC = () => {
                   type="button"
                   disabled={validCurrentPage === 1}
                   onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                  className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-[11px] sm:text-xs"
                 >
-                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <ChevronLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                   <span>Previous</span>
                 </button>
 
-                <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                <span className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-[#1b4332] text-white font-extrabold text-[11px] sm:text-xs shadow-2xs">
                   {validCurrentPage} / {totalPages}
                 </span>
 
@@ -2760,10 +2760,10 @@ export const Finances: React.FC = () => {
                   type="button"
                   disabled={validCurrentPage >= totalPages}
                   onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                  className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-[11px] sm:text-xs"
                 >
                   <span>Next</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
+                  <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 </button>
               </div>
             </div>
@@ -2773,30 +2773,30 @@ export const Finances: React.FC = () => {
 
       {/* TAB CONTENT 2: EXPENSES (CLUB DISBURSEMENTS & LIQUIDATIONS) */}
       {activeTab === 'expenses' && (
-        <div className="bg-white rounded-3xl p-4 sm:p-6 border border-[#e2ece2] shadow-xs space-y-5">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-2 border-b border-[#e2ece2]">
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-6 border border-[#e2ece2] shadow-xs space-y-3.5 sm:space-y-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-1.5 sm:gap-2 pb-2 border-b border-[#e2ece2]">
             <div>
-              <h3 className="font-heading text-base font-extrabold text-[#1b4332] flex items-center gap-2">
-                <Receipt className="w-4 h-4 text-rose-700" />
+              <h3 className="font-heading text-xs sm:text-base font-extrabold text-[#1b4332] flex items-center gap-1.5 sm:gap-2">
+                <Receipt className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-700" />
                 <span>Club Expense Liquidations</span>
               </h3>
-              <p className="text-xs text-[#52605d]">
+              <p className="text-[10px] sm:text-xs text-[#52605d] mt-0.5">
                 Liquidate and track all club expenditures involving member dues and treasury funds.
               </p>
             </div>
           </div>
 
           {/* EXPENSES SEARCH & CATEGORY FILTER BAR */}
-          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 pt-1">
+          <div className="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2.5 sm:gap-3 pt-0.5">
             {/* Expense Search Box */}
             <div className="relative w-full lg:w-80">
-              <Search className="w-4 h-4 text-[#52605d] absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-[#52605d] absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Search expense title, payee, or OR ref..."
                 value={expenseSearchQuery}
                 onChange={e => setExpenseSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
+                className="w-full pl-8 pr-3 py-1.5 sm:py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white transition-colors"
               />
               {expenseSearchQuery && (
                 <button
@@ -2810,8 +2810,8 @@ export const Finances: React.FC = () => {
             </div>
 
             {/* Category Filter Dropdown */}
-            <div className="flex items-center gap-2 min-w-[180px]">
-              <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Category:</span>
+            <div className="flex items-center gap-1.5 min-w-[160px] sm:min-w-[180px]">
+              <span className="text-[10.5px] sm:text-xs font-bold text-[#52605d] whitespace-nowrap">Category:</span>
               <div className="flex-1">
                 <CustomSelect
                   value={expenseCategoryFilter}
@@ -2826,12 +2826,12 @@ export const Finances: React.FC = () => {
           </div>
 
           {/* MOBILE EXPENSE CARDS VIEW */}
-          <div className="block md:hidden space-y-3">
+          <div className="block md:hidden space-y-2 sm:space-y-3">
             {filteredExpenses.length === 0 ? (
-              <div className="p-8 rounded-2xl bg-white border border-[#e2ece2] text-center text-[#52605d] space-y-2">
-                <AlertCircle className="w-8 h-8 text-stone-300 mx-auto" />
-                <p className="font-bold text-stone-600">No liquidated expenses found</p>
-                <p className="text-xs text-stone-400">
+              <div className="p-6 rounded-2xl bg-white border border-[#e2ece2] text-center text-[#52605d] space-y-1.5">
+                <AlertCircle className="w-6 h-6 text-stone-300 mx-auto" />
+                <p className="font-bold text-stone-600 text-xs">No liquidated expenses found</p>
+                <p className="text-[11px] text-stone-400">
                   Click "Liquidate Expense" to log a new club disbursement entry.
                 </p>
               </div>
@@ -2839,13 +2839,13 @@ export const Finances: React.FC = () => {
               paginatedExpenses.map(exp => (
                 <div
                   key={exp.id}
-                  className="p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-3"
+                  className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2 sm:space-y-3"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <p className="font-black text-[#1b4332] text-sm">{exp.title}</p>
+                      <p className="font-black text-[#1b4332] text-xs sm:text-sm">{exp.title}</p>
                       <span
-                        className={`inline-block mt-1 px-2.5 py-0.5 rounded-full text-[10px] font-black border ${getCategoryBadgeStyle(
+                        className={`inline-block mt-0.5 px-2 py-0.5 rounded-full text-[8.5px] sm:text-[10px] font-black border ${getCategoryBadgeStyle(
                           exp.category
                         )}`}
                       >
@@ -2853,57 +2853,57 @@ export const Finances: React.FC = () => {
                       </span>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className="text-[10px] text-rose-700 font-bold block uppercase">Disbursed</span>
-                      <span className="font-black text-rose-700 text-sm">
+                      <span className="text-[8.5px] sm:text-[10px] text-rose-700 font-bold block uppercase tracking-wider">Disbursed</span>
+                      <span className="font-black text-rose-700 text-xs sm:text-sm">
                         - ₱{(Number(exp.amount) || 0).toLocaleString()}.00
                       </span>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#e2ece2]">
+                  <div className="grid grid-cols-2 gap-2 text-[11px] sm:text-xs pt-1.5 border-t border-[#e2ece2]">
                     <div>
-                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Date</span>
-                      <span className="font-medium text-[#1b4332]">{formatDisplayDate(exp.date)}</span>
+                      <span className="text-[8.5px] sm:text-[10px] text-[#52605d] block uppercase font-bold tracking-wider">Date</span>
+                      <span className="font-medium text-[#1b4332] text-[10.5px] sm:text-xs">{formatDisplayDate(exp.date)}</span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Receipt / Ref #</span>
-                      <span className="font-mono text-[#1b4332]">{exp.receiptRef || 'N/A'}</span>
+                      <span className="text-[8.5px] sm:text-[10px] text-[#52605d] block uppercase font-bold tracking-wider">Receipt / Ref #</span>
+                      <span className="font-mono text-[#1b4332] text-[10.5px] sm:text-xs">{exp.receiptRef || 'N/A'}</span>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-[#e2ece2]">
+                  <div className="grid grid-cols-2 gap-2 text-[11px] sm:text-xs pt-1.5 border-t border-[#e2ece2]">
                     <div>
-                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Disbursed To</span>
-                      <span className="font-semibold text-[#1b4332]">{exp.payeeOrDisbursedTo || 'General Vendor'}</span>
+                      <span className="text-[8.5px] sm:text-[10px] text-[#52605d] block uppercase font-bold tracking-wider">Disbursed To</span>
+                      <span className="font-semibold text-[#1b4332] text-[10.5px] sm:text-xs">{exp.payeeOrDisbursedTo || 'General Vendor'}</span>
                     </div>
                     <div>
-                      <span className="text-[10px] text-[#52605d] block uppercase font-bold">Logged By</span>
-                      <span className="font-medium text-[#52605d]">{exp.loggedBy || 'Treasury Admin'}</span>
+                      <span className="text-[8.5px] sm:text-[10px] text-[#52605d] block uppercase font-bold tracking-wider">Logged By</span>
+                      <span className="font-medium text-[#52605d] text-[10.5px] sm:text-xs">{exp.loggedBy || 'Treasury Admin'}</span>
                     </div>
                   </div>
 
                   {exp.notes && (
-                    <p className="text-[11px] text-[#52605d] bg-white p-2 rounded-xl border border-[#e2ece2] italic">
+                    <p className="text-[9.5px] sm:text-[11px] text-[#52605d] bg-white p-1.5 sm:p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] italic">
                       "{exp.notes}"
                     </p>
                   )}
 
                   {canManageFinances && (
-                    <div className="flex items-center justify-end gap-2 pt-2">
+                    <div className="flex items-center justify-end gap-1.5 pt-1.5">
                       <button
                         type="button"
                         onClick={() => handleOpenExpenseModal(exp)}
-                        className="px-3 py-1.5 rounded-lg bg-white border border-[#e2ece2] text-[#1b4332] hover:bg-[#e2ece2] font-bold text-xs flex items-center gap-1 cursor-pointer"
+                        className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-white border border-[#e2ece2] text-[#1b4332] hover:bg-[#e2ece2] font-bold text-[10.5px] sm:text-xs flex items-center gap-1 cursor-pointer shadow-2xs"
                       >
-                        <Edit3 className="w-3.5 h-3.5" />
+                        <Edit3 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                         <span>Edit</span>
                       </button>
                       <button
                         type="button"
                         onClick={() => handleRequestDeleteExpense(exp)}
-                        className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                        className="px-2.5 py-1 sm:px-3 sm:py-1.5 rounded-lg bg-rose-50 text-rose-700 hover:bg-rose-100 font-bold text-[10.5px] sm:text-xs flex items-center gap-1 cursor-pointer shadow-2xs"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
+                        <Trash2 className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                         <span>Delete</span>
                       </button>
                     </div>
@@ -3016,7 +3016,7 @@ export const Finances: React.FC = () => {
 
           {/* PAGINATION CONTROLS FOR EXPENSES */}
           {filteredExpenses.length > 0 && (
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3 pt-3 sm:pt-4 border-t border-[#e2ece2] text-[11px] sm:text-xs text-[#52605d]">
               <div>
                 Showing{' '}
                 <span className="font-extrabold text-[#1b4332]">
@@ -3034,13 +3034,13 @@ export const Finances: React.FC = () => {
                   type="button"
                   disabled={validExpensePage === 1}
                   onClick={() => setExpenseCurrentPage(prev => Math.max(prev - 1, 1))}
-                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                  className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-[11px] sm:text-xs"
                 >
-                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <ChevronLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                   <span>Previous</span>
                 </button>
 
-                <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                <span className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-[#1b4332] text-white font-extrabold text-[11px] sm:text-xs shadow-2xs">
                   {validExpensePage} / {totalExpensePages}
                 </span>
 
@@ -3048,10 +3048,10 @@ export const Finances: React.FC = () => {
                   type="button"
                   disabled={validExpensePage >= totalExpensePages}
                   onClick={() => setExpenseCurrentPage(prev => Math.min(prev + 1, totalExpensePages))}
-                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                  className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-[11px] sm:text-xs"
                 >
                   <span>Next</span>
-                  <ChevronRight className="w-3.5 h-3.5" />
+                  <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                 </button>
               </div>
             </div>
@@ -3061,23 +3061,23 @@ export const Finances: React.FC = () => {
 
       {/* TAB CONTENT 3: ACCOUNTS (MEMBER FINANCIAL ACCOUNTS & TRANSACTIONS) */}
       {activeTab === 'accounts' && (
-        <div className="bg-white rounded-3xl p-4 sm:p-6 border border-[#e2ece2] shadow-xs space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-[#e2ece2]">
+        <div className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-6 border border-[#e2ece2] shadow-xs space-y-4 sm:space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 sm:gap-3 pb-2 sm:pb-3 border-b border-[#e2ece2]">
             <div>
-              <h3 className="font-heading text-base font-extrabold text-[#1b4332] flex items-center gap-2">
-                <UserIcon className="w-4 h-4 text-[#2d6a4f]" />
+              <h3 className="font-heading text-xs sm:text-base font-extrabold text-[#1b4332] flex items-center gap-1.5 sm:gap-2">
+                <UserIcon className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f]" />
                 <span>Member Accounts & Transaction Status</span>
               </h3>
-              <p className="text-xs text-[#52605d]">
+              <p className="text-[10px] sm:text-xs text-[#52605d] mt-0.5">
                 View individual member financial accounts, membership fee status, monthly dues, and transaction histories.
               </p>
             </div>
 
             {/* Officer & Admin Member Selector */}
             {(canManageFinances || isOfficer) && (
-              <div className="flex flex-wrap items-center gap-2 min-w-[240px]">
-                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                  <span className="text-xs font-bold text-[#52605d] whitespace-nowrap">Member Account:</span>
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 min-w-[200px] sm:min-w-[240px]">
+                <div className="flex items-center gap-1.5 sm:gap-2 flex-1 min-w-[180px] sm:min-w-[200px]">
+                  <span className="text-[10.5px] sm:text-xs font-bold text-[#52605d] whitespace-nowrap">Member Account:</span>
                   <div className="flex-1">
                     <CustomSelect
                       value={accountMemberId}
@@ -3086,7 +3086,7 @@ export const Finances: React.FC = () => {
                         ...(isAdmin || currentUser?.role === 'admin'
                           ? []
                           : [{ value: 'my_account', label: `My Account (${currentUser?.name || 'Member'})` }]),
-                        { value: 'all_members', label: '📋 All Members Overview' },
+                        { value: 'all_members', label: 'All Members Overview' },
                         ...users
                           .filter(u => u.role !== 'admin' && u.role?.toLowerCase() !== 'admin')
                           .map(u => ({
@@ -3103,16 +3103,16 @@ export const Finances: React.FC = () => {
 
           {/* MODE A: ALL MEMBERS OVERVIEW (When Admin/Officer selects 'all_members') */}
           {(canManageFinances || isOfficer) && accountMemberId === 'all_members' ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between gap-3">
+            <div className="space-y-3 sm:space-y-4">
+              <div className="flex items-center justify-between gap-2 sm:gap-3">
                 <div className="relative w-full sm:w-80">
-                  <Search className="w-4 h-4 text-[#52605d] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                  <Search className="w-3.5 h-3.5 text-[#52605d] absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"
                     placeholder="Search member name or member #..."
                     value={accountSearchQuery}
                     onChange={e => setAccountSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                    className="w-full pl-8 pr-3 py-1.5 sm:py-2 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                   />
                 </div>
               </div>
@@ -3135,12 +3135,12 @@ export const Finances: React.FC = () => {
                 return (
                   <>
                     {filteredAccountUsers.length === 0 ? (
-                      <div className="py-12 px-4 text-center text-[#52605d] bg-[#f7f9f7] rounded-2xl border border-[#e2ece2]">
-                        <AlertCircle className="w-8 h-8 text-stone-300 mx-auto mb-2" />
-                        <p className="font-bold text-stone-600 text-sm">No member accounts match your search</p>
+                      <div className="py-8 sm:py-12 px-4 text-center text-[#52605d] bg-[#f7f9f7] rounded-2xl border border-[#e2ece2]">
+                        <AlertCircle className="w-6 h-6 sm:w-8 sm:h-8 text-stone-300 mx-auto mb-1.5" />
+                        <p className="font-bold text-stone-600 text-xs sm:text-sm">No member accounts match your search</p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 sm:gap-4">
                         {paginatedAccountUsers.map(u => {
                           const uRecs = records.filter(r => r.userId === u.id);
                           const hasAnnualPromo = uRecs.some(r => r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
@@ -3164,55 +3164,55 @@ export const Finances: React.FC = () => {
                           return (
                             <div
                               key={u.id}
-                              className="bg-[#f7f9f7] border border-[#e2ece2] rounded-2xl p-4 space-y-3.5 hover:border-[#2d6a4f] hover:shadow-md transition-all flex flex-col justify-between"
+                              className="bg-[#f7f9f7] border border-[#e2ece2] rounded-xl sm:rounded-2xl p-2.5 sm:p-4 space-y-2.5 sm:space-y-3.5 hover:border-[#2d6a4f] hover:shadow-xs transition-all flex flex-col justify-between"
                             >
                               {/* Header: Avatar, Name, Member Number */}
-                              <div className="flex items-center gap-3">
+                              <div className="flex items-center gap-2 sm:gap-3">
                                 <img
                                   src={u.avatar || '/avatar.svg'}
                                   alt={u.name}
-                                  className="w-11 h-11 rounded-full object-cover border-2 border-[#1b4332] shrink-0 bg-stone-100"
+                                  className="w-9 h-9 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-[#1b4332] shrink-0 bg-stone-100"
                                 />
                                 <div className="min-w-0 flex-1">
-                                  <h4 className="font-heading text-sm font-black text-[#1b4332] truncate">
+                                  <h4 className="font-heading text-xs sm:text-sm font-black text-[#1b4332] truncate">
                                     {u.name}
                                   </h4>
-                                  <p className="text-[11px] text-[#52605d] font-mono font-bold">
+                                  <p className="text-[10px] sm:text-[11px] text-[#52605d] font-mono font-bold">
                                     {u.memberNumber || 'BRC-MEMBER'}
                                   </p>
                                 </div>
                               </div>
 
                               {/* Badges / Metrics Grid */}
-                              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-[#e2ece2]">
-                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
-                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-1">Membership Fee</span>
-                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                              <div className="grid grid-cols-2 gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] pt-1 border-t border-[#e2ece2]">
+                                <div className="p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl bg-white border border-[#e2ece2]/80">
+                                  <span className="text-[8px] sm:text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5 sm:mb-1 tracking-wider">Membership Fee</span>
+                                  <span className={`inline-block px-2 py-0.5 rounded-full text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider ${
                                     mfStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                                   }`}>
                                     {mfStatus}
                                   </span>
                                 </div>
 
-                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
-                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-1">Latest Monthly Due</span>
-                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                <div className="p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl bg-white border border-[#e2ece2]/80">
+                                  <span className="text-[8px] sm:text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5 sm:mb-1 tracking-wider">Monthly Due</span>
+                                  <span className={`inline-block px-2 py-0.5 rounded-full text-[8.5px] sm:text-[9px] font-black uppercase tracking-wider ${
                                     latestDueStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
                                   }`}>
                                     {hasAnnualPromo ? 'Paid (Promo)' : latestDueStatus}
                                   </span>
                                 </div>
 
-                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
-                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5">Total Dues Paid</span>
-                                  <span className="font-black text-[#1b4332] text-xs block">
+                                <div className="p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl bg-white border border-[#e2ece2]/80">
+                                  <span className="text-[8px] sm:text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5 tracking-wider">Total Paid</span>
+                                  <span className="font-black text-[#1b4332] text-[11px] sm:text-xs block">
                                     ₱{totalPaid.toLocaleString()}.00
                                   </span>
                                 </div>
 
-                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
-                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5">Pending Dues</span>
-                                  <span className={`font-black text-xs block ${pendingCount > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                                <div className="p-1.5 sm:p-2.5 rounded-lg sm:rounded-xl bg-white border border-[#e2ece2]/80">
+                                  <span className="text-[8px] sm:text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5 tracking-wider">Pending Dues</span>
+                                  <span className={`font-black text-[11px] sm:text-xs block ${pendingCount > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
                                     {pendingCount > 0 ? `${pendingCount} item(s)` : 'All Paid'}
                                   </span>
                                 </div>
@@ -3222,9 +3222,9 @@ export const Finances: React.FC = () => {
                               <button
                                 type="button"
                                 onClick={() => setAccountMemberId(u.id)}
-                                className="w-full py-2.5 px-3 rounded-xl bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-xs font-extrabold cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-2xs mt-auto"
+                                className="w-full py-1.5 sm:py-2.5 px-2.5 sm:px-3 rounded-lg sm:rounded-xl bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-[11px] sm:text-xs font-extrabold cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-2xs mt-auto"
                               >
-                                <FileText className="w-3.5 h-3.5" />
+                                <FileText className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                                 <span>View Transactions</span>
                               </button>
                             </div>
@@ -3235,7 +3235,7 @@ export const Finances: React.FC = () => {
 
                     {/* PAGINATION CONTROLS FOR ALL MEMBERS */}
                     {filteredAccountUsers.length > 0 && (
-                      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+                      <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3 pt-3 sm:pt-4 border-t border-[#e2ece2] text-[11px] sm:text-xs text-[#52605d]">
                         <div>
                           Showing{' '}
                           <span className="font-extrabold text-[#1b4332]">
@@ -3253,13 +3253,13 @@ export const Finances: React.FC = () => {
                             type="button"
                             disabled={validAccountMembersPage === 1}
                             onClick={() => setAccountMembersCurrentPage(prev => Math.max(prev - 1, 1))}
-                            className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                            className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-[11px] sm:text-xs"
                           >
-                            <ChevronLeft className="w-3.5 h-3.5" />
+                            <ChevronLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                             <span>Previous</span>
                           </button>
 
-                          <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                          <span className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-[#1b4332] text-white font-extrabold text-[11px] sm:text-xs shadow-2xs">
                             {validAccountMembersPage} / {totalAccountMembersPages}
                           </span>
 
@@ -3267,10 +3267,10 @@ export const Finances: React.FC = () => {
                             type="button"
                             disabled={validAccountMembersPage >= totalAccountMembersPages}
                             onClick={() => setAccountMembersCurrentPage(prev => Math.min(prev + 1, totalAccountMembersPages))}
-                            className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                            className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-[11px] sm:text-xs"
                           >
                             <span>Next</span>
-                            <ChevronRight className="w-3.5 h-3.5" />
+                            <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                           </button>
                         </div>
                       </div>
@@ -3345,106 +3345,106 @@ export const Finances: React.FC = () => {
               );
 
               return (
-                <div className="space-y-4">
+                <div className="space-y-3 sm:space-y-4">
                   {/* BACK TO ALL MEMBERS BUTTON */}
                   {(canManageFinances || isOfficer) && accountMemberId !== 'all_members' && (
                     <div>
                       <button
                         type="button"
                         onClick={() => setAccountMemberId('all_members')}
-                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs transition-all cursor-pointer shadow-xs border border-[#1b4332]"
+                        className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 rounded-lg sm:rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-[11px] sm:text-xs transition-all cursor-pointer shadow-xs border border-[#1b4332]"
                       >
-                        <ArrowLeft className="w-4 h-4" />
+                        <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                         <span>Back to All Members Overview</span>
                       </button>
                     </div>
                   )}
 
                   {/* MEMBER PAYMENT SUMMARY BANNER */}
-                  <div className="hidden md:block p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#1b4332] via-[#2d6a4f] to-[#1b4332] text-white shadow-md space-y-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/15 pb-3">
+                  <div className="p-3 sm:p-5 rounded-xl sm:rounded-2xl bg-gradient-to-br from-[#1b4332] via-[#2d6a4f] to-[#1b4332] text-white shadow-md space-y-2.5 sm:space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 border-b border-white/15 pb-2.5 sm:pb-3">
                       <div>
-                        <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[#74c69d] block">
-                          Total Payments Paid to Club (Joining to Present)
+                        <span className="text-[8.5px] sm:text-xs font-bold uppercase tracking-wider text-[#74c69d] block">
+                          Total Payments Paid to Club
                         </span>
-                        <h3 className="font-heading text-2xl sm:text-3xl font-black text-white mt-0.5">
+                        <h3 className="font-heading text-lg sm:text-3xl font-black text-white mt-0.5">
                           ₱{totalPaid.toLocaleString()}.00
                         </h3>
-                        <p className="text-xs text-stone-200 mt-0.5 font-medium">
+                        <p className="text-[10px] sm:text-xs text-stone-200 mt-0.5 font-medium">
                           Accumulated paid transactions for <span className="font-bold text-white">{memberName}</span> <span className="font-mono text-stone-300">({memberNo})</span>
                         </p>
                       </div>
                       <div className="flex items-center gap-2 self-start sm:self-center">
-                        <span className="px-3 py-1 rounded-full bg-[#74c69d]/20 text-[#74c69d] text-xs font-extrabold border border-[#74c69d]/30">
+                        <span className="px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-full bg-[#74c69d]/20 text-[#74c69d] text-[9px] sm:text-xs font-extrabold border border-[#74c69d]/30">
                           {uRecords.filter(r => r.status === 'Paid').length} Verified Payments
                         </span>
                       </div>
                     </div>
 
                     {/* Breakdown Grid */}
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 sm:gap-3 text-xs">
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 sm:gap-3 text-xs">
                       {/* Membership Fee Paid */}
-                      <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
-                        <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Membership Fee</span>
-                        <p className="text-sm sm:text-base font-black text-white">₱{mfPaid.toLocaleString()}.00</p>
-                        <span className="text-[10px] text-stone-200 block">
+                      <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-0.5 sm:space-y-1">
+                        <span className="text-[8px] sm:text-[10px] font-extrabold text-[#74c69d] uppercase block">Membership Fee</span>
+                        <p className="text-xs sm:text-base font-black text-white">₱{mfPaid.toLocaleString()}.00</p>
+                        <span className="text-[8px] sm:text-[10px] text-stone-200 block">
                           {mfPaid > 0 ? '✓ Fully Paid' : 'Pending'}
                         </span>
                       </div>
 
                       {/* Monthly Dues / Promo Paid */}
-                      <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
-                        <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">
+                      <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-0.5 sm:space-y-1">
+                        <span className="text-[8px] sm:text-[10px] font-extrabold text-[#74c69d] uppercase block">
                           {hasMemberPromo ? 'Monthly Dues (Promo)' : 'Monthly Dues'}
                         </span>
-                        <p className="text-sm sm:text-base font-black text-white">
+                        <p className="text-xs sm:text-base font-black text-white">
                           ₱{(hasMemberPromo ? promoPaid : duesPaid).toLocaleString()}.00
                         </p>
-                        <span className="text-[10px] text-stone-200 block">
+                        <span className="text-[8px] sm:text-[10px] text-stone-200 block">
                           {hasMemberPromo ? '✓ Full Year Promo' : `${uRecords.filter(r => r.itemType === 'Monthly Due' && r.status === 'Paid').length} month(s) paid`}
                         </span>
                       </div>
 
                       {/* Other Collections Paid */}
-                      <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
-                        <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Other Collections</span>
-                        <p className="text-sm sm:text-base font-black text-white">₱{otherPaid.toLocaleString()}.00</p>
-                        <span className="text-[10px] text-stone-200 block">
+                      <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-0.5 sm:space-y-1">
+                        <span className="text-[8px] sm:text-[10px] font-extrabold text-[#74c69d] uppercase block">Other Collections</span>
+                        <p className="text-xs sm:text-base font-black text-white">₱{otherPaid.toLocaleString()}.00</p>
+                        <span className="text-[8px] sm:text-[10px] text-stone-200 block">
                           Vests & special fees
                         </span>
                       </div>
 
                       {/* Promo Discount Card */}
-                      <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
-                        <span className="text-[10px] font-extrabold text-indigo-200 uppercase block">Discount</span>
-                        <p className="text-sm sm:text-base font-black text-indigo-100">₱{memberPromoDiscount.toLocaleString()}.00</p>
-                        <span className="text-[10px] text-indigo-200 block">
-                          {hasMemberPromo ? '✓ ₱200 Promo Discount' : 'Standard Rate'}
+                      <div className="p-2 sm:p-3 rounded-lg sm:rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-0.5 sm:space-y-1">
+                        <span className="text-[8px] sm:text-[10px] font-extrabold text-indigo-200 uppercase block">Discount</span>
+                        <p className="text-xs sm:text-base font-black text-indigo-100">₱{memberPromoDiscount.toLocaleString()}.00</p>
+                        <span className="text-[8px] sm:text-[10px] text-indigo-200 block">
+                          {hasMemberPromo ? '✓ ₱200 Discount' : 'Standard Rate'}
                         </span>
                       </div>
 
                       {/* Pending Dues */}
-                      <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
-                        <span className="text-[10px] font-extrabold text-amber-300 uppercase block">Pending Balance</span>
-                        <p className="text-sm sm:text-base font-black text-amber-200">₱{totalPending.toLocaleString()}.00</p>
-                        <span className="text-[10px] text-stone-200 block">
+                      <div className="col-span-2 sm:col-span-1 p-2 sm:p-3 rounded-lg sm:rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-0.5 sm:space-y-1">
+                        <span className="text-[8px] sm:text-[10px] font-extrabold text-amber-300 uppercase block">Pending Balance</span>
+                        <p className="text-xs sm:text-base font-black text-amber-200">₱{totalPending.toLocaleString()}.00</p>
+                        <span className="text-[8px] sm:text-[10px] text-stone-200 block">
                           {totalPending > 0 ? 'Unsettled dues' : '✓ All Clear'}
                         </span>
                       </div>
                     </div>
                   </div>
                   {/* MEMBER TRANSACTIONS HISTORY HEADER & SEARCH */}
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#f7f9f7] p-3.5 sm:p-4 rounded-2xl border border-[#e2ece2]">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-[#1b4332] text-white flex items-center justify-center font-bold text-xs shrink-0">
-                        <FileText className="w-4 h-4" />
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 sm:gap-3 bg-[#f7f9f7] p-2.5 sm:p-4 rounded-xl sm:rounded-2xl border border-[#e2ece2]">
+                    <div className="flex items-center gap-2 sm:gap-2.5">
+                      <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg sm:rounded-xl bg-[#1b4332] text-white flex items-center justify-center font-bold text-xs shrink-0">
+                        <FileText className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                       </div>
                       <div>
                         <h4 className="font-heading text-xs sm:text-sm font-extrabold text-[#1b4332] leading-snug">
                           Statement of Transactions
                         </h4>
-                        <p className="text-[10px] sm:text-xs text-[#52605d] font-medium">
-                          Showing transactions for <span className="font-bold text-[#1b4332]">{memberName}</span> <span className="font-mono text-[10px] text-[#2d6a4f]">({memberNo})</span>
+                        <p className="text-[9.5px] sm:text-xs text-[#52605d] font-medium">
+                          Showing transactions for <span className="font-bold text-[#1b4332]">{memberName}</span> <span className="font-mono text-[9px] sm:text-[10px] text-[#2d6a4f]">({memberNo})</span>
                         </p>
                       </div>
                     </div>
@@ -3456,17 +3456,17 @@ export const Finances: React.FC = () => {
                         placeholder="Search transactions..."
                         value={accountSearchQuery}
                         onChange={e => setAccountSearchQuery(e.target.value)}
-                        className="w-full pl-8 pr-3 py-2 bg-white border border-[#e2ece2] rounded-xl text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        className="w-full pl-8 pr-3 py-1.5 sm:py-2 bg-white border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
                       />
                     </div>
                   </div>
 
                   {/* MOBILE CARDS VIEW (Visible on small screens) */}
-                  <div className="block sm:hidden space-y-2.5">
+                  <div className="block sm:hidden space-y-2">
                     {filteredMemberRecs.length === 0 ? (
-                      <div className="p-6 text-center text-[#52605d] bg-[#f7f9f7] rounded-2xl border border-[#e2ece2]">
-                        <AlertCircle className="w-6 h-6 text-stone-300 mx-auto mb-1" />
-                        <p className="font-bold text-stone-600 text-xs">No transaction records found</p>
+                      <div className="p-5 text-center text-[#52605d] bg-[#f7f9f7] rounded-xl border border-[#e2ece2]">
+                        <AlertCircle className="w-5 h-5 text-stone-300 mx-auto mb-1" />
+                        <p className="font-bold text-stone-600 text-[11px]">No transaction records found</p>
                       </div>
                     ) : (
                       paginatedMemberRecs.map(rec => {
@@ -3477,19 +3477,19 @@ export const Finances: React.FC = () => {
                         return (
                           <div
                             key={rec.id}
-                            className="p-3.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-2xl space-y-2.5 hover:border-[#2d6a4f] transition-all"
+                            className="p-3 bg-[#f7f9f7] border border-[#e2ece2] rounded-xl space-y-2 hover:border-[#2d6a4f] transition-all"
                           >
-                            <div className="flex items-start justify-between gap-2 border-b border-[#e2ece2] pb-2">
+                            <div className="flex items-start justify-between gap-2 border-b border-[#e2ece2] pb-1.5">
                               <div>
-                                <h5 className="font-bold text-xs text-[#1b4332] leading-tight">
+                                <h5 className="font-bold text-[11.5px] text-[#1b4332] leading-tight">
                                   {getItemTitle(rec)}
                                 </h5>
-                                <p className="text-[10px] text-[#52605d] mt-0.5 font-medium">
+                                <p className="text-[9px] text-[#52605d] mt-0.5 font-medium">
                                   Period: <span className="font-semibold text-[#1b4332]">{rec.coveredMonth || formatDisplayDate(rec.dueDate)}</span>
                                 </p>
                               </div>
                               <span
-                                className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider shrink-0 ${
+                                className={`px-2 py-0.5 rounded-full text-[8.5px] font-black uppercase tracking-wider shrink-0 ${
                                   isPaid
                                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                                     : isPending
@@ -3503,27 +3503,27 @@ export const Finances: React.FC = () => {
                               </span>
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 text-[10px]">
+                            <div className="grid grid-cols-2 gap-1.5 text-[9.5px]">
                               <div>
-                                <span className="text-[#52605d] font-bold block">Amount:</span>
-                                <span className="text-xs font-black text-[#1b4332]">
+                                <span className="text-[#52605d] font-bold block text-[8.5px] uppercase tracking-wider">Amount:</span>
+                                <span className="text-[11px] font-black text-[#1b4332]">
                                   ₱{(Number(rec.amount) || 0).toLocaleString()}.00
                                 </span>
                               </div>
                               <div>
-                                <span className="text-[#52605d] font-bold block">Method:</span>
+                                <span className="text-[#52605d] font-bold block text-[8.5px] uppercase tracking-wider">Method:</span>
                                 <span className="font-semibold text-[#1b4332]">
                                   {isPending ? '-' : (rec.paymentMethod || 'Cash')}
                                 </span>
                               </div>
                               <div>
-                                <span className="text-[#52605d] font-bold block">Reference No:</span>
+                                <span className="text-[#52605d] font-bold block text-[8.5px] uppercase tracking-wider">Reference No:</span>
                                 <span className="font-mono text-[#1b4332] font-semibold">
                                   {rec.referenceNo || '-'}
                                 </span>
                               </div>
                               <div>
-                                <span className="text-[#52605d] font-bold block">Date Updated:</span>
+                                <span className="text-[#52605d] font-bold block text-[8.5px] uppercase tracking-wider">Date Updated:</span>
                                 <span className="font-semibold text-[#1b4332]">
                                   {isPending ? '-' : formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
                                 </span>
@@ -3608,7 +3608,7 @@ export const Finances: React.FC = () => {
 
                   {/* PAGINATION CONTROLS FOR MEMBER TRANSACTIONS */}
                   {filteredMemberRecs.length > 0 && (
-                    <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-[#e2ece2] text-xs text-[#52605d]">
+                    <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 sm:gap-3 pt-3 sm:pt-4 border-t border-[#e2ece2] text-[11px] sm:text-xs text-[#52605d]">
                       <div>
                         Showing{' '}
                         <span className="font-extrabold text-[#1b4332]">
@@ -3626,13 +3626,13 @@ export const Finances: React.FC = () => {
                           type="button"
                           disabled={validAccountTxPage === 1}
                           onClick={() => setAccountTxCurrentPage(prev => Math.max(prev - 1, 1))}
-                          className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                          className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-[11px] sm:text-xs"
                         >
-                          <ChevronLeft className="w-3.5 h-3.5" />
+                          <ChevronLeft className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                           <span>Previous</span>
                         </button>
 
-                        <span className="px-3 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs shadow-2xs">
+                        <span className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl bg-[#1b4332] text-white font-extrabold text-[11px] sm:text-xs shadow-2xs">
                           {validAccountTxPage} / {totalAccountTxPages}
                         </span>
 
@@ -3640,10 +3640,10 @@ export const Finances: React.FC = () => {
                           type="button"
                           disabled={validAccountTxPage >= totalAccountTxPages}
                           onClick={() => setAccountTxCurrentPage(prev => Math.min(prev + 1, totalAccountTxPages))}
-                          className="px-3 py-1.5 rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer"
+                          className="px-2.5 sm:px-3 py-1 sm:py-1.5 rounded-lg sm:rounded-xl border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e2ece2] disabled:opacity-40 disabled:cursor-not-allowed font-bold text-[#1b4332] flex items-center gap-1 transition-all cursor-pointer text-[11px] sm:text-xs"
                         >
                           <span>Next</span>
-                          <ChevronRight className="w-3.5 h-3.5" />
+                          <ChevronRight className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
                         </button>
                       </div>
                     </div>
