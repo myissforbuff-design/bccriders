@@ -31,9 +31,8 @@ import {
   Zap,
 } from 'lucide-react';
 import { store } from '../lib/db';
-import { BikeInfo, ActivityAudience, isUserTargetedForActivity, isOfficerRole, isMemberRole } from '../types';
+import { BikeInfo } from '../types';
 import { CustomSelect } from './CustomSelect';
-import { Shield } from 'lucide-react';
 
 import { TabType } from './Navigation';
 
@@ -54,7 +53,6 @@ interface Activity {
   date: string;
   status: 'Open' | 'Closed';
   attendance: Attendance[];
-  targetAudience?: ActivityAudience[];
 }
 
 interface QRScanProps {
@@ -89,7 +87,6 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   const [scanSuccessMessage, setScanSuccessMessage] = useState<string | null>(null);
   const [scannedMemberModal, setScannedMemberModal] = useState<Attendance | null>(null);
   const [alreadyScannedMemberModal, setAlreadyScannedMemberModal] = useState<Attendance | null>(null);
-  const [audienceMismatchModal, setAudienceMismatchModal] = useState<{ member: Attendance; activity: Activity; reason: string } | null>(null);
   const [showEventModal, setShowEventModal] = useState<boolean>(false);
   const [manualInputId, setManualInputId] = useState<string>('');
 
@@ -172,7 +169,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   selectedActivityIdRef.current = selectedActivityId;
 
   const isModalOpenRef = useRef<boolean>(false);
-  isModalOpenRef.current = Boolean(scannedMemberModal || alreadyScannedMemberModal || audienceMismatchModal || showEventModal);
+  isModalOpenRef.current = Boolean(scannedMemberModal || alreadyScannedMemberModal || showEventModal);
 
   const dismissScannedModal = useCallback(() => {
     setScannedMemberModal(null);
@@ -182,12 +179,6 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
   const dismissDuplicateModal = useCallback(() => {
     setAlreadyScannedMemberModal(null);
-    lastScannedTextRef.current = '';
-    lastScannedTimeRef.current = 0;
-  }, []);
-
-  const dismissAudienceMismatchModal = useCallback(() => {
-    setAudienceMismatchModal(null);
     lastScannedTextRef.current = '';
     lastScannedTimeRef.current = 0;
   }, []);
@@ -205,7 +196,6 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   useModalDismiss(true, handleCloseScan);
   useModalDismiss(Boolean(scannedMemberModal), dismissScannedModal);
   useModalDismiss(Boolean(alreadyScannedMemberModal), dismissDuplicateModal);
-  useModalDismiss(Boolean(audienceMismatchModal), dismissAudienceMismatchModal);
   useModalDismiss(showEventModal, () => setShowEventModal(false));
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -432,7 +422,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     const currentActivities = activitiesRef.current;
     const activeAct = currentActivities.find(a => a.id === currentActId);
     if (isEventDone(activeAct)) {
-      setScanSuccessMessage(`Scanning is disabled for "${activeAct?.name || 'this event'}". The event is completed or date has passed.`);
+      setScanSuccessMessage(`⚠️ Scanning is disabled for "${activeAct?.name || 'this event'}". The event is completed or date has passed.`);
       setTimeout(() => setScanSuccessMessage(null), 5000);
       return;
     }
@@ -452,7 +442,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
     // If Member ID / QR code is NOT registered, do NOT record attendance!
     if (!parsedData.isRegistered) {
-      setScanSuccessMessage(`Attendance NOT recorded. Member ID "${decodedText}" is not registered in the system.`);
+      setScanSuccessMessage(`❌ Attendance NOT recorded. Member ID "${decodedText}" is not registered in the system.`);
       setTimeout(() => setScanSuccessMessage(null), 6000);
       return;
     }
@@ -464,34 +454,6 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
       (u.name && u.name.toLowerCase() === parsedData.name.toLowerCase()) ||
       (u.username && u.username.toLowerCase() === parsedData.memberId.toLowerCase())
     );
-
-    // Audience targeting validation (Officers vs Members restriction)
-    if (activeAct) {
-      const userToCheck = matchedUser || { role: 'Member' };
-      const isTargeted = isUserTargetedForActivity(userToCheck, activeAct);
-      if (!isTargeted) {
-        const audience = activeAct.targetAudience && activeAct.targetAudience.length > 0
-          ? activeAct.targetAudience
-          : ['Officers', 'Members'];
-        const isOfficersOnly = audience.length === 1 && (audience[0] === 'Officers' || (audience[0] as string).toLowerCase() === 'officers');
-        const isMembersOnly = audience.length === 1 && (audience[0] === 'Members' || (audience[0] as string).toLowerCase() === 'members');
-        const roleLabel = matchedUser?.role || 'Member';
-        const reason = isOfficersOnly
-          ? `This activity "${activeAct.name}" is restricted to Officers only. The scanned attendee (${parsedData.name}) is registered as "${roleLabel}".`
-          : isMembersOnly
-          ? `This activity "${activeAct.name}" is restricted to regular Members only. The scanned attendee (${parsedData.name}) is registered as "${roleLabel}".`
-          : `This attendee is not authorized for this activity's target audience.`;
-
-        setAudienceMismatchModal({
-          member: parsedData,
-          activity: activeAct,
-          reason,
-        });
-        setScanSuccessMessage(`Attendance NOT recorded: ${reason}`);
-        setTimeout(() => setScanSuccessMessage(null), 5000);
-        return;
-      }
-    }
 
     // Compute all identifier keys for this member
     const currentMemberKeys = getMemberKeys(parsedData, matchedUser);
@@ -548,7 +510,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
       currentMemberKeys.forEach(k => actKeys?.add(k));
       setScannedMemberModal(null);
       setAlreadyScannedMemberModal(parsedData);
-      setScanSuccessMessage(`Member is already scanned (${parsedData.name}).`);
+      setScanSuccessMessage(`⚠️ Member is already scanned (${parsedData.name}).`);
       setTimeout(() => setScanSuccessMessage(null), 4000);
       return;
     }
@@ -651,7 +613,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
 
     setAlreadyScannedMemberModal(null);
     setScannedMemberModal(parsedData);
-    setScanSuccessMessage(`Successfully recorded attendance for ${parsedData.name} (${parsedData.memberId})!`);
+    setScanSuccessMessage(`✅ Successfully recorded attendance for ${parsedData.name} (${parsedData.memberId})!`);
     setTimeout(() => setScanSuccessMessage(null), 5000);
   };
 
@@ -832,7 +794,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     if (!file) return;
 
     if (isSelectedEventDone) {
-      setScanSuccessMessage(`Scanning is disabled for "${selectedActivity?.name || 'this event'}". The event is completed or date has passed.`);
+      setScanSuccessMessage(`⚠️ Scanning is disabled for "${selectedActivity?.name || 'this event'}". The event is completed or date has passed.`);
       setTimeout(() => setScanSuccessMessage(null), 5000);
       return;
     }
@@ -852,7 +814,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
           if (code && code.data) {
             handleScannedData(code.data);
           } else {
-            setScanSuccessMessage("No valid QR code detected in the uploaded image.");
+            setScanSuccessMessage("⚠️ No valid QR code detected in the uploaded image.");
             setTimeout(() => setScanSuccessMessage(null), 4000);
           }
         }
@@ -867,7 +829,7 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     e.preventDefault();
     if (!manualInputId.trim()) return;
     if (isSelectedEventDone) {
-      setScanSuccessMessage(`Scanning is disabled for "${selectedActivity?.name || 'this event'}". The event is completed or date has passed.`);
+      setScanSuccessMessage(`⚠️ Scanning is disabled for "${selectedActivity?.name || 'this event'}". The event is completed or date has passed.`);
       setTimeout(() => setScanSuccessMessage(null), 5000);
       return;
     }
@@ -982,35 +944,18 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
       </div>
 
       {/* Event Context Pill (Subtle & Non-intrusive) */}
-      {selectedActivity && (() => {
-        const audience = selectedActivity.targetAudience && selectedActivity.targetAudience.length > 0
-          ? selectedActivity.targetAudience
-          : ['Officers', 'Members'];
-        const isOfficersOnly = audience.length === 1 && (audience[0] === 'Officers' || (audience[0] as string).toLowerCase() === 'officers');
-        const isMembersOnly = audience.length === 1 && (audience[0] === 'Members' || (audience[0] as string).toLowerCase() === 'members');
-
-        return (
-          <div className="relative z-30 flex items-center justify-center px-4 -mt-2">
-            <button
-              type="button"
-              onClick={() => setShowEventModal(true)}
-              className="py-1 px-3.5 bg-black/50 hover:bg-black/70 backdrop-blur-md text-white/90 text-[11px] font-medium rounded-full border border-white/20 truncate transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 shadow-md"
-            >
-              <Calendar className="w-3 h-3 text-[#74c69d]" />
-              <span className="truncate max-w-[200px]">Event: {selectedActivity.name}</span>
-              {isOfficersOnly ? (
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-purple-500/80 text-white border border-purple-300/40">
-                  Officers
-                </span>
-              ) : isMembersOnly ? (
-                <span className="px-1.5 py-0.2 rounded-full text-[9px] font-extrabold bg-blue-500/80 text-white border border-blue-300/40">
-                  Members
-                </span>
-              ) : null}
-            </button>
-          </div>
-        );
-      })()}
+      {selectedActivity && (
+        <div className="relative z-30 flex items-center justify-center px-4 -mt-2">
+          <button
+            type="button"
+            onClick={() => setShowEventModal(true)}
+            className="py-1 px-3.5 bg-black/40 hover:bg-black/60 backdrop-blur-md text-white/90 text-[11px] font-medium rounded-full border border-white/15 truncate transition-all cursor-pointer flex items-center gap-1.5 active:scale-95 shadow-md"
+          >
+            <Calendar className="w-3 h-3 text-[#74c69d]" />
+            <span className="truncate max-w-[220px]">Event: {selectedActivity.name}</span>
+          </button>
+        </div>
+      )}
 
       {/* FULL SCREEN CAMERA VIEWPORT */}
       <div className="relative w-full flex-1 bg-black overflow-hidden flex items-center justify-center">
@@ -1144,10 +1089,6 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
                 ) : (
                   activities.map(act => {
                     const actDone = isEventDone(act);
-                    const aud = act.targetAudience && act.targetAudience.length > 0 ? act.targetAudience : ['Officers', 'Members'];
-                    const isOff = aud.length === 1 && (aud[0] === 'Officers' || (aud[0] as string).toLowerCase() === 'officers');
-                    const isMem = aud.length === 1 && (aud[0] === 'Members' || (aud[0] as string).toLowerCase() === 'members');
-
                     return (
                       <button
                         key={act.id}
@@ -1164,19 +1105,6 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
                         <div className="space-y-0.5 min-w-0 pr-2">
                           <div className="flex items-center gap-1.5 flex-wrap">
                             <p className="font-bold text-[#1b4332] text-xs truncate">{act.name}</p>
-                            {isOff ? (
-                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-purple-100 text-purple-800 border border-purple-200">
-                                Officers Only
-                              </span>
-                            ) : isMem ? (
-                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-blue-100 text-blue-800 border border-blue-200">
-                                Members Only
-                              </span>
-                            ) : (
-                              <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                All Club
-                              </span>
-                            )}
                             {actDone ? (
                               <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-100 text-rose-800 border border-rose-200">
                                 Closed
@@ -1399,87 +1327,6 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
                 className="w-full py-2.5 sm:py-3 bg-[#1b4332] hover:bg-[#2d6a4f] active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl sm:rounded-2xl shadow-xs cursor-pointer transition-all shrink-0"
               >
                 OK / Continue Scanning
-              </button>
-            </div>
-          </div>
-        </ModalPortal>
-      )}
-
-      {/* Modal Alert: Audience Mismatch Restriction (e.g. Officer Meeting vs Member) */}
-      {audienceMismatchModal && (
-        <ModalPortal>
-          <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 z-[9999] animate-fadeIn">
-            <div className="bg-white w-full max-w-[350px] sm:max-w-sm rounded-2xl sm:rounded-3xl p-4 sm:p-5 shadow-2xl relative space-y-3 border border-purple-200 text-center animate-scaleUp my-auto flex flex-col max-h-[82dvh] overflow-hidden text-[#2d3a3a]">
-              {/* Close Button */}
-              <button
-                onClick={dismissAudienceMismatchModal}
-                className="absolute top-2.5 right-2.5 sm:top-3 sm:right-3 p-1 rounded-full text-stone-400 hover:text-stone-700 hover:bg-stone-100 transition-colors z-20 cursor-pointer"
-                title="Close"
-              >
-                <X className="w-4 h-4 sm:w-5 sm:h-5" />
-              </button>
-
-              {/* Restrict Icon Badge */}
-              <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-700 border-2 border-purple-300 flex items-center justify-center mx-auto shadow-xs shrink-0 mt-0.5">
-                <Shield className="w-6 h-6" />
-              </div>
-
-              {/* Title */}
-              <div className="shrink-0">
-                <span className="px-2.5 py-0.5 bg-purple-100 text-purple-800 rounded-full text-[9px] sm:text-[9.5px] font-extrabold uppercase tracking-wider inline-block">
-                  Audience Restriction
-                </span>
-                <h3 className="text-base sm:text-lg font-extrabold text-[#1b4332] mt-1 leading-tight">
-                  Attendance Not Allowed
-                </h3>
-                <p className="text-[11px] sm:text-xs text-[#52605d] mt-1 leading-relaxed px-1">
-                  {audienceMismatchModal.reason}
-                </p>
-              </div>
-
-              {/* Member Details */}
-              <div className="p-3 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] text-xs text-left flex items-center gap-2.5">
-                {audienceMismatchModal.member.avatar ? (
-                  <img
-                    src={audienceMismatchModal.member.avatar}
-                    alt={audienceMismatchModal.member.name}
-                    className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-purple-300 shrink-0"
-                    onError={(e) => {
-                      (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
-                    }}
-                  />
-                ) : (
-                  <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center shrink-0">
-                    <UserIcon className="w-5 h-5" />
-                  </div>
-                )}
-                <div className="space-y-0.5 min-w-0 flex-1">
-                  <h4 className="font-extrabold text-xs sm:text-sm text-[#1b4332] truncate">
-                    {audienceMismatchModal.member.name}
-                  </h4>
-                  <p className="text-[10px] sm:text-[11px] font-mono font-bold text-[#2d6a4f]">
-                    Member ID: #{audienceMismatchModal.member.memberId}
-                  </p>
-                  <p className="text-[9.5px] sm:text-[10px] text-[#52605d] truncate">
-                    Chapter: {audienceMismatchModal.member.network || 'Main Chapter'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Activity Context */}
-              <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-200 text-xs text-center space-y-0.5">
-                <p className="text-[9px] font-extrabold text-purple-800 uppercase tracking-wider">Activity Target</p>
-                <p className="font-bold text-[#1b4332] text-xs truncate">{audienceMismatchModal.activity.name}</p>
-                <span className="inline-block mt-0.5 px-2 py-0.5 bg-purple-200/80 text-purple-900 rounded-full text-[9px] font-bold">
-                  {audienceMismatchModal.activity.targetAudience?.join(' & ') || 'Officers'} Only
-                </span>
-              </div>
-
-              <button
-                onClick={dismissAudienceMismatchModal}
-                className="w-full py-2.5 sm:py-3 bg-purple-800 hover:bg-purple-900 active:scale-95 text-white font-extrabold text-xs sm:text-sm rounded-xl sm:rounded-2xl shadow-xs cursor-pointer transition-all shrink-0"
-              >
-                Understood / Continue Scanning
               </button>
             </div>
           </div>

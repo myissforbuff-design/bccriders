@@ -412,10 +412,7 @@ export const TreasurerRequestsManagerModal: React.FC<TreasurerRequestsManagerMod
 
         {/* Footer */}
         <div className="p-3 bg-stone-50 border-t border-stone-200 flex items-center justify-between text-[11px] text-stone-500 shrink-0">
-          <span className="truncate mr-2 flex items-center gap-1">
-            <Lock className="w-3.5 h-3.5 text-stone-400 shrink-0 inline" />
-            <span>Cryptographically logged for audit integrity.</span>
-          </span>
+          <span className="truncate mr-2">🔒 Cryptographically logged for audit integrity.</span>
           <button
             type="button"
             onClick={onClose}

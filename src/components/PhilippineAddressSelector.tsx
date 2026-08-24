@@ -154,21 +154,21 @@ export const PhilippineAddressSelector: React.FC<PhilippineAddressSelectorProps>
   const provinceOptions = [
     ...availableProvinces.map((p) => ({ value: p.code, label: p.name })),
     ...(selectedRegionCode && !isNCR
-      ? [{ value: 'OTHER', label: '+ Other / Enter Custom Province...' }]
+      ? [{ value: 'OTHER', label: '➕ Other / Enter Custom Province...' }]
       : []),
   ];
 
   const cityOptions = [
     ...availableCities.map((c) => ({ value: c.code, label: c.name })),
     ...((isNCR && selectedRegionCode) || selectedProvinceCode
-      ? [{ value: 'OTHER', label: '+ Other / Enter Custom City / Municipality...' }]
+      ? [{ value: 'OTHER', label: '➕ Other / Enter Custom City / Municipality...' }]
       : []),
   ];
 
   const barangayOptions = [
     ...availableBarangays.map((b) => ({ value: b.code, label: b.name })),
     ...(selectedCityCode
-      ? [{ value: 'OTHER', label: '+ Other / Enter Custom Barangay Name...' }]
+      ? [{ value: 'OTHER', label: '➕ Other / Enter Custom Barangay Name...' }]
       : []),
   ];
 

@@ -24,22 +24,11 @@ import {
   UserCheck,
   Clock,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Check,
   ExternalLink,
   Share2,
   Globe,
-  Smile,
-  SmilePlus,
 } from 'lucide-react';
-
-const QUICK_EMOJIS = ['👍', '❤️', '🏍️', '🔥', '👏', '🎉', '💯', '🤝'];
-const EXTENDED_EMOJIS = [
-  '👍', '❤️', '🏍️', '🔥', '👏', '🎉', '💯', '🤝',
-  '🙌', '😎', '⚡', '💪', '🚀', '🏁', '🏆', '🤩',
-  '🙏', '🫡', '🎯', '👌', '☕', '⭐'
-];
 
 const getFacebookEmbedSrc = (rawUrl?: string): string => {
   if (!rawUrl) return '';
@@ -80,21 +69,10 @@ export const AnnouncementsView: React.FC = () => {
   const [selectedPriority, setSelectedPriority] = useState<string>('All');
   const [isPriorityDropdownOpen, setIsPriorityDropdownOpen] = useState(false);
   const priorityDropdownRef = useRef<HTMLDivElement>(null);
-  const [activePickerAnnId, setActivePickerAnnId] = useState<string | null>(null);
 
   useEffect(() => {
     setAnnouncements([...store.getAnnouncements()]);
   }, [refreshTick]);
-
-  useEffect(() => {
-    const handleAnnouncementsUpdate = () => {
-      setAnnouncements([...store.getAnnouncements()]);
-    };
-    window.addEventListener('bcc_announcements_updated', handleAnnouncementsUpdate);
-    return () => {
-      window.removeEventListener('bcc_announcements_updated', handleAnnouncementsUpdate);
-    };
-  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -103,11 +81,6 @@ export const AnnouncementsView: React.FC = () => {
         !priorityDropdownRef.current.contains(event.target as Node)
       ) {
         setIsPriorityDropdownOpen(false);
-      }
-      // Close emoji picker if click target is not an emoji picker trigger
-      const target = event.target as HTMLElement;
-      if (!target.closest('.emoji-picker-container')) {
-        setActivePickerAnnId(null);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -135,18 +108,6 @@ export const AnnouncementsView: React.FC = () => {
 
   const refreshAnnouncements = () => {
     setAnnouncements([...store.getAnnouncements()]);
-  };
-
-  const handleToggleReaction = (annId: string, emoji: string) => {
-    if (!currentUser) return;
-    const updated = store.toggleAnnouncementReaction(annId, emoji, {
-      id: currentUser.id || (currentUser as any).memberId || 'guest',
-      name: currentUser.name || 'Club Member',
-    });
-    setAnnouncements((prev) =>
-      prev.map((a) => (a.id === annId ? { ...updated } : a))
-    );
-    setActivePickerAnnId(null);
   };
 
   const handleOpenCreate = () => {
@@ -264,73 +225,61 @@ export const AnnouncementsView: React.FC = () => {
       return 0;
     });
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
-
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, selectedPriority]);
-
-  const totalPages = Math.max(1, Math.ceil(filteredAnnouncements.length / itemsPerPage));
-  const currentAnnouncementsPage = Math.min(Math.max(1, currentPage), totalPages);
-  const paginatedAnnouncements = filteredAnnouncements.slice(
-    (currentAnnouncementsPage - 1) * itemsPerPage,
-    currentAnnouncementsPage * itemsPerPage
-  );
-
   const getPriorityBadge = (priority: AnnouncementPriority) => {
     switch (priority) {
       case 'Emergency':
         return {
           bg: 'bg-rose-50 border-rose-200 text-rose-800',
-          icon: <AlertTriangle className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-rose-600" />,
+          icon: <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />,
         };
       case 'Important':
         return {
           bg: 'bg-amber-50 border-amber-200 text-amber-800',
-          icon: <Bell className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-amber-600" />,
+          icon: <Bell className="w-3.5 h-3.5 text-amber-600" />,
         };
       case 'Event':
         return {
           bg: 'bg-emerald-50 border-emerald-200 text-emerald-800',
-          icon: <Calendar className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-emerald-600" />,
+          icon: <Calendar className="w-3.5 h-3.5 text-emerald-600" />,
         };
       default:
         return {
           bg: 'bg-slate-100 border-slate-200 text-slate-700',
-          icon: <Info className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-slate-500" />,
+          icon: <Info className="w-3.5 h-3.5 text-slate-500" />,
         };
     }
   };
 
   return (
-    <div className="space-y-2.5 sm:space-y-4">
+    <div className="space-y-6">
       {/* Header Row */}
-      {isAdmin && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      
+        {/* Admin Action Button */}
+        {isAdmin && (
           <button
             type="button"
             onClick={handleOpenCreate}
-            className="w-full sm:w-auto px-3 sm:px-4 py-1.5 sm:py-2 rounded-lg sm:rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-bold text-[10.5px] sm:text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 hover:scale-[1.01] active:scale-[0.98] shrink-0"
+            className="px-4 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] shrink-0"
           >
-            <Plus className="w-3.5 h-3.5 text-[#74c69d]" />
+            <Plus className="w-4 h-4 text-[#74c69d]" />
             <span>Create News Update</span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Filter & Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-1.5 sm:gap-2.5 bg-white p-2 sm:p-3 rounded-xl sm:rounded-2xl border border-[#e2ece2] shadow-xs">
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-[#e2ece2] shadow-xs">
         {/* Search */}
-        <div className="relative flex-1 sm:max-w-xs">
+        <div className="relative w-full sm:w-80">
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search announcements..."
-            className="w-full pl-7.5 sm:pl-8 pr-3 py-1.5 rounded-lg sm:rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[10.5px] sm:text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+            className="w-full pl-9 pr-4 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
           />
-          <Search className="w-3.5 h-3.5 text-[#52605d] absolute left-2.5 top-2" />
+          <Search className="w-4 h-4 text-[#52605d] absolute left-3 top-2.5" />
         </div>
 
         {/* Priority Filter Interactive Dropdown */}
@@ -338,17 +287,17 @@ export const AnnouncementsView: React.FC = () => {
           <button
             type="button"
             onClick={() => setIsPriorityDropdownOpen((prev) => !prev)}
-            className="w-full sm:w-52 flex items-center justify-between gap-1.5 px-2.5 py-1.5 bg-[#f7f9f7] hover:bg-[#e8f2e9] text-[#1b4332] rounded-lg sm:rounded-xl border border-[#e2ece2] text-[10.5px] sm:text-xs font-bold transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#1b4332]/20"
+            className="w-full sm:w-60 flex items-center justify-between gap-2 px-3.5 py-2 bg-[#f7f9f7] hover:bg-[#e8f2e9] text-[#1b4332] rounded-xl border border-[#e2ece2] text-xs font-bold transition-all cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#1b4332]/20"
           >
-            <div className="flex items-center gap-1.5 truncate">
-              <Filter className="w-3 h-3 text-[#2d6a4f] shrink-0" />
-              <span className="text-[#52605d] text-[10px] font-normal">Category:</span>
+            <div className="flex items-center gap-2 truncate">
+              <Filter className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+              <span className="text-[#52605d] text-[11px] font-normal">Category:</span>
               <span className="font-extrabold truncate">
                 {PRIORITY_OPTIONS.find((p) => p.id === selectedPriority)?.label || selectedPriority}
               </span>
             </div>
             <ChevronDown
-              className={`w-3.5 h-3.5 text-[#2d6a4f] shrink-0 transition-transform duration-200 ${
+              className={`w-4 h-4 text-[#2d6a4f] shrink-0 transition-transform duration-200 ${
                 isPriorityDropdownOpen ? 'rotate-180' : ''
               }`}
             />
@@ -357,11 +306,11 @@ export const AnnouncementsView: React.FC = () => {
           <AnimatePresence>
             {isPriorityDropdownOpen && (
               <motion.div
-                initial={{ opacity: 0, y: -4, scale: 0.98 }}
-                animate={{ opacity: 1, y: 2, scale: 1 }}
-                exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                transition={{ duration: 0.12 }}
-                className="absolute right-0 left-0 sm:left-auto sm:w-56 top-full z-30 p-1 bg-white rounded-xl border border-[#e2ece2] shadow-xl space-y-0.5 mt-1 overflow-hidden"
+                initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                animate={{ opacity: 1, y: 4, scale: 1 }}
+                exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 left-0 sm:left-auto sm:w-64 top-full z-30 p-1.5 bg-white rounded-2xl border border-[#e2ece2] shadow-xl space-y-1 mt-1 overflow-hidden"
               >
                 {PRIORITY_OPTIONS.map((opt) => {
                   const isSelected = selectedPriority === opt.id;
@@ -373,21 +322,21 @@ export const AnnouncementsView: React.FC = () => {
                         setSelectedPriority(opt.id);
                         setIsPriorityDropdownOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer text-left ${
+                      className={`w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl transition-all cursor-pointer text-left ${
                         isSelected
                           ? 'bg-[#1b4332] text-white shadow-xs'
                           : 'hover:bg-[#f0f7f2] text-[#1b4332]'
                       }`}
                     >
                       <div className="min-w-0">
-                        <p className={`text-[10.5px] font-bold truncate ${isSelected ? 'text-white' : 'text-[#1b4332]'}`}>
+                        <p className={`text-xs font-extrabold truncate ${isSelected ? 'text-white' : 'text-[#1b4332]'}`}>
                           {opt.label}
                         </p>
-                        <p className={`text-[9px] truncate ${isSelected ? 'text-[#d8f3dc]' : 'text-[#52605d]'}`}>
+                        <p className={`text-[10px] truncate ${isSelected ? 'text-[#d8f3dc]' : 'text-[#52605d]'}`}>
                           {opt.description}
                         </p>
                       </div>
-                      {isSelected && <Check className="w-3 h-3 text-[#74c69d] shrink-0" />}
+                      {isSelected && <Check className="w-3.5 h-3.5 text-[#74c69d] shrink-0" />}
                     </button>
                   );
                 })}
@@ -398,50 +347,49 @@ export const AnnouncementsView: React.FC = () => {
       </div>
 
       {/* Announcements List */}
-      <div className="space-y-2 sm:space-y-3">
+      <div className="space-y-4">
         {filteredAnnouncements.length === 0 ? (
-          <div className="bg-white rounded-xl sm:rounded-2xl p-8 sm:p-10 text-center border border-[#e2ece2] shadow-xs space-y-2">
-            <div className="w-10 h-10 bg-[#f7f9f7] rounded-full flex items-center justify-center mx-auto text-[#52605d]">
-              <Megaphone className="w-4 h-4" />
+          <div className="bg-white rounded-3xl p-12 text-center border border-[#e2ece2] shadow-xs space-y-3">
+            <div className="w-14 h-14 bg-[#f7f9f7] rounded-full flex items-center justify-center mx-auto text-[#52605d]">
+              <Megaphone className="w-6 h-6" />
             </div>
-            <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base">
+            <h3 className="font-heading font-extrabold text-[#1b4332] text-base">
               No Announcements Found
             </h3>
-            <p className="text-[10px] sm:text-xs text-[#52605d] max-w-xs mx-auto">
+            <p className="text-xs text-[#52605d] max-w-sm mx-auto">
               {searchQuery || selectedPriority !== 'All'
                 ? 'No bulletins match your current search criteria. Try adjusting your filters.'
                 : 'There are no active club announcements posted at this time.'}
             </p>
           </div>
         ) : (
-          <>
-            {paginatedAnnouncements.map((ann) => {
-              const badge = getPriorityBadge(ann.priority);
+          filteredAnnouncements.map((ann) => {
+            const badge = getPriorityBadge(ann.priority);
             return (
               <motion.div
                 key={ann.id}
                 layout
-                initial={{ opacity: 0, y: 8 }}
+                initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.95 }}
-                className={`bg-white rounded-xl sm:rounded-2xl p-2.5 sm:p-4 border transition-all ${
+                className={`bg-white rounded-2xl p-3.5 sm:p-5 border transition-all ${
                   ann.pinned
-                    ? 'border-[#2d6a4f] shadow-sm bg-gradient-to-br from-white via-white to-[#f0f9f1]'
+                    ? 'border-[#2d6a4f] shadow-md bg-gradient-to-br from-white via-white to-[#f0f9f1]'
                     : 'border-[#e2ece2] shadow-xs hover:border-[#2d6a4f]/50'
                 }`}
               >
                 {/* Top Row: Priority Badge, Pinned Ribbon & Admin Action Buttons */}
-                <div className="flex items-center justify-between gap-1.5 mb-2">
-                  <div className="flex items-center gap-1 flex-wrap">
+                <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {ann.pinned && (
-                      <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[8.5px] sm:text-[9.5px] font-bold shadow-2xs">
-                        <Pin className="w-2.5 h-2.5 text-amber-700 fill-amber-700" />
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 text-[10px] font-extrabold shadow-2xs">
+                        <Pin className="w-3 h-3 text-amber-700 fill-amber-700" />
                         <span>Pinned Bulletin</span>
                       </span>
                     )}
 
                     <span
-                      className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full border text-[8.5px] sm:text-[9.5px] font-bold ${badge.bg}`}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-extrabold ${badge.bg}`}
                     >
                       {badge.icon}
                       <span>{ann.priority}</span>
@@ -455,227 +403,90 @@ export const AnnouncementsView: React.FC = () => {
                         type="button"
                         onClick={() => handleTogglePin(ann.id)}
                         title={ann.pinned ? 'Unpin Announcement' : 'Pin Announcement'}
-                        className={`p-1 rounded-md border text-[10px] font-semibold transition-colors cursor-pointer ${
+                        className={`p-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer ${
                           ann.pinned
                             ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
                             : 'bg-stone-50 text-stone-600 border-stone-200 hover:bg-stone-100'
                         }`}
                       >
-                        <Pin className={`w-3 h-3 ${ann.pinned ? 'fill-amber-700' : ''}`} />
+                        <Pin className={`w-3.5 h-3.5 ${ann.pinned ? 'fill-amber-700' : ''}`} />
                       </button>
 
                       <button
                         type="button"
                         onClick={() => handleOpenEdit(ann)}
                         title="Edit Announcement"
-                        className="p-1 rounded-md bg-stone-50 hover:bg-stone-100 text-stone-700 border border-stone-200 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg bg-stone-50 hover:bg-stone-100 text-stone-700 border border-stone-200 transition-colors cursor-pointer"
                       >
-                        <Edit2 className="w-3 h-3" />
+                        <Edit2 className="w-3.5 h-3.5" />
                       </button>
 
                       <button
                         type="button"
                         onClick={() => setDeletingId(ann.id)}
                         title="Delete Announcement"
-                        className="p-1 rounded-md bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
+                        className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors cursor-pointer"
                       >
-                        <Trash2 className="w-3 h-3" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
                 </div>
 
                 {/* Announcement Title */}
-                <h3 className="font-heading text-xs sm:text-sm font-bold sm:font-extrabold text-[#1b4332] leading-snug mb-1">
+                <h3 className="font-heading text-base sm:text-lg font-extrabold text-[#1b4332] leading-snug mb-2">
                   {ann.title}
                 </h3>
 
                 {/* Content */}
-                <div className="text-[10.5px] sm:text-xs text-[#3d4b49] leading-relaxed whitespace-pre-line mb-2 font-normal">
+                <div className="text-xs sm:text-sm text-[#3d4b49] leading-relaxed whitespace-pre-line mb-3 font-normal">
                   {ann.content}
                 </div>
 
                 {/* Embedded Facebook Post Container */}
                 {ann.facebookUrl && (
-                  <div className="my-2 rounded-lg border border-[#e2ece2] bg-white overflow-hidden shadow-2xs p-1 flex justify-center min-h-[240px] w-full">
+                  <div className="my-3 rounded-xl border border-[#e2ece2] bg-white overflow-hidden shadow-2xs p-1 sm:p-2 flex justify-center min-h-[300px] w-full">
                     <iframe
                       src={getFacebookEmbedSrc(ann.facebookUrl)}
                       width="100%"
-                      height="400"
-                      style={{ border: 'none', overflow: 'hidden', width: '100%', minHeight: '260px' }}
+                      height="500"
+                      style={{ border: 'none', overflow: 'hidden', width: '100%', minHeight: '350px' }}
                       scrolling="no"
                       frameBorder="0"
                       allowFullScreen={true}
                       allow="autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share"
                       title={`Embedded Facebook post for ${ann.title}`}
-                      className="w-full max-w-[500px] rounded-md"
+                      className="w-full max-w-[500px] rounded-lg"
                     />
                   </div>
                 )}
 
                 {/* Footer: Author Info & Timestamp */}
-                <div className="pt-2 border-t border-[#e2ece2] flex items-center justify-between text-[9.5px] sm:text-[10.5px] text-[#52605d]">
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-5 h-5 rounded-full bg-[#d8f3dc] text-[#1b4332] font-bold flex items-center justify-center text-[9px] shrink-0">
+                <div className="pt-3 border-t border-[#e2ece2] flex items-center justify-between text-[11px] text-[#52605d]">
+                  <div className="flex items-center gap-2">
+                    <div className="w-6 h-6 rounded-full bg-[#d8f3dc] text-[#1b4332] font-bold flex items-center justify-center text-[10px] shrink-0">
                       {ann.authorName.charAt(0)}
                     </div>
-                    <div className="flex items-center gap-1 flex-wrap">
-                      <span className="font-bold text-[#1b4332] text-[10px] sm:text-[11px]">{ann.authorName}</span>
+                    <div>
+                      <span className="font-bold text-[#1b4332]">{ann.authorName}</span>
                       {ann.authorRole && (
-                        <span className="text-[8px] sm:text-[9px] text-[#2d6a4f] bg-[#d8f3dc] px-1 py-0.2 rounded font-semibold">
+                        <span className="text-[10px] text-[#2d6a4f] bg-[#d8f3dc] px-1.5 py-0.2 rounded ml-1.5 font-semibold">
                           {ann.authorRole}
                         </span>
                       )}
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-1 text-[#52605d] font-medium text-[9px] sm:text-[10px]">
-                    <Clock className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-[#2d6a4f]" />
+                  <div className="flex items-center gap-1 text-[#52605d] font-medium">
+                    <Clock className="w-3 h-3 text-[#2d6a4f]" />
                     <span>{ann.createdAt}</span>
-                    {ann.updatedAt && <span className="italic text-[8.5px]">(Edited)</span>}
-                  </div>
-                </div>
-
-                {/* Bottom Bar: Emoji Reactions Section (For Members, Officers & Admins) */}
-                <div className="mt-2 pt-2 border-t border-[#e2ece2]/60 flex flex-wrap items-center justify-between gap-1.5 emoji-picker-container relative">
-                  {/* Active Reaction Chips */}
-                  <div className="flex flex-wrap items-center gap-1">
-                    {ann.reactions && ann.reactions.length > 0 ? (
-                      ann.reactions.map((reaction) => {
-                        const currentUserId = currentUser?.id || (currentUser as any)?.memberId;
-                        const hasReacted = reaction.users.some((u) => u.userId === currentUserId);
-                        const userNames = reaction.users.map((u) => u.userName).join(', ');
-                        return (
-                          <button
-                            key={reaction.emoji}
-                            type="button"
-                            onClick={() => handleToggleReaction(ann.id, reaction.emoji)}
-                            title={userNames ? `${reaction.emoji} ${userNames}` : 'React'}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] sm:text-xs font-bold transition-all cursor-pointer border active:scale-95 ${
-                              hasReacted
-                                ? 'bg-emerald-100/90 text-[#1b4332] border-[#2d6a4f] shadow-2xs'
-                                : 'bg-[#f7f9f7] hover:bg-emerald-50 text-[#52605d] border-[#e2ece2]'
-                            }`}
-                          >
-                            <span className="text-[11px] sm:text-xs">{reaction.emoji}</span>
-                            <span className="text-[9px] sm:text-[10px] font-extrabold">{reaction.users.length}</span>
-                          </button>
-                        );
-                      })
-                    ) : (
-                      <span className="text-[9px] text-[#52605d]/70 italic">No reactions yet</span>
-                    )}
-                  </div>
-
-                  {/* Add / React Emoji Button & Palette */}
-                  <div className="relative">
-                    <button
-                      type="button"
-                      onClick={() => setActivePickerAnnId(activePickerAnnId === ann.id ? null : ann.id)}
-                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-bold transition-all cursor-pointer border shadow-2xs active:scale-95 ${
-                        activePickerAnnId === ann.id
-                          ? 'bg-[#1b4332] text-white border-[#1b4332]'
-                          : 'bg-[#f7f9f7] hover:bg-[#e2ece2] text-[#1b4332] border-[#e2ece2]'
-                      }`}
-                      title="React with emoji"
-                    >
-                      <Smile className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-[#2d6a4f]" />
-                      <span>React</span>
-                    </button>
-
-                    {/* Emoji Picker Popover */}
-                    <AnimatePresence>
-                      {activePickerAnnId === ann.id && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.92, y: 4 }}
-                          animate={{ opacity: 1, scale: 1, y: 0 }}
-                          exit={{ opacity: 0, scale: 0.92, y: 4 }}
-                          transition={{ duration: 0.12 }}
-                          className="absolute right-0 bottom-full mb-1.5 z-50 p-1.5 bg-white rounded-xl shadow-xl border border-[#e2ece2] flex flex-wrap gap-1 w-[220px] sm:w-[260px]"
-                        >
-                          <div className="w-full text-[9px] font-bold text-[#52605d] px-1 pb-1 border-b border-[#e2ece2] mb-1 flex items-center justify-between">
-                            <span>React with Emoji</span>
-                            <span className="text-[8px] text-[#2d6a4f] font-normal">Click to toggle</span>
-                          </div>
-                          {EXTENDED_EMOJIS.map((emoji) => {
-                            const currentUserId = currentUser?.id || (currentUser as any)?.memberId;
-                            const reaction = ann.reactions?.find((r) => r.emoji === emoji);
-                            const hasReacted = reaction?.users.some((u) => u.userId === currentUserId);
-                            return (
-                              <button
-                                key={emoji}
-                                type="button"
-                                onClick={() => handleToggleReaction(ann.id, emoji)}
-                                className={`w-7 h-7 flex items-center justify-center text-sm sm:text-base rounded-lg hover:scale-125 transition-all cursor-pointer ${
-                                  hasReacted ? 'bg-emerald-100 ring-1 ring-[#2d6a4f]' : 'hover:bg-emerald-50'
-                                }`}
-                              >
-                                {emoji}
-                              </button>
-                            );
-                          })}
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                    {ann.updatedAt && <span className="italic text-[10px]">(Edited)</span>}
                   </div>
                 </div>
               </motion.div>
             );
-          })}
-
-          {/* Pagination Controls */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 p-3 bg-white rounded-xl sm:rounded-2xl border border-[#e2ece2] shadow-xs text-[10px] sm:text-xs text-[#52605d] mt-2">
-            <div className="font-semibold">
-              Showing <span className="font-extrabold text-[#1b4332]">{(currentAnnouncementsPage - 1) * itemsPerPage + 1}</span> to{' '}
-              <span className="font-extrabold text-[#1b4332]">
-                {Math.min(currentAnnouncementsPage * itemsPerPage, filteredAnnouncements.length)}
-              </span>{' '}
-              of <span className="font-extrabold text-[#1b4332]">{filteredAnnouncements.length}</span> news updates
-            </div>
-
-            {totalPages > 1 && (
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
-                  disabled={currentAnnouncementsPage === 1}
-                  className="px-2.5 py-1 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-[#f7f9f7] disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors text-[10.5px] sm:text-xs font-bold flex items-center gap-1"
-                >
-                  <ChevronLeft className="w-3 h-3" />
-                  <span>Prev</span>
-                </button>
-
-                <div className="flex items-center gap-1 px-1">
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((pageNum) => (
-                    <button
-                      key={pageNum}
-                      type="button"
-                      onClick={() => setCurrentPage(pageNum)}
-                      className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer ${
-                        currentAnnouncementsPage === pageNum
-                          ? 'bg-[#1b4332] text-white shadow-xs'
-                          : 'bg-white text-[#52605d] border border-[#e2ece2] hover:bg-stone-100'
-                      }`}
-                    >
-                      {pageNum}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
-                  disabled={currentAnnouncementsPage === totalPages}
-                  className="px-2.5 py-1 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-[#f7f9f7] disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors text-[10.5px] sm:text-xs font-bold flex items-center gap-1"
-                >
-                  <span>Next</span>
-                  <ChevronRight className="w-3 h-3" />
-                </button>
-              </div>
-            )}
-          </div>
-        </>
-      )}
+          })
+        )}
       </div>
 
       {/* Modal: Create / Edit Announcement */}

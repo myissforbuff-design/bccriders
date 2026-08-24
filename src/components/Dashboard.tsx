@@ -16,7 +16,6 @@ import {
   CheckCircle2,
   AlertCircle,
   ChevronRight,
-  ChevronLeft,
   Bike,
   ShieldCheck,
   Calendar,
@@ -153,9 +152,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const netBalance = totalCollected - totalExpenses;
   const totalPaidCount = validFinanceRecords.filter((r) => r.status === 'Paid').length;
 
-  const [memberPage, setMemberPage] = useState(1);
-  const membersPerPage = 10;
-
   const filteredMembersList = members.filter((m) => {
     if (!searchTerm.trim()) return true;
     const q = searchTerm.toLowerCase();
@@ -168,17 +164,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
       (m.bikeInfo?.model && m.bikeInfo.model.toLowerCase().includes(q))
     );
   });
-
-  useEffect(() => {
-    setMemberPage(1);
-  }, [searchTerm]);
-
-  const totalMemberPages = Math.max(1, Math.ceil(filteredMembersList.length / membersPerPage));
-  const currentMemberPage = Math.min(Math.max(1, memberPage), totalMemberPages);
-  const paginatedMembersList = filteredMembersList.slice(
-    (currentMemberPage - 1) * membersPerPage,
-    currentMemberPage * membersPerPage
-  );
 
   return (
     <div className="space-y-3 sm:space-y-6 lg:space-y-8 pb-4 sm:pb-6">
@@ -386,7 +371,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <>
               {/* Mobile View: High-Density Compact Card List (visible on sm:hidden) */}
               <div className="block sm:hidden divide-y divide-[#e2ece2]">
-                {paginatedMembersList.map((m) => {
+                {filteredMembersList.map((m) => {
                   const isPending = m.approvalStatus === 'Pending' || m.approvalStatus?.toLowerCase() === 'pending';
                   return (
                     <div
@@ -458,7 +443,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#e2ece2]">
-                    {paginatedMembersList.map((m) => {
+                    {filteredMembersList.map((m) => {
                       const isPending = m.approvalStatus === 'Pending' || m.approvalStatus?.toLowerCase() === 'pending';
                       return (
                         <tr
@@ -542,58 +527,6 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     })}
                   </tbody>
                 </table>
-              </div>
-
-              {/* Pagination Controls Footer */}
-              <div className="flex flex-col sm:flex-row items-center justify-between gap-2 pt-3 border-t border-[#e2ece2] text-[10px] sm:text-xs text-[#52605d]">
-                <div className="font-semibold text-[#52605d]">
-                  Showing <span className="font-extrabold text-[#1b4332]">{(currentMemberPage - 1) * membersPerPage + 1}</span> to{' '}
-                  <span className="font-extrabold text-[#1b4332]">
-                    {Math.min(currentMemberPage * membersPerPage, filteredMembersList.length)}
-                  </span>{' '}
-                  of <span className="font-extrabold text-[#1b4332]">{filteredMembersList.length}</span> members & applicants
-                </div>
-
-                {totalMemberPages > 1 && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setMemberPage((prev) => Math.max(1, prev - 1))}
-                      disabled={currentMemberPage === 1}
-                      className="px-2.5 py-1 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-[#f7f9f7] disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors text-[10.5px] sm:text-xs font-bold flex items-center gap-1"
-                    >
-                      <ChevronLeft className="w-3 h-3" />
-                      <span>Prev</span>
-                    </button>
-
-                    <div className="flex items-center gap-1 px-1">
-                      {Array.from({ length: totalMemberPages }, (_, i) => i + 1).map((pageNum) => (
-                        <button
-                          key={pageNum}
-                          type="button"
-                          onClick={() => setMemberPage(pageNum)}
-                          className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg text-[10px] sm:text-xs font-bold transition-all cursor-pointer ${
-                            currentMemberPage === pageNum
-                              ? 'bg-[#1b4332] text-white shadow-xs'
-                              : 'bg-white text-[#52605d] border border-[#e2ece2] hover:bg-stone-100'
-                          }`}
-                        >
-                          {pageNum}
-                        </button>
-                      ))}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setMemberPage((prev) => Math.min(totalMemberPages, prev + 1))}
-                      disabled={currentMemberPage === totalMemberPages}
-                      className="px-2.5 py-1 rounded-lg border border-[#e2ece2] bg-white text-[#1b4332] hover:bg-[#f7f9f7] disabled:opacity-40 disabled:hover:bg-white cursor-pointer transition-colors text-[10.5px] sm:text-xs font-bold flex items-center gap-1"
-                    >
-                      <span>Next</span>
-                      <ChevronRight className="w-3 h-3" />
-                    </button>
-                  </div>
-                )}
               </div>
             </>
           )}

@@ -24,7 +24,7 @@ import { ModalPortal } from './ModalPortal';
 import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import { InboundEmailViewer } from './InboundEmailViewer';
 import { EmailSender } from './EmailSender';
-import { PushSettingsTab } from './PushSettingsTab';
+import { PushNotificationSettings } from './PushNotificationSettings';
 import {
   Coins,
   Wallet,
@@ -39,6 +39,7 @@ import {
   Key,
   Lock,
   Mail,
+  Bell,
   Settings as SettingsIcon,
   Save,
   X,
@@ -69,7 +70,6 @@ import {
   Upload,
   Fingerprint,
   Smartphone,
-  BellRing,
 } from 'lucide-react';
 import {
   isBiometricsSupported,
@@ -98,10 +98,10 @@ const MONTH_OPTIONS = [
 const YEAR_OPTIONS = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 
 const SUB_TAB_OPTIONS = [
+  { id: 'push_notifications', label: 'Push Notifications', icon: Bell, description: 'Web push alerts & customizable triggers' },
   { id: 'finance', label: 'Finances & Fees', icon: Wallet, description: 'Fees, monthly dues & drives' },
   { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet, description: 'Export member & financial ledgers' },
   { id: 'security', label: 'System Security & Biometrics', icon: Shield, description: 'Fingerprint, Face ID & Admin 2FA' },
-  { id: 'push', label: 'Push Notifications', icon: BellRing, description: 'Web Push alerts, permissions & custom filters' },
   { id: 'inbound', label: 'Receiving Email', icon: Mail, description: 'Resend webhook & contact@bccriders.cc inbox' },
 ] as const;
 
@@ -110,9 +110,9 @@ export const Settings: React.FC = () => {
   const { runWithLoader, refreshTick } = useLoader();
 
   // Settings Sub-Navigation Dropdown & Tabs
-  const [activeSubTab, setActiveSubTab] = useState<'finance' | 'reports' | 'security' | 'push' | 'inbound'>(() => {
+  const [activeSubTab, setActiveSubTab] = useState<'push_notifications' | 'finance' | 'reports' | 'security' | 'inbound'>(() => {
     const saved = localStorage.getItem('bcc_settings_subtab');
-    return (saved === 'finance' || saved === 'reports' || saved === 'security' || saved === 'push' || saved === 'inbound') ? saved : 'finance';
+    return (saved === 'push_notifications' || saved === 'finance' || saved === 'reports' || saved === 'security' || saved === 'inbound') ? saved : 'push_notifications';
   });
 
   useEffect(() => {
@@ -2005,9 +2005,6 @@ export const Settings: React.FC = () => {
             </div>
           </div>
 
-          {/* Web Push Notification Settings for Members */}
-          <PushSettingsTab />
-
           {/* Account Session / Sign Out Card */}
           <div className="p-3 sm:p-4 rounded-xl sm:rounded-2xl bg-rose-50/70 border border-rose-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5 min-w-0">
@@ -2094,10 +2091,10 @@ export const Settings: React.FC = () => {
         >
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 rounded-xl bg-[#1b4332] text-white shrink-0 shadow-xs">
+              {activeSubTab === 'push_notifications' && <Bell className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'finance' && <Wallet className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'reports' && <FileSpreadsheet className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'security' && <Shield className="w-4 h-4 text-[#74c69d]" />}
-              {activeSubTab === 'push' && <BellRing className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'inbound' && <Mail className="w-4 h-4 text-[#74c69d]" />}
             </div>
             <div className="truncate">
@@ -2131,7 +2128,7 @@ export const Settings: React.FC = () => {
                     key={tab.id}
                     type="button"
                     onClick={() => {
-                      setActiveSubTab(tab.id as 'finance' | 'reports' | 'security' | 'push' | 'inbound');
+                      setActiveSubTab(tab.id as 'push_notifications' | 'finance' | 'reports' | 'security' | 'inbound');
                       setIsSubTabDropdownOpen(false);
                     }}
                     className={`w-full flex items-center justify-between gap-3 p-3 rounded-xl transition-all cursor-pointer text-left ${
@@ -2413,7 +2410,7 @@ export const Settings: React.FC = () => {
                     ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
                     : 'bg-stone-200 text-stone-700 border-stone-300'
                 }`}>
-                  {financeSettings.annualPromoEnabled !== false ? 'Active' : 'Disabled'}
+                  {financeSettings.annualPromoEnabled !== false ? '🟢 Active' : '⚪ Disabled'}
                 </span>
               </div>
 
@@ -3822,11 +3819,6 @@ export const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* SUB TAB: WEB PUSH NOTIFICATIONS */}
-      {activeSubTab === 'push' && (
-        <PushSettingsTab />
-      )}
-
       {/* SUB TAB 4: RECEIVING & SENDING EMAIL VIA RESEND */}
       {activeSubTab === 'inbound' && (
         <div className="space-y-4 sm:space-y-6">
@@ -3836,6 +3828,11 @@ export const Settings: React.FC = () => {
           {/* Section 2: Receiving Email (Inbound Webhook Inbox) */}
           <InboundEmailViewer />
         </div>
+      )}
+
+      {/* SUB TAB 5: WEB PUSH NOTIFICATIONS & CHANNEL CUSTOMIZATION */}
+      {activeSubTab === 'push_notifications' && (
+        <PushNotificationSettings />
       )}
 
       {/* MODAL: CREATE / EDIT MONTHLY DUE */}
