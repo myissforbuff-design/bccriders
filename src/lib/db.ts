@@ -348,113 +348,179 @@ export class DataStoreService {
     const status = await checkMongoDbStatus();
     if (status.status === 'connected') {
       try {
-        // Fetch active members from 'members' table
-        const dataMembers = await safeFetchJson('/api/mongodb/members');
-        const activeMembers = (dataMembers.success && Array.isArray(dataMembers.data)) ? dataMembers.data : [];
-
-        // Fetch pending registrations from 'registration' table
-        const dataRegistration = await safeFetchJson('/api/mongodb/registration');
-        const pendingRegistrations = (dataRegistration.success && Array.isArray(dataRegistration.data)) ? dataRegistration.data : [];
-
-        if (activeMembers.length > 0 || pendingRegistrations.length > 0) {
-          // Merge active members and pending registration forms with guaranteed usernames
-          const sanitizedList = [...activeMembers, ...pendingRegistrations].map((u) => this.sanitizeUser(u));
-
-          // Ensure the system admin exists in the list
-          if (!sanitizedList.some((u) => u.id === 'usr_admin' || u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
-            sanitizedList.unshift(INITIAL_USERS[0]);
-          }
-
-          this.users = sanitizedList;
-          saveToStorage(STORAGE_KEYS.USERS, this.users);
-
-          if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
-          }
-        } else {
-          // Seed initial data into MongoDB if collection is empty
-          await safeFetchJson('/api/mongodb/seed', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              members: INITIAL_USERS,
-              events: INITIAL_EVENTS,
-              payments: INITIAL_PAYMENTS,
-              posts: INITIAL_POSTS,
-            }),
-          });
-        }
-
-        // Fetch updates from MongoDB 'updates' table
-        const dataUpdates = await safeFetchJson('/api/mongodb/updates');
-        if (dataUpdates.success && Array.isArray(dataUpdates.data)) {
-          this.announcements = dataUpdates.data;
-          saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
-        }
-
-        // Fetch settings from MongoDB 'settings' table
-        const dataSettings = await safeFetchJson('/api/mongodb/settings');
-        if (dataSettings.success && Array.isArray(dataSettings.data) && dataSettings.data.length > 0) {
-          const finSettingsDoc = dataSettings.data.find((s: any) => s.id === 'finance_settings');
-          if (finSettingsDoc) {
-            this.financeSettings = {
-              membershipFee: Number(finSettingsDoc.membershipFee) || 200,
-              annualFee: Number(finSettingsDoc.annualFee) || 1000,
-              annualPromoEnabled: finSettingsDoc.annualPromoEnabled !== undefined ? Boolean(finSettingsDoc.annualPromoEnabled) : true,
-            };
-            if (this.currentUserId || hasActiveUserSession()) {
-              saveToStorage(STORAGE_KEYS.FINANCE_SETTINGS, this.financeSettings);
-            }
-          }
-
-          const duesDocs = dataSettings.data.filter((s: any) => s.category === 'monthly_due' || (s.id && s.id.startsWith('md_')));
-          if (duesDocs.length > 0) {
-            this.monthlyDues = duesDocs.map((d: any) => ({
-              id: d.id,
-              title: d.title || `${d.month || 'August'} ${d.year || 2026} Monthly Due`,
-              month: d.month || 'August',
-              year: Number(d.year) || 2026,
-              amount: Number(d.amount) || 0,
-              notes: d.description || '',
-              createdAt: d.createdAt || new Date().toISOString().split('T')[0],
-              status: (d.status === 'Inactive' ? 'Inactive' : 'Active') as 'Active' | 'Inactive',
-            }));
-            if (this.currentUserId || hasActiveUserSession()) {
-              saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
-            }
-          }
-
-          const dynamicColDocs = dataSettings.data.filter((s: any) => s.category === 'dynamic_collection' || (s.id && s.id.startsWith('dc_')));
-          if (dynamicColDocs.length > 0) {
-            this.dynamicCollections = dynamicColDocs.map((c: any) => ({
-              id: c.id,
-              name: c.name || c.title || 'Dynamic Collection',
-              amount: Number(c.amount) || Number(c.targetAmount) || 0,
-              targetAmount: Number(c.targetAmount) || 0,
-              description: c.description || '',
-              createdAt: c.createdAt || new Date().toISOString().split('T')[0],
-              status: (c.status || 'Active') as 'Active' | 'Completed' | 'Archived',
-            }));
-            if (this.currentUserId || hasActiveUserSession()) {
-              saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
-            }
-          }
-
-          const secSettingsDoc = dataSettings.data.find((s: any) => s.id === 'security_settings' || s.category === 'security');
-          if (secSettingsDoc) {
-            this.securitySettings = {
-              adminOtpEnabled: secSettingsDoc.adminOtpEnabled !== undefined ? Boolean(secSettingsDoc.adminOtpEnabled) : true,
-            };
-            if (this.currentUserId || hasActiveUserSession()) {
-              saveToStorage(STORAGE_KEYS.SECURITY_SETTINGS, this.securitySettings);
-            }
-          }
-        }
+        await this.refreshUsersFromServer({ seedIfEmpty: true });
+        await this.refreshAnnouncementsFromServer();
+        await this.refreshSettingsFromServer();
       } catch (err) {
         console.warn('MongoDB sync fetch notice:', err);
       }
     }
     return status;
+  }
+
+  // ==========================================
+  // Server-authoritative refresh helpers
+  // ==========================================
+  //
+  // These pull the current truth out of MongoDB and push it into in-memory state, then
+  // announce it on the existing `bcc_*_updated` event bus so every mounted component
+  // re-renders. Real-time change stream events call straight into these (see
+  // lib/realtimeSync.ts) — no page refresh, no tab switch, no `storage` event needed.
+  //
+  // localStorage is still written on the way through, but only as an offline cache for the
+  // next cold start. It is no longer how two devices learn about each other's writes.
+
+  /** Re-reads `members` + `registration` and republishes the merged user list. */
+  async refreshUsersFromServer(options: { seedIfEmpty?: boolean } = {}): Promise<User[]> {
+    // Fetch active members from 'members' table
+    const dataMembers = await safeFetchJson('/api/mongodb/members');
+    const activeMembers = (dataMembers.success && Array.isArray(dataMembers.data)) ? dataMembers.data : [];
+
+    // Fetch pending registrations from 'registration' table
+    const dataRegistration = await safeFetchJson('/api/mongodb/registration');
+    const pendingRegistrations = (dataRegistration.success && Array.isArray(dataRegistration.data)) ? dataRegistration.data : [];
+
+    if (activeMembers.length > 0 || pendingRegistrations.length > 0) {
+      // Merge active members and pending registration forms with guaranteed usernames
+      const sanitizedList = [...activeMembers, ...pendingRegistrations].map((u) => this.sanitizeUser(u));
+
+      // Ensure the system admin exists in the list
+      if (!sanitizedList.some((u) => u.id === 'usr_admin' || u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
+        sanitizedList.unshift(INITIAL_USERS[0]);
+      }
+
+      this.users = sanitizedList;
+      saveToStorage(STORAGE_KEYS.USERS, this.users);
+
+      // Keep the cached profile of the signed-in rider aligned with the server copy
+      const activeProfile = this.currentUserId
+        ? this.users.find((u) => u.id === this.currentUserId)
+        : undefined;
+      if (activeProfile) {
+        saveToStorage(STORAGE_KEYS.USER_PROFILE, activeProfile);
+      }
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
+      }
+    } else if (options.seedIfEmpty) {
+      // Seed initial data into MongoDB if collection is empty
+      await safeFetchJson('/api/mongodb/seed', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          members: INITIAL_USERS,
+          events: INITIAL_EVENTS,
+          payments: INITIAL_PAYMENTS,
+          posts: INITIAL_POSTS,
+        }),
+      });
+    }
+
+    return this.users;
+  }
+
+  /** Re-reads the `updates` collection and republishes announcements. */
+  async refreshAnnouncementsFromServer(): Promise<Announcement[]> {
+    const dataUpdates = await safeFetchJson('/api/mongodb/updates');
+    if (dataUpdates.success && Array.isArray(dataUpdates.data)) {
+      this.announcements = dataUpdates.data;
+      saveToStorage(STORAGE_KEYS.ANNOUNCEMENTS, this.announcements);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bcc_announcements_updated', { detail: this.announcements }));
+      }
+    }
+    return this.announcements;
+  }
+
+  /** Re-reads the `settings` collection (finance config, dues, collections, security). */
+  async refreshSettingsFromServer(): Promise<void> {
+    const dataSettings = await safeFetchJson('/api/mongodb/settings');
+    if (!dataSettings.success || !Array.isArray(dataSettings.data) || dataSettings.data.length === 0) {
+      return;
+    }
+
+    const finSettingsDoc = dataSettings.data.find((s: any) => s.id === 'finance_settings');
+    if (finSettingsDoc) {
+      this.financeSettings = {
+        membershipFee: Number(finSettingsDoc.membershipFee) || 200,
+        annualFee: Number(finSettingsDoc.annualFee) || 1000,
+        annualPromoEnabled: finSettingsDoc.annualPromoEnabled !== undefined ? Boolean(finSettingsDoc.annualPromoEnabled) : true,
+      };
+      if (this.currentUserId || hasActiveUserSession()) {
+        saveToStorage(STORAGE_KEYS.FINANCE_SETTINGS, this.financeSettings);
+      }
+    }
+
+    const duesDocs = dataSettings.data.filter((s: any) => s.category === 'monthly_due' || (s.id && s.id.startsWith('md_')));
+    if (duesDocs.length > 0) {
+      this.monthlyDues = duesDocs.map((d: any) => ({
+        id: d.id,
+        title: d.title || `${d.month || 'August'} ${d.year || 2026} Monthly Due`,
+        month: d.month || 'August',
+        year: Number(d.year) || 2026,
+        amount: Number(d.amount) || 0,
+        notes: d.description || '',
+        createdAt: d.createdAt || new Date().toISOString().split('T')[0],
+        status: (d.status === 'Inactive' ? 'Inactive' : 'Active') as 'Active' | 'Inactive',
+      }));
+      if (this.currentUserId || hasActiveUserSession()) {
+        saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
+      }
+    }
+
+    const dynamicColDocs = dataSettings.data.filter((s: any) => s.category === 'dynamic_collection' || (s.id && s.id.startsWith('dc_')));
+    if (dynamicColDocs.length > 0) {
+      this.dynamicCollections = dynamicColDocs.map((c: any) => ({
+        id: c.id,
+        name: c.name || c.title || 'Dynamic Collection',
+        amount: Number(c.amount) || Number(c.targetAmount) || 0,
+        targetAmount: Number(c.targetAmount) || 0,
+        description: c.description || '',
+        createdAt: c.createdAt || new Date().toISOString().split('T')[0],
+        status: (c.status || 'Active') as 'Active' | 'Completed' | 'Archived',
+      }));
+      if (this.currentUserId || hasActiveUserSession()) {
+        saveToStorage(STORAGE_KEYS.DYNAMIC_COLLECTIONS, this.dynamicCollections);
+      }
+    }
+
+    const secSettingsDoc = dataSettings.data.find((s: any) => s.id === 'security_settings' || s.category === 'security');
+    if (secSettingsDoc) {
+      this.securitySettings = {
+        adminOtpEnabled: secSettingsDoc.adminOtpEnabled !== undefined ? Boolean(secSettingsDoc.adminOtpEnabled) : true,
+      };
+      if (this.currentUserId || hasActiveUserSession()) {
+        saveToStorage(STORAGE_KEYS.SECURITY_SETTINGS, this.securitySettings);
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_settings_updated'));
+    }
+  }
+
+  /** Re-reads `treasurerRequests` and republishes them. */
+  async refreshTreasurerRequestsFromServer(): Promise<TreasurerActionRequest[]> {
+    const data = await safeFetchJson('/api/mongodb/treasurerRequests');
+    if (data.success && Array.isArray(data.data)) {
+      this.treasurerRequests = data.data;
+      saveToStorage(STORAGE_KEYS.TREASURER_REQUESTS, this.treasurerRequests);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bcc_treasurer_requests_updated', { detail: this.treasurerRequests }));
+      }
+    }
+    return this.treasurerRequests;
+  }
+
+  /** Re-reads `financeArchives` and republishes them. */
+  async refreshFinanceArchivesFromServer(): Promise<FinanceYearArchive[]> {
+    const data = await safeFetchJson('/api/mongodb/financeArchives');
+    if (data.success && Array.isArray(data.data)) {
+      this.financeArchives = [...data.data].sort((a, b) => b.year - a.year);
+      saveToStorage(STORAGE_KEYS.FINANCE_ARCHIVES, this.financeArchives);
+    }
+    return this.financeArchives;
   }
 
   // Explicitly fetch and initialize data upon successful authentication

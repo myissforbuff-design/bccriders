@@ -1,6 +1,8 @@
 import express from 'express';
+import http from 'http';
 import path from 'path';
-import { MongoClient, Db } from 'mongodb';
+import { MongoClient, Db, ChangeStream } from 'mongodb';
+import { Server as SocketIOServer, Socket } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 import { Resend } from 'resend';
 
@@ -417,7 +419,16 @@ initMongoIndexes();
 
 // API Health Check
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', time: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    time: new Date().toISOString(),
+    // Surfaced so the keep-alive ping doubles as a real-time sync check.
+    realtime: {
+      mode: realtimeState.mode,
+      connectedClients: io.engine.clientsCount,
+      lastChangeAt: realtimeState.lastChangeAt,
+    },
+  });
 });
 
 // Resend Status & Configuration Endpoint
@@ -539,6 +550,494 @@ app.use('/api/mongodb', (req, res, next) => {
     }
   }
   next();
+});
+
+// ==========================================
+// Real-Time Sync: Socket.io + MongoDB Change Streams
+// ==========================================
+//
+// Replaces the previous localStorage + `storage` event cross-tab sync as the PRIMARY
+// synchronization mechanism. MongoDB Atlas runs as a replica set, so change streams are
+// available with no infrastructure change. Flow:
+//
+//   Mongo write (any device) -> change stream -> Socket.io broadcast -> React state update
+//
+// localStorage/sessionStorage remain in place purely as an offline cache for instant first
+// paint; they are no longer how two devices learn about each other's writes.
+
+const httpServer = http.createServer(app);
+
+/** Collections broadcast to connected clients. Anything not listed is ignored by the watcher. */
+const REALTIME_COLLECTIONS = [
+  'members',
+  'registration',
+  'financeLogs',
+  'expenseLogs',
+  'liquidationLogs',
+  'financeArchives',
+  'treasurerRequests',
+  'settings',
+  'activities',
+  'attendanceLogs',
+  'events',
+  'payments',
+  'posts',
+  'logs',
+  'updates',
+] as const;
+
+const REALTIME_COLLECTION_SET = new Set<string>(REALTIME_COLLECTIONS);
+
+/**
+ * Collections whose documents hold credentials, signatures, or large base64 avatars.
+ * These are broadcast as a *signal only* (collection + operation + id) and never as a
+ * document body — clients re-read them through the existing authenticated REST endpoints.
+ */
+const SIGNAL_ONLY_COLLECTIONS = new Set<string>(['members', 'registration']);
+
+/** Field names stripped from every broadcast document body, defensively. */
+const REDACTED_REALTIME_FIELDS = [
+  'password',
+  'passwordHash',
+  'otp',
+  'otpCode',
+  'token',
+  'sessionToken',
+  'authToken',
+  'resetToken',
+  'applicantSignature',
+];
+
+// Rooms: authenticated sockets receive document bodies, anonymous sockets receive signals only.
+const ROOM_AUTHENTICATED = 'realtime:authenticated';
+const ROOM_ANONYMOUS = 'realtime:anonymous';
+
+// `auto` prefers one database-level change stream (1 cursor, cheapest on Atlas shared tiers)
+// and falls back to per-collection collection.watch() if the deployment rejects it.
+const REALTIME_WATCH_MODE = (process.env.REALTIME_WATCH_MODE || 'auto').toLowerCase() as
+  | 'auto'
+  | 'database'
+  | 'collection';
+
+// Set REALTIME_REQUIRE_AUTH=true to refuse sockets without a valid session token.
+// Default false because biometric sign-in does not mint a server token, and those
+// sessions would otherwise silently lose real-time updates.
+const REALTIME_REQUIRE_AUTH = String(process.env.REALTIME_REQUIRE_AUTH || '').toLowerCase() === 'true';
+
+// Set REALTIME_INCLUDE_DOCUMENTS=false to broadcast signals only, for every collection.
+const REALTIME_INCLUDE_DOCUMENTS = String(process.env.REALTIME_INCLUDE_DOCUMENTS || 'true').toLowerCase() !== 'false';
+
+const io = new SocketIOServer(httpServer, {
+  path: '/socket.io',
+  serveClient: false,
+  // The SPA is served by this same Express app, so same-origin is the norm. An explicit
+  // allowlist can be supplied for split deployments or preview hosts.
+  cors: process.env.REALTIME_ALLOWED_ORIGINS
+    ? {
+        origin: process.env.REALTIME_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
+        credentials: true,
+      }
+    : undefined,
+  // Heartbeat tuned so a dead Render connection is detected in ~45s rather than minutes.
+  pingInterval: 25000,
+  pingTimeout: 20000,
+  // Survives brief drops (deploy blips, mobile network handoff) by replaying missed
+  // packets and restoring rooms instead of forcing a cold resync.
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000,
+    skipMiddlewares: false,
+  },
+  maxHttpBufferSize: 1e6,
+});
+
+type RealtimeMode = 'database' | 'collection' | 'disabled';
+
+const realtimeState = {
+  mode: 'disabled' as RealtimeMode,
+  startedAt: null as string | null,
+  lastChangeAt: null as string | null,
+  lastError: null as string | null,
+  changesEmitted: 0,
+  restartAttempts: 0,
+};
+
+let realtimeStreams: ChangeStream[] = [];
+const realtimeResumeTokens = new Map<string, unknown>();
+let realtimeRestartTimer: NodeJS.Timeout | null = null;
+let realtimeShuttingDown = false;
+// Set once the database-level cursor has proven unreliable, so `auto` stops retrying it and
+// commits to per-collection collection.watch() for the rest of the process lifetime.
+let realtimeForceCollectionMode = false;
+
+/** Strips Mongo internals and sensitive fields from a document before it goes over the wire. */
+function sanitizeRealtimeDocument(doc: any): any {
+  if (!doc || typeof doc !== 'object') return doc;
+  const { _id, ...rest } = doc;
+  for (const field of REDACTED_REALTIME_FIELDS) {
+    if (field in rest) delete rest[field];
+  }
+  return rest;
+}
+
+/** Best-effort business id (`id`) with the raw Mongo `_id` as a secondary hint. */
+function extractChangeIds(change: any): { documentId: string | null; mongoId: string | null } {
+  const mongoIdRaw = change?.documentKey?._id;
+  const mongoId = mongoIdRaw !== undefined && mongoIdRaw !== null ? String(mongoIdRaw) : null;
+  const businessId = change?.fullDocument?.id;
+  return {
+    documentId: businessId !== undefined && businessId !== null ? String(businessId) : null,
+    mongoId,
+  };
+}
+
+interface RealtimeChangePayload {
+  collection: string;
+  operationType: string;
+  documentId: string | null;
+  mongoId: string | null;
+  at: string;
+  source: 'change-stream' | 'rest-fallback';
+  document?: any;
+}
+
+/** Fan a change out to every connected client, document body gated by socket auth tier. */
+function broadcastRealtimeChange(payload: RealtimeChangePayload): void {
+  realtimeState.changesEmitted += 1;
+  realtimeState.lastChangeAt = payload.at;
+
+  const signalOnly: RealtimeChangePayload = { ...payload };
+  delete signalOnly.document;
+
+  if (payload.document !== undefined) {
+    io.to(ROOM_AUTHENTICATED).emit('db:change', payload);
+  } else {
+    io.to(ROOM_AUTHENTICATED).emit('db:change', signalOnly);
+  }
+  io.to(ROOM_ANONYMOUS).emit('db:change', signalOnly);
+}
+
+/** Translate a raw Mongo change stream event into a broadcast. */
+function handleChangeStreamEvent(collectionName: string, change: any): void {
+  if (!REALTIME_COLLECTION_SET.has(collectionName)) return;
+
+  const operationType = String(change?.operationType || 'unknown');
+  // Structural events (drop/rename/invalidate) carry no document — signal a resync instead.
+  if (operationType === 'invalidate' || operationType === 'drop' || operationType === 'dropDatabase') {
+    io.emit('db:resync', { reason: `${collectionName}:${operationType}`, at: new Date().toISOString() });
+    return;
+  }
+
+  const { documentId, mongoId } = extractChangeIds(change);
+  const payload: RealtimeChangePayload = {
+    collection: collectionName,
+    operationType,
+    documentId,
+    mongoId,
+    at: new Date().toISOString(),
+    source: 'change-stream',
+  };
+
+  const includeBody =
+    REALTIME_INCLUDE_DOCUMENTS &&
+    !SIGNAL_ONLY_COLLECTIONS.has(collectionName) &&
+    change?.fullDocument &&
+    (operationType === 'insert' || operationType === 'update' || operationType === 'replace');
+
+  if (includeBody) {
+    payload.document = sanitizeRealtimeDocument(change.fullDocument);
+  }
+
+  broadcastRealtimeChange(payload);
+}
+
+/** Restart the watcher with capped exponential backoff (1s -> 30s). */
+function scheduleRealtimeRestart(reason: string): void {
+  if (realtimeShuttingDown || realtimeRestartTimer) return;
+  realtimeState.restartAttempts += 1;
+  const delay = Math.min(30000, 1000 * 2 ** Math.min(realtimeState.restartAttempts, 5));
+  console.warn(`[Realtime] ${reason} — restarting change stream in ${delay}ms (attempt ${realtimeState.restartAttempts})`);
+  realtimeRestartTimer = setTimeout(() => {
+    realtimeRestartTimer = null;
+    startRealtimeChangeStreams().catch((err) =>
+      console.warn('[Realtime] Change stream restart failed:', err?.message || err)
+    );
+  }, delay);
+}
+
+/**
+ * Change stream errors that mean "this deployment cannot do change streams at all"
+ * (standalone mongod in local dev). Retrying is pointless; the REST write hook covers it.
+ */
+function isChangeStreamUnsupported(err: any): boolean {
+  const code = Number(err?.code);
+  const message = String(err?.message || err?.codeName || '');
+  return (
+    code === 40573 ||
+    code === 40567 ||
+    /only supported on replica sets/i.test(message) ||
+    /\$changeStream is not supported/i.test(message) ||
+    /The \$changeStream stage is only supported/i.test(message)
+  );
+}
+
+/** Resume token expired because the oplog rolled past it — start clean and force a client resync. */
+function isResumeTokenLost(err: any): boolean {
+  const code = Number(err?.code);
+  return code === 286 || /ChangeStreamHistoryLost/i.test(String(err?.codeName || err?.message || ''));
+}
+
+function attachStreamHandlers(stream: ChangeStream, resumeKey: string, collectionResolver: (change: any) => string): void {
+  stream.on('change', (change: any) => {
+    try {
+      // Persist the resume token so a restart picks up exactly where we left off.
+      if (change?._id) realtimeResumeTokens.set(resumeKey, change._id);
+      realtimeState.restartAttempts = 0;
+      handleChangeStreamEvent(collectionResolver(change), change);
+    } catch (err: any) {
+      console.warn('[Realtime] Failed to process change event:', err?.message || err);
+    }
+  });
+
+  stream.on('error', (err: any) => {
+    realtimeState.lastError = err?.message || String(err);
+
+    if (isChangeStreamUnsupported(err)) {
+      realtimeState.mode = 'disabled';
+      console.warn(
+        '[Realtime] MongoDB deployment does not support change streams (standalone server). ' +
+          'Falling back to REST write broadcasts. Atlas replica sets need no change here.'
+      );
+      void stopRealtimeChangeStreams(false);
+      return;
+    }
+
+    if (isResumeTokenLost(err)) {
+      realtimeResumeTokens.delete(resumeKey);
+      io.emit('db:resync', { reason: 'resume-token-expired', at: new Date().toISOString() });
+    }
+
+    // `database.watch()` rejects lazily — the failure arrives here, not from the call itself. If the
+    // single database-level cursor keeps dying, stop retrying it and commit to per-collection
+    // cursors, which is also the form the deployment is most likely to accept.
+    if (
+      resumeKey === '__database__' &&
+      REALTIME_WATCH_MODE === 'auto' &&
+      !realtimeForceCollectionMode &&
+      realtimeState.restartAttempts >= 2
+    ) {
+      realtimeForceCollectionMode = true;
+      realtimeResumeTokens.delete(resumeKey);
+      console.warn('[Realtime] Database-level change stream keeps failing — switching to collection.watch().');
+    }
+
+    scheduleRealtimeRestart(`Change stream error on "${resumeKey}": ${realtimeState.lastError}`);
+  });
+
+  stream.on('close', () => {
+    if (!realtimeShuttingDown && realtimeState.mode !== 'disabled') {
+      scheduleRealtimeRestart(`Change stream "${resumeKey}" closed unexpectedly`);
+    }
+  });
+
+  realtimeStreams.push(stream);
+}
+
+/** One database-level cursor covering every watched collection. Cheapest option on Atlas. */
+function watchWholeDatabase(database: Db): void {
+  const resumeKey = '__database__';
+  const resumeAfter = realtimeResumeTokens.get(resumeKey);
+  const stream = database.watch(
+    [{ $match: { 'ns.coll': { $in: [...REALTIME_COLLECTIONS] } } }],
+    {
+      fullDocument: 'updateLookup',
+      ...(resumeAfter ? { resumeAfter } : {}),
+    }
+  );
+  attachStreamHandlers(stream, resumeKey, (change) => String(change?.ns?.coll || ''));
+  realtimeState.mode = 'database';
+  realtimeState.startedAt = new Date().toISOString();
+  console.log(`[Realtime] Watching ${REALTIME_COLLECTIONS.length} collections via database-level change stream.`);
+}
+
+/** One `collection.watch()` cursor per collection; isolates failures per collection. */
+function watchEachCollection(database: Db): void {
+  for (const collectionName of REALTIME_COLLECTIONS) {
+    const resumeAfter = realtimeResumeTokens.get(collectionName);
+    const stream = database.collection(collectionName).watch([], {
+      fullDocument: 'updateLookup',
+      ...(resumeAfter ? { resumeAfter } : {}),
+    });
+    attachStreamHandlers(stream, collectionName, () => collectionName);
+  }
+  realtimeState.mode = 'collection';
+  realtimeState.startedAt = new Date().toISOString();
+  console.log(`[Realtime] Watching ${REALTIME_COLLECTIONS.length} collections via per-collection change streams.`);
+}
+
+async function stopRealtimeChangeStreams(clearResumeTokens = true): Promise<void> {
+  const streams = realtimeStreams;
+  realtimeStreams = [];
+  await Promise.all(
+    streams.map(async (stream) => {
+      try {
+        stream.removeAllListeners();
+        // Keep a no-op error sink: an EventEmitter with no 'error' listener throws on emit,
+        // and closing a cursor whose connection already died can emit one.
+        stream.on('error', () => {});
+        await stream.close();
+      } catch {
+        // Already closed or the connection dropped — nothing to recover.
+      }
+    })
+  );
+  if (clearResumeTokens) realtimeResumeTokens.clear();
+}
+
+async function startRealtimeChangeStreams(): Promise<void> {
+  if (realtimeShuttingDown) return;
+
+  const database = await getMongoDb();
+  if (!database) {
+    realtimeState.mode = 'disabled';
+    realtimeState.lastError = 'MONGODB_URI is not configured';
+    console.warn('[Realtime] MongoDB is not configured — real-time change streams disabled.');
+    return;
+  }
+
+  await stopRealtimeChangeStreams(false);
+
+  try {
+    if (REALTIME_WATCH_MODE === 'collection' || realtimeForceCollectionMode) {
+      watchEachCollection(database);
+    } else {
+      watchWholeDatabase(database);
+    }
+  } catch (err: any) {
+    realtimeState.lastError = err?.message || String(err);
+
+    // Fall back to per-collection watching if the database-level cursor was rejected.
+    if (REALTIME_WATCH_MODE === 'auto' && !realtimeForceCollectionMode) {
+      realtimeForceCollectionMode = true;
+      console.warn(
+        `[Realtime] Database-level change stream unavailable (${realtimeState.lastError}); falling back to collection.watch().`
+      );
+      try {
+        watchEachCollection(database);
+        return;
+      } catch (fallbackErr: any) {
+        realtimeState.lastError = fallbackErr?.message || String(fallbackErr);
+      }
+    }
+
+    realtimeState.mode = 'disabled';
+    scheduleRealtimeRestart(`Failed to open change stream: ${realtimeState.lastError}`);
+  }
+}
+
+// Socket handshake: extract and verify the same session token the REST layer uses.
+io.use((socket: Socket, next) => {
+  const handshakeAuth = (socket.handshake.auth || {}) as Record<string, unknown>;
+  const authHeader = String(socket.handshake.headers.authorization || '').trim();
+  const rawToken = String(
+    handshakeAuth.token ||
+      (authHeader.startsWith('Bearer ') ? authHeader.substring(7) : '') ||
+      socket.handshake.headers['x-session-token'] ||
+      ''
+  ).trim();
+
+  const result = rawToken ? verifySessionToken(rawToken) : { valid: false as const };
+  socket.data.authenticated = result.valid;
+  socket.data.userId = result.valid ? result.userId : null;
+  socket.data.role = result.valid ? result.role : null;
+
+  if (REALTIME_REQUIRE_AUTH && !result.valid) {
+    return next(new Error('UNAUTHORIZED: a valid session token is required for real-time sync.'));
+  }
+  next();
+});
+
+io.on('connection', (socket: Socket) => {
+  const authenticated = Boolean(socket.data.authenticated);
+  socket.join(authenticated ? ROOM_AUTHENTICATED : ROOM_ANONYMOUS);
+
+  // Clients treat `db:ready` as "do a full resync now" — it fires on first connect AND on
+  // every reconnect, which is what closes the gap for changes missed while disconnected.
+  socket.emit('db:ready', {
+    authenticated,
+    mode: realtimeState.mode,
+    collections: [...REALTIME_COLLECTIONS],
+    signalOnlyCollections: [...SIGNAL_ONLY_COLLECTIONS],
+    serverStartedAt: realtimeState.startedAt,
+    recovered: socket.recovered,
+    at: new Date().toISOString(),
+  });
+
+  // Lets a client ask for a resync explicitly (e.g. after a long background tab suspend).
+  socket.on('client:resync', () => {
+    socket.emit('db:resync', { reason: 'client-requested', at: new Date().toISOString() });
+  });
+
+  socket.on('error', (err: any) => {
+    console.warn('[Realtime] Socket error:', err?.message || err);
+  });
+});
+
+/**
+ * Fallback broadcaster for deployments where change streams are unavailable (standalone
+ * mongod in local dev). Observes successful mutating writes to /api/mongodb/* and emits a
+ * signal so the UI still updates live. Skipped entirely while a change stream is running,
+ * so changes are never broadcast twice.
+ */
+app.use('/api/mongodb', (req, res, next) => {
+  const method = req.method.toUpperCase();
+  if (method !== 'POST' && method !== 'PUT' && method !== 'PATCH' && method !== 'DELETE') {
+    return next();
+  }
+
+  res.on('finish', () => {
+    if (realtimeState.mode !== 'disabled') return;
+    if (res.statusCode < 200 || res.statusCode >= 300) return;
+
+    const segments = req.path.split('/').filter(Boolean);
+    const segment = segments[0];
+    if (!segment || !REALTIME_COLLECTION_SET.has(segment)) return;
+
+    // `app.use` middleware has no route params, so read the id off the path (…/financeLogs/<id>)
+    // and fall back to the request body for collection-level upserts.
+    const pathId = segments[1] && segments[1] !== 'bulk' ? decodeURIComponent(segments[1]) : null;
+    const bodyId = typeof req.body?.id === 'string' ? req.body.id : null;
+
+    broadcastRealtimeChange({
+      collection: segment,
+      operationType: method === 'DELETE' ? 'delete' : 'upsert',
+      documentId: pathId || bodyId,
+      mongoId: null,
+      at: new Date().toISOString(),
+      source: 'rest-fallback',
+    });
+  });
+
+  next();
+});
+
+// Real-time diagnostics — useful for confirming change streams actually came up on Render.
+app.get('/api/realtime/status', (req, res) => {
+  res.json({
+    success: true,
+    enabled: realtimeState.mode !== 'disabled',
+    mode: realtimeState.mode,
+    watchModeSetting: REALTIME_WATCH_MODE,
+    requireAuth: REALTIME_REQUIRE_AUTH,
+    includeDocuments: REALTIME_INCLUDE_DOCUMENTS,
+    connectedClients: io.engine.clientsCount,
+    watchedCollections: [...REALTIME_COLLECTIONS],
+    signalOnlyCollections: [...SIGNAL_ONLY_COLLECTIONS],
+    startedAt: realtimeState.startedAt,
+    lastChangeAt: realtimeState.lastChangeAt,
+    changesEmitted: realtimeState.changesEmitted,
+    restartAttempts: realtimeState.restartAttempts,
+    lastError: realtimeState.lastError,
+  });
 });
 
 // Security Settings Endpoints
@@ -3229,7 +3728,7 @@ app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}`, data: [] });
 });
 
-// Start Express and Vite Server
+// Start Express, Vite, and the Socket.io real-time layer
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
@@ -3245,9 +3744,61 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  // Listen on the shared HTTP server so Express and Socket.io share PORT 3000.
+  // Socket.io claims /socket.io/* before Express sees it, so neither the canonical-domain
+  // redirect nor the SPA catch-all interferes with the WebSocket handshake.
+  httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`BCC Riders Club Full-Stack server running on http://0.0.0.0:${PORT}`);
+    console.log(`Socket.io real-time endpoint listening on path /socket.io`);
   });
+
+  // Open the MongoDB change streams that drive real-time sync.
+  await startRealtimeChangeStreams().catch((err) =>
+    console.warn('[Realtime] Initial change stream startup failed:', err?.message || err)
+  );
 }
+
+// Graceful shutdown so Render deploys close change streams and sockets cleanly.
+// Clients see a normal disconnect and reconnect via their backoff instead of hanging.
+let shutdownInProgress = false;
+async function shutdown(signal: string) {
+  if (shutdownInProgress) return;
+  shutdownInProgress = true;
+  realtimeShuttingDown = true;
+  console.log(`[Shutdown] Received ${signal}, closing real-time streams and server...`);
+
+  if (realtimeRestartTimer) {
+    clearTimeout(realtimeRestartTimer);
+    realtimeRestartTimer = null;
+  }
+
+  try {
+    await stopRealtimeChangeStreams();
+  } catch (err: any) {
+    console.warn('[Shutdown] Change stream close notice:', err?.message || err);
+  }
+
+  try {
+    io.disconnectSockets(true);
+    await new Promise<void>((resolve) => io.close(() => resolve()));
+  } catch (err: any) {
+    console.warn('[Shutdown] Socket.io close notice:', err?.message || err);
+  }
+
+  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+
+  try {
+    if (inboundMongoClient) await inboundMongoClient.close();
+    if (mongoClient) await mongoClient.close();
+  } catch (err: any) {
+    console.warn('[Shutdown] MongoDB close notice:', err?.message || err);
+  }
+
+  console.log('[Shutdown] Clean exit.');
+  process.exit(0);
+}
+
+process.on('SIGTERM', () => void shutdown('SIGTERM'));
+process.on('SIGINT', () => void shutdown('SIGINT'));
 
 startServer();

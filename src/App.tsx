@@ -15,7 +15,9 @@ import { ActivityLog } from './components/ActivityLog';
 import { QRScan } from './components/QRScan';
 import { Finances } from './components/Finances';
 import { AnnouncementsView } from './components/AnnouncementsView';
+import { RealtimeStatusPill } from './components/RealtimeStatusPill';
 import { useIsAnyModalOpen } from './hooks/useModalDismiss';
+import { useRealtimeSync } from './hooks/useRealtimeSync';
 import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 
@@ -23,6 +25,10 @@ function MainAppContent() {
   const { currentUser, isAuthenticated, isAdmin, logout } = useAuth();
   const { toastMessage, clearToast, triggerPushAlert } = useNotifications();
   const isAnyModalOpen = useIsAnyModalOpen();
+
+  // Opens the Socket.io push channel on app load and re-handshakes when the signed-in rider
+  // changes. This is what makes another device's writes appear here without a refresh.
+  useRealtimeSync(currentUser?.id ?? null);
 
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     const saved = localStorage.getItem('bcc_active_tab');
@@ -148,6 +154,7 @@ function MainAppContent() {
             </div>
 
             <div className="flex items-center gap-2">
+              <RealtimeStatusPill />
               {activeTab === 'document' && (
                 <>
                   <button

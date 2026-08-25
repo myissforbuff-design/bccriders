@@ -328,7 +328,8 @@ export const ActivityLog: React.FC = () => {
       fetchAttendanceLogs(true);
     };
 
-    // Cross-tab synchronization
+    // Cross-tab synchronization (same device only — kept as a cheap offline/no-socket fallback;
+    // cross-device sync now arrives over the Socket.io channel in lib/realtimeSync.ts).
     const handleStorage = (e: StorageEvent) => {
       if (e.key === 'bcc_activity_sync_time' || e.key === 'bcc_events_v2' || e.key === 'bcc_activities_cache_v1') {
         fetchActivities(true);
@@ -354,10 +355,10 @@ export const ActivityLog: React.FC = () => {
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibility);
 
-    const interval = setInterval(() => {
-      fetchActivities(true);
-      fetchAttendanceLogs(true);
-    }, 3500);
+    // No polling interval: the MongoDB change stream pushes `bcc_activities_updated` /
+    // `bcc_attendance_updated` the moment a scan or edit lands, so the old 3.5s refetch loop
+    // (~34 requests/minute per open tab) is gone. Focus/visibility above cover the rare case of
+    // a change that landed while the socket was down.
 
     return () => {
       window.removeEventListener('bcc_activities_updated', handleRealtimeUpdate as EventListener);
@@ -365,7 +366,6 @@ export const ActivityLog: React.FC = () => {
       window.removeEventListener('storage', handleStorage);
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibility);
-      clearInterval(interval);
     };
   }, []);
 
