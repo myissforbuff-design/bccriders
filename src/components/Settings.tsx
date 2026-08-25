@@ -1498,10 +1498,6 @@ export const Settings: React.FC = () => {
           });
         }
 
-        if (savedDue) {
-          generatePendingMonthlyDueRecords(savedDue);
-        }
-
         refreshFinanceData();
         setShowMonthlyDueModal(false);
       },

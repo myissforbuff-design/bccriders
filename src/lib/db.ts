@@ -398,6 +398,7 @@ export class DataStoreService {
         await this.refreshUsersFromServer({ seedIfEmpty: true });
         await this.refreshAnnouncementsFromServer();
         await this.refreshSettingsFromServer();
+        await this.refreshMonthlyDuesFromServer();
       } catch (err) {
         console.warn('MongoDB sync fetch notice:', err);
       }
@@ -499,23 +500,6 @@ export class DataStoreService {
       }
     }
 
-    const duesDocs = dataSettings.data.filter((s: any) => s.category === 'monthly_due' || (s.id && s.id.startsWith('md_')));
-    if (duesDocs.length > 0) {
-      this.monthlyDues = duesDocs.map((d: any) => ({
-        id: d.id,
-        title: d.title || `${d.month || 'August'} ${d.year || 2026} Monthly Due`,
-        month: d.month || 'August',
-        year: Number(d.year) || 2026,
-        amount: Number(d.amount) || 0,
-        notes: d.description || '',
-        createdAt: d.createdAt || new Date().toISOString().split('T')[0],
-        status: (d.status === 'Inactive' ? 'Inactive' : 'Active') as 'Active' | 'Inactive',
-      }));
-      if (this.currentUserId || hasActiveUserSession()) {
-        saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
-      }
-    }
-
     const dynamicColDocs = dataSettings.data.filter((s: any) => s.category === 'dynamic_collection' || (s.id && s.id.startsWith('dc_')));
     if (dynamicColDocs.length > 0) {
       this.dynamicCollections = dynamicColDocs.map((c: any) => ({
@@ -554,6 +538,29 @@ export class DataStoreService {
       window.dispatchEvent(new CustomEvent('bcc_settings_updated'));
       window.dispatchEvent(new CustomEvent('bcc_roles_updated', { detail: this.clubRoles }));
     }
+  }
+
+  async refreshMonthlyDuesFromServer(): Promise<MonthlyDue[]> {
+    const data = await safeFetchJson('/api/mongodb/monthlyDues');
+    if (data.success && Array.isArray(data.data)) {
+      this.monthlyDues = data.data.map((d: any) => ({
+        id: d.id,
+        title: d.title || `${d.month || 'August'} ${d.year || 2026} Monthly Due`,
+        month: d.month || 'August',
+        year: Number(d.year) || 2026,
+        amount: Number(d.amount) || 0,
+        notes: d.notes || d.description || '',
+        createdAt: d.createdAt || new Date().toISOString().split('T')[0],
+        status: (d.status === 'Inactive' ? 'Inactive' : 'Active') as 'Active' | 'Inactive',
+      }));
+      if (this.currentUserId || hasActiveUserSession()) {
+        saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bcc_monthly_dues_updated', { detail: this.monthlyDues }));
+      }
+    }
+    return this.monthlyDues;
   }
 
   /** Re-reads `treasurerRequests` and republishes them. */
@@ -1484,10 +1491,10 @@ export class DataStoreService {
     this.monthlyDues.unshift(newDue);
     saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
 
-    authFetch('/api/mongodb/settings', {
+    authFetch('/api/mongodb/monthlyDues', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ category: 'monthly_due', ...newDue }),
+      body: JSON.stringify(newDue),
     }).catch((err) => console.warn('MongoDB monthly dues sync notice:', err));
 
     return newDue;
@@ -1499,10 +1506,10 @@ export class DataStoreService {
       this.monthlyDues[idx] = { ...due };
       saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
 
-      authFetch('/api/mongodb/settings', {
+      authFetch('/api/mongodb/monthlyDues', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ category: 'monthly_due', ...this.monthlyDues[idx] }),
+        body: JSON.stringify(this.monthlyDues[idx]),
       }).catch((err) => console.warn('MongoDB monthly dues sync notice:', err));
     }
     return due;
@@ -1512,7 +1519,7 @@ export class DataStoreService {
     this.monthlyDues = this.monthlyDues.filter((d) => d.id !== id);
     saveToStorage(STORAGE_KEYS.MONTHLY_DUES, this.monthlyDues);
 
-    authFetch(`/api/mongodb/settings/${id}`, {
+    authFetch(`/api/mongodb/monthlyDues/${id}`, {
       method: 'DELETE',
     }).catch((err) => console.warn('MongoDB monthly dues delete notice:', err));
   }

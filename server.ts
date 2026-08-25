@@ -273,6 +273,7 @@ async function initMongoIndexes() {
     await database.collection('expenseLogs').createIndex({ id: 1 }, { unique: true });
     await database.collection('liquidationLogs').createIndex({ id: 1 }, { unique: true });
     await database.collection('settings').createIndex({ id: 1 }, { unique: true });
+    await database.collection('monthlyDues').createIndex({ id: 1 }, { unique: true });
     await database.collection('activities').createIndex({ id: 1 }, { unique: true });
 
     // Clean up 'avatar' and 'photoUrl' columns/fields from 'activities' (and any legacy 'activites') collections
@@ -3999,6 +4000,56 @@ app.delete('/api/mongodb/settings/:id', async (req, res) => {
   if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
   try {
     const result = await database.collection('settings').deleteOne({ id });
+    res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// MONTHLY DUES API ("monthlyDues" collection table)
+app.get('/api/mongodb/monthlyDues', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    const docs = await database.collection('monthlyDues').find({}).sort({ updatedAt: -1 }).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, count: data.length, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+app.post('/api/mongodb/monthlyDues', async (req, res) => {
+  const database = await getMongoDb();
+  const record = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!record || !record.id) {
+    return res.status(400).json({ error: 'Monthly due record must contain an id property' });
+  }
+
+  try {
+    const result = await database.collection('monthlyDues').updateOne(
+      { id: record.id },
+      { $set: { ...record, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({
+      success: true,
+      id: record.id,
+      message: 'Monthly due saved in MongoDB "monthlyDues" collection table.',
+      result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/monthlyDues/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('monthlyDues').deleteOne({ id });
     res.json({ success: true, id, deletedCount: result.deletedCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
