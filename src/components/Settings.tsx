@@ -25,6 +25,7 @@ import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import { InboundEmailViewer } from './InboundEmailViewer';
 import { EmailSender } from './EmailSender';
 import { PushNotificationSettings } from './PushNotificationSettings';
+import { RolesSettings } from './RolesSettings';
 import {
   Coins,
   Wallet,
@@ -3799,7 +3800,12 @@ export const Settings: React.FC = () => {
             </div>
           </div>
 
-          {/* Card 3: Executive Sign Out Card */}
+          {/* Section 3: Official Club Roles Management */}
+          <div className="pt-2 border-t border-[#e2ece2]">
+            <RolesSettings />
+          </div>
+
+          {/* Card 4: Executive Sign Out Card */}
           <div className="p-3.5 sm:p-4 rounded-2xl bg-rose-50/60 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5">
               <div className="flex items-center gap-1.5">

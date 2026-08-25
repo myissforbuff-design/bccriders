@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Check } from 'lucide-react';
+import { store } from '../lib/db';
+import { ClubRoleDefinition } from '../types';
 
 interface RoleAvatarBadgeProps {
   role?: string;
@@ -12,6 +14,21 @@ export const RoleAvatarBadge: React.FC<RoleAvatarBadgeProps> = ({
   size = 'md',
   className = '',
 }) => {
+  const [customRoles, setCustomRoles] = useState<ClubRoleDefinition[]>(() => store.getClubRoles());
+
+  useEffect(() => {
+    const handleRolesUpdated = (e: Event) => {
+      const updated = (e as CustomEvent).detail || store.getClubRoles();
+      if (Array.isArray(updated)) {
+        setCustomRoles(updated);
+      }
+    };
+    window.addEventListener('bcc_roles_updated', handleRolesUpdated);
+    return () => {
+      window.removeEventListener('bcc_roles_updated', handleRolesUpdated);
+    };
+  }, []);
+
   const normRole = (role || '').trim();
 
   const containerSizeMap = {
@@ -155,6 +172,25 @@ export const RoleAvatarBadge: React.FC<RoleAvatarBadgeProps> = ({
         className={`absolute rounded-full bg-cyan-700 text-white font-extrabold flex items-center justify-center ring-2 ring-white shadow-xs ${containerClass} ${className}`}
       >
         PIO
+      </span>
+    );
+  }
+
+  // Check dynamic / custom configured roles
+  const matchedCustom = customRoles.find(
+    (cr) => cr.name.toLowerCase() === normRole.toLowerCase()
+  );
+  if (matchedCustom && matchedCustom.name.toLowerCase() !== 'member') {
+    return (
+      <span
+        title={matchedCustom.name}
+        style={{
+          backgroundColor: matchedCustom.badgeBgColor || '#059669',
+          color: matchedCustom.badgeTextColor || '#ffffff',
+        }}
+        className={`absolute rounded-full font-extrabold flex items-center justify-center ring-2 ring-white shadow-xs ${containerClass} ${className}`}
+      >
+        {matchedCustom.badgeAbbr || matchedCustom.name.slice(0, 2).toUpperCase()}
       </span>
     );
   }

@@ -13,6 +13,131 @@ export type UserRole =
   | 'Member'
   | string;
 
+export interface ClubRoleDefinition {
+  id: string;
+  name: string;
+  category: 'Officer' | 'Staff' | 'Member' | 'Custom';
+  badgeAbbr: string;
+  badgeBgColor: string;
+  badgeTextColor?: string;
+  description?: string;
+  isSystemDefault?: boolean;
+  createdAt?: string;
+}
+
+export const DEFAULT_CLUB_ROLE_DEFINITIONS: ClubRoleDefinition[] = [
+  {
+    id: 'role_president',
+    name: 'President',
+    category: 'Officer',
+    badgeAbbr: 'P',
+    badgeBgColor: '#f59e0b',
+    badgeTextColor: '#ffffff',
+    description: 'Executive club lead overseeing operations, assemblies, and official representation.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_vice_president',
+    name: 'Vice-President',
+    category: 'Officer',
+    badgeAbbr: 'VP',
+    badgeBgColor: '#4f46e5',
+    badgeTextColor: '#ffffff',
+    description: 'Assists the President and assumes leadership duties during absences or directives.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_secretary',
+    name: 'Secretary',
+    category: 'Officer',
+    badgeAbbr: 'S',
+    badgeBgColor: '#0d9488',
+    badgeTextColor: '#ffffff',
+    description: 'Maintains official club records, notices, minutes, and membership registers.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_treasurer',
+    name: 'Treasurer',
+    category: 'Officer',
+    badgeAbbr: 'T',
+    badgeBgColor: '#059669',
+    badgeTextColor: '#ffffff',
+    description: 'Manages club treasury funds, annual dues, expense liquidations, and audits.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_road_captain',
+    name: 'Road Captain',
+    category: 'Officer',
+    badgeAbbr: 'RC',
+    badgeBgColor: '#e11d48',
+    badgeTextColor: '#ffffff',
+    description: 'Plans ride routes, enforces convoy formation protocols, and oversees safety.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_safety_officer',
+    name: 'Safety Officer',
+    category: 'Officer',
+    badgeAbbr: 'SO',
+    badgeBgColor: '#ea580c',
+    badgeTextColor: '#ffffff',
+    description: 'Ensures rider gear compliance, first aid readiness, and emergency plans.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_sgt_at_arms',
+    name: 'Sgt. at Arms',
+    category: 'Officer',
+    badgeAbbr: 'SA',
+    badgeBgColor: '#334155',
+    badgeTextColor: '#ffffff',
+    description: 'Maintains order, decorum, and discipline during club rides and meetings.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_pio',
+    name: 'P.I.O.',
+    category: 'Officer',
+    badgeAbbr: 'PIO',
+    badgeBgColor: '#0e7490',
+    badgeTextColor: '#ffffff',
+    description: 'Public Information Officer managing press, announcements, and notices.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_social_media',
+    name: 'Social Media',
+    category: 'Officer',
+    badgeAbbr: 'SM',
+    badgeBgColor: '#db2777',
+    badgeTextColor: '#ffffff',
+    description: 'Curates photo/video media, social channels, and public ride highlights.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_members_rep',
+    name: 'Members Representative',
+    category: 'Officer',
+    badgeAbbr: 'MR',
+    badgeBgColor: '#0284c7',
+    badgeTextColor: '#ffffff',
+    description: 'Voice of general members in executive meetings and rider welfare advocacy.',
+    isSystemDefault: true,
+  },
+  {
+    id: 'role_member',
+    name: 'Member',
+    category: 'Member',
+    badgeAbbr: '✓',
+    badgeBgColor: '#1877f2',
+    badgeTextColor: '#ffffff',
+    description: 'Verified official BCC club member in good standing.',
+    isSystemDefault: true,
+  },
+];
+
 export const CLUB_OFFICER_ROLES = [
   'President',
   'Vice-President',

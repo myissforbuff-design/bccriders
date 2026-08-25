@@ -29,6 +29,8 @@ import {
   TreasurerActionRequest,
   TreasurerActionType,
   TreasurerRequestStatus,
+  ClubRoleDefinition,
+  DEFAULT_CLUB_ROLE_DEFINITIONS,
 } from '../types';
 import {
   clearSensitiveStorage,
@@ -73,6 +75,7 @@ const STORAGE_KEYS = {
   SECURITY_SETTINGS: 'bcc_security_settings_v1',
   FINANCE_ARCHIVES: 'bcc_finance_yearly_archives_v1',
   TREASURER_REQUESTS: 'bcc_treasurer_requests_v1',
+  CLUB_ROLES: 'bcc_club_roles_v1',
   CURRENT_USER: 'bcc_current_user_id_v2',
   USER_PROFILE: 'bcc_user_profile_v2',
 };
@@ -339,6 +342,7 @@ export class DataStoreService {
   private securitySettings: SecuritySettings;
   private financeArchives: FinanceYearArchive[];
   private treasurerRequests: TreasurerActionRequest[];
+  private clubRoles: ClubRoleDefinition[];
   private currentUserId: string;
 
   constructor() {
@@ -380,6 +384,10 @@ export class DataStoreService {
     this.treasurerRequests = loadFromStorage(
       STORAGE_KEYS.TREASURER_REQUESTS,
       []
+    );
+    this.clubRoles = loadFromStorage(
+      STORAGE_KEYS.CLUB_ROLES,
+      DEFAULT_CLUB_ROLE_DEFINITIONS
     );
   }
 
@@ -534,8 +542,17 @@ export class DataStoreService {
       }
     }
 
+    const rolesDoc = dataSettings.data.find((s: any) => s.id === 'club_roles' || s.category === 'club_roles' || s.id === 'custom_roles');
+    if (rolesDoc && Array.isArray(rolesDoc.roles) && rolesDoc.roles.length > 0) {
+      this.clubRoles = rolesDoc.roles;
+      if (this.currentUserId || hasActiveUserSession()) {
+        saveToStorage(STORAGE_KEYS.CLUB_ROLES, this.clubRoles);
+      }
+    }
+
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bcc_settings_updated'));
+      window.dispatchEvent(new CustomEvent('bcc_roles_updated', { detail: this.clubRoles }));
     }
   }
 
@@ -1576,6 +1593,91 @@ export class DataStoreService {
     }).catch((err) => console.warn('MongoDB security settings sync notice:', err));
 
     return this.securitySettings;
+  }
+
+  // Club Roles Management (Settings > System Security & Biometrics)
+  getClubRoles(): ClubRoleDefinition[] {
+    try {
+      const parsed = loadFromSession<ClubRoleDefinition[]>(STORAGE_KEYS.CLUB_ROLES, this.clubRoles);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        this.clubRoles = parsed;
+      }
+    } catch {}
+    return this.clubRoles;
+  }
+
+  getClubRoleNames(): string[] {
+    const roles = this.getClubRoles();
+    return roles.map((r) => r.name);
+  }
+
+  saveClubRole(roleData: Omit<ClubRoleDefinition, 'id' | 'createdAt'> & { id?: string }): ClubRoleDefinition {
+    const roleId = roleData.id || `role_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+
+    const newRole: ClubRoleDefinition = {
+      id: roleId,
+      name: roleData.name.trim(),
+      category: roleData.category || 'Custom',
+      badgeAbbr: roleData.badgeAbbr?.trim() || roleData.name.trim().slice(0, 3).toUpperCase(),
+      badgeBgColor: roleData.badgeBgColor || '#059669',
+      badgeTextColor: roleData.badgeTextColor || '#ffffff',
+      description: roleData.description?.trim() || '',
+      isSystemDefault: roleData.isSystemDefault ?? false,
+      createdAt: roleData.createdAt || new Date().toISOString(),
+    };
+
+    const existingIdx = this.clubRoles.findIndex(
+      (r) => r.id === roleId || r.name.toLowerCase() === newRole.name.toLowerCase()
+    );
+
+    if (existingIdx > -1) {
+      this.clubRoles[existingIdx] = {
+        ...this.clubRoles[existingIdx],
+        ...newRole,
+        // preserve system default flag if it was core
+        isSystemDefault: this.clubRoles[existingIdx].isSystemDefault ?? newRole.isSystemDefault,
+      };
+    } else {
+      this.clubRoles.push(newRole);
+    }
+
+    saveToStorage(STORAGE_KEYS.CLUB_ROLES, this.clubRoles);
+
+    authFetch('/api/mongodb/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'club_roles', category: 'club_roles', roles: this.clubRoles }),
+    }).catch((err) => console.warn('MongoDB club roles sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_roles_updated', { detail: this.clubRoles }));
+      window.dispatchEvent(new CustomEvent('bcc_settings_updated'));
+    }
+
+    return newRole;
+  }
+
+  deleteClubRole(id: string): boolean {
+    const roleToDelete = this.clubRoles.find((r) => r.id === id);
+    if (!roleToDelete || roleToDelete.isSystemDefault) {
+      return false;
+    }
+
+    this.clubRoles = this.clubRoles.filter((r) => r.id !== id);
+    saveToStorage(STORAGE_KEYS.CLUB_ROLES, this.clubRoles);
+
+    authFetch('/api/mongodb/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'club_roles', category: 'club_roles', roles: this.clubRoles }),
+    }).catch((err) => console.warn('MongoDB club roles delete sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_roles_updated', { detail: this.clubRoles }));
+      window.dispatchEvent(new CustomEvent('bcc_settings_updated'));
+    }
+
+    return true;
   }
 
   // Finance Yearly Archives

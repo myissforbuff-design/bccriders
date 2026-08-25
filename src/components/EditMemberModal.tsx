@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { User, CLUB_ROLES, MembershipType } from '../types';
+import { User, CLUB_ROLES, MembershipType, ClubRoleDefinition } from '../types';
+import { store } from '../lib/db';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { OfficialLoader } from './OfficialLoader';
 import {
@@ -217,6 +218,21 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [riderType, setRiderType] = useState(member.riderType || 'Beginner');
   const [reasonForJoining, setReasonForJoining] = useState(member.reasonForJoining || '');
   const [recommendedBy, setRecommendedBy] = useState(member.recommendedBy || '');
+
+  const [clubRolesList, setClubRolesList] = useState<ClubRoleDefinition[]>(() => store.getClubRoles());
+
+  useEffect(() => {
+    const handleRolesUpdated = (e: Event) => {
+      const updated = (e as CustomEvent).detail || store.getClubRoles();
+      if (Array.isArray(updated)) {
+        setClubRolesList(updated);
+      }
+    };
+    window.addEventListener('bcc_roles_updated', handleRolesUpdated);
+    return () => {
+      window.removeEventListener('bcc_roles_updated', handleRolesUpdated);
+    };
+  }, []);
 
   const [formError, setFormError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -436,7 +452,14 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                   onChange={setRole}
                   options={[
                     { value: 'admin', label: 'System Administrator (Admin)' },
-                    ...CLUB_ROLES.map((r) => ({ value: r, label: r })),
+                    ...clubRolesList.map((r) => ({
+                      value: r.name,
+                      label: `${r.name} (${r.category})`,
+                    })),
+                    // If current role is custom/legacy and not found in definitions
+                    ...(role && role !== 'admin' && !clubRolesList.some((r) => r.name.toLowerCase() === role.toLowerCase())
+                      ? [{ value: role, label: `${role} (Current)` }]
+                      : []),
                   ]}
                 />
                 <p className="text-[10px] text-[#52605d] mt-1">
