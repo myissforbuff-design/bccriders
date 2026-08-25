@@ -9,7 +9,7 @@ import {
 } from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
-import { OfficialDotSpinner } from './OfficialLoader';
+import { OfficialDotSpinner, CardValueSkeleton, CardSubSkeleton } from './OfficialLoader';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Search,
@@ -410,8 +410,17 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
             <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider">Total Members</span>
             <Users className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f]" />
           </div>
-          <div className="text-lg sm:text-2xl font-black text-[#1b4332]">{globalSummary.totalMembers}</div>
-          <div className="text-[9.5px] sm:text-[11px] text-[#52605d] font-semibold truncate">{globalSummary.totalEvents} Activities Recorded</div>
+          {isLoading ? (
+            <div className="py-1 space-y-1">
+              <CardValueSkeleton className="w-16 h-6 sm:h-8" />
+              <CardSubSkeleton className="w-24 h-3" />
+            </div>
+          ) : (
+            <>
+              <div className="text-lg sm:text-2xl font-black text-[#1b4332]">{globalSummary.totalMembers}</div>
+              <div className="text-[9.5px] sm:text-[11px] text-[#52605d] font-semibold truncate">{globalSummary.totalEvents} Activities Recorded</div>
+            </>
+          )}
         </div>
 
         <div className="bg-emerald-50/70 p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-emerald-200/80 shadow-2xs space-y-0.5 sm:space-y-1">
@@ -419,8 +428,17 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
             <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider">Total Present</span>
             <CheckCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-600" />
           </div>
-          <div className="text-lg sm:text-2xl font-black text-emerald-900">{globalSummary.totalPresentScans}</div>
-          <div className="text-[9.5px] sm:text-[11px] text-emerald-700 font-semibold truncate">Active attendances logged</div>
+          {isLoading ? (
+            <div className="py-1 space-y-1">
+              <CardValueSkeleton className="w-16 h-6 sm:h-8 bg-emerald-200/60" />
+              <CardSubSkeleton className="w-24 h-3 bg-emerald-200/40" />
+            </div>
+          ) : (
+            <>
+              <div className="text-lg sm:text-2xl font-black text-emerald-900">{globalSummary.totalPresentScans}</div>
+              <div className="text-[9.5px] sm:text-[11px] text-emerald-700 font-semibold truncate">Active attendances logged</div>
+            </>
+          )}
         </div>
 
         <div className="bg-rose-50/70 p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-rose-200/80 shadow-2xs space-y-0.5 sm:space-y-1">
@@ -428,8 +446,17 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
             <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider">Total Absences</span>
             <XCircle className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-rose-600" />
           </div>
-          <div className="text-lg sm:text-2xl font-black text-rose-900">{globalSummary.totalAbsences}</div>
-          <div className="text-[9.5px] sm:text-[11px] text-rose-700 font-semibold truncate">Required events missed</div>
+          {isLoading ? (
+            <div className="py-1 space-y-1">
+              <CardValueSkeleton className="w-16 h-6 sm:h-8 bg-rose-200/60" />
+              <CardSubSkeleton className="w-24 h-3 bg-rose-200/40" />
+            </div>
+          ) : (
+            <>
+              <div className="text-lg sm:text-2xl font-black text-rose-900">{globalSummary.totalAbsences}</div>
+              <div className="text-[9.5px] sm:text-[11px] text-rose-700 font-semibold truncate">Required events missed</div>
+            </>
+          )}
         </div>
 
         <div className="bg-emerald-800 text-white p-2.5 sm:p-4 rounded-2xl sm:rounded-3xl border border-emerald-900 shadow-2xs space-y-0.5 sm:space-y-1">
@@ -437,8 +464,17 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
             <span className="text-[9px] sm:text-[10px] font-extrabold uppercase tracking-wider">Avg Attendance</span>
             <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-emerald-300" />
           </div>
-          <div className="text-lg sm:text-2xl font-black text-white">{globalSummary.avgRate}%</div>
-          <div className="text-[9.5px] sm:text-[11px] text-emerald-100 font-semibold truncate">Overall club compliance</div>
+          {isLoading ? (
+            <div className="py-1 space-y-1">
+              <CardValueSkeleton className="w-16 h-6 sm:h-8 bg-white/20" />
+              <CardSubSkeleton className="w-24 h-3 bg-white/10" />
+            </div>
+          ) : (
+            <>
+              <div className="text-lg sm:text-2xl font-black text-white">{globalSummary.avgRate}%</div>
+              <div className="text-[9.5px] sm:text-[11px] text-emerald-100 font-semibold truncate">Overall club compliance</div>
+            </>
+          )}
         </div>
       </div>
 

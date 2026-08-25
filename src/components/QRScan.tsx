@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import jsQR from 'jsqr';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
@@ -197,6 +197,41 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
   useModalDismiss(Boolean(scannedMemberModal), dismissScannedModal);
   useModalDismiss(Boolean(alreadyScannedMemberModal), dismissDuplicateModal);
   useModalDismiss(showEventModal, () => setShowEventModal(false));
+
+  // Dynamically resolve member avatar and motorcycle details from members collection at display time
+  const resolvedScannedMember = useMemo(() => {
+    if (!scannedMemberModal) return null;
+    const users = store.getUsers();
+    const qId = (scannedMemberModal.memberId || '').toLowerCase().trim();
+    const qName = (scannedMemberModal.name || '').toLowerCase().trim();
+    return users.find(u => {
+      const memNo = (u.memberNumber || '').toLowerCase().trim();
+      const uId = (u.id || '').toLowerCase().trim();
+      const uName = (u.name || '').toLowerCase().trim();
+      const uUser = (u.username || '').toLowerCase().trim();
+      return (
+        (qId && (memNo === qId || uId === qId || uUser === qId)) ||
+        (qName && uName === qName)
+      );
+    }) || null;
+  }, [scannedMemberModal]);
+
+  const resolvedDuplicateMember = useMemo(() => {
+    if (!alreadyScannedMemberModal) return null;
+    const users = store.getUsers();
+    const qId = (alreadyScannedMemberModal.memberId || '').toLowerCase().trim();
+    const qName = (alreadyScannedMemberModal.name || '').toLowerCase().trim();
+    return users.find(u => {
+      const memNo = (u.memberNumber || '').toLowerCase().trim();
+      const uId = (u.id || '').toLowerCase().trim();
+      const uName = (u.name || '').toLowerCase().trim();
+      const uUser = (u.username || '').toLowerCase().trim();
+      return (
+        (qId && (memNo === qId || uId === qId || uUser === qId)) ||
+        (qName && uName === qName)
+      );
+    }) || null;
+  }, [alreadyScannedMemberModal]);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -518,8 +553,18 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
     // Register all keys in the synchronous Set immediately BEFORE any async operations
     currentMemberKeys.forEach(k => actKeys?.add(k));
 
+    // Build lightweight attendance record (strip avatar and bikeInfo base64 images to prevent document bloat)
+    const lightweightAttendanceRecord: Attendance = {
+      name: parsedData.name,
+      memberId: parsedData.memberId,
+      network: parsedData.network,
+      date: parsedData.date,
+      time: parsedData.time,
+      isRegistered: parsedData.isRegistered,
+    };
+
     // Build updated activity with newly logged attendance
-    const updatedAttendance = [parsedData, ...existingAttendance];
+    const updatedAttendance = [lightweightAttendanceRecord, ...existingAttendance];
     const updatedActivity: Activity = {
       ...(activeAct || {
         id: currentActId,
@@ -1157,9 +1202,9 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
               <div className="flex flex-col items-center text-center space-y-1.5 pt-0.5 shrink-0">
                 {/* Member Avatar */}
                 <div className="relative">
-                  {scannedMemberModal.avatar ? (
+                  {(resolvedScannedMember?.avatar || scannedMemberModal.avatar) ? (
                     <img
-                      src={scannedMemberModal.avatar}
+                      src={resolvedScannedMember?.avatar || scannedMemberModal.avatar}
                       alt={scannedMemberModal.name}
                       className="w-12 h-12 sm:w-14 sm:h-14 rounded-full object-cover border-2 sm:border-[3px] border-[#74c69d] shadow-xs"
                       onError={(e) => {
@@ -1197,39 +1242,43 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
                     <Bike className="w-3.5 h-3.5 text-[#2d6a4f]" />
                     <span className="text-[10.5px] sm:text-[11px] font-extrabold text-[#1b4332]">Registered Motorcycle</span>
                   </div>
-                  {scannedMemberModal.bikeInfo && (scannedMemberModal.bikeInfo.make || scannedMemberModal.bikeInfo.model) ? (
-                    <div className="space-y-1.5">
-                      {scannedMemberModal.bikeInfo.photoUrl && (
-                        <div className="rounded-lg overflow-hidden border border-[#e2ece2] max-h-24 sm:max-h-28 bg-stone-900">
-                          <img
-                            src={scannedMemberModal.bikeInfo.photoUrl}
-                            alt="Motorcycle"
-                            className="w-full h-20 sm:h-24 object-cover"
-                          />
+                  {(() => {
+                    const currentBike = resolvedScannedMember?.bikeInfo || scannedMemberModal.bikeInfo;
+                    if (currentBike && (currentBike.make || currentBike.model)) {
+                      return (
+                        <div className="space-y-1.5">
+                          {currentBike.photoUrl && (
+                            <div className="rounded-lg overflow-hidden border border-[#e2ece2] max-h-24 sm:max-h-28 bg-stone-900">
+                              <img
+                                src={currentBike.photoUrl}
+                                alt="Motorcycle"
+                                className="w-full h-20 sm:h-24 object-cover"
+                              />
+                            </div>
+                          )}
+                          <div className="grid grid-cols-2 gap-1.5 text-[10px] sm:text-[11px]">
+                            <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
+                              <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Make & Model</span>
+                              <strong className="text-[#1b4332] font-bold text-[10.5px] sm:text-xs truncate block">{currentBike.make || ''} {currentBike.model || 'N/A'}</strong>
+                            </div>
+                            <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
+                              <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Model Year</span>
+                              <strong className="text-[#1b4332] font-bold text-[10.5px] sm:text-xs truncate block">{currentBike.year || 'N/A'}</strong>
+                            </div>
+                            <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
+                              <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Displacement</span>
+                              <strong className="text-[#2d6a4f] font-bold text-[10.5px] sm:text-xs truncate block">{currentBike.engineCc ? (currentBike.engineCc.toString().toLowerCase().endsWith('cc') ? currentBike.engineCc : `${currentBike.engineCc} cc`) : 'N/A'}</strong>
+                            </div>
+                            <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
+                              <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Plate Number</span>
+                              <strong className="text-[#1b4332] font-mono font-bold text-[10.5px] sm:text-xs truncate block">{currentBike.licensePlate || currentBike.plateNo || 'N/A'}</strong>
+                            </div>
+                          </div>
                         </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-1.5 text-[10px] sm:text-[11px]">
-                        <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
-                          <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Make & Model</span>
-                          <strong className="text-[#1b4332] font-bold text-[10.5px] sm:text-xs truncate block">{scannedMemberModal.bikeInfo.make || ''} {scannedMemberModal.bikeInfo.model || 'N/A'}</strong>
-                        </div>
-                        <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
-                          <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Model Year</span>
-                          <strong className="text-[#1b4332] font-bold text-[10.5px] sm:text-xs truncate block">{scannedMemberModal.bikeInfo.year || 'N/A'}</strong>
-                        </div>
-                        <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
-                          <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Displacement</span>
-                          <strong className="text-[#2d6a4f] font-bold text-[10.5px] sm:text-xs truncate block">{scannedMemberModal.bikeInfo.engineCc ? (scannedMemberModal.bikeInfo.engineCc.toString().toLowerCase().endsWith('cc') ? scannedMemberModal.bikeInfo.engineCc : `${scannedMemberModal.bikeInfo.engineCc} cc`) : 'N/A'}</strong>
-                        </div>
-                        <div className="p-1.5 rounded-lg bg-white border border-[#e2ece2]">
-                          <span className="block text-[8px] sm:text-[9px] font-bold text-[#52605d] uppercase tracking-wider">Plate Number</span>
-                          <strong className="text-[#1b4332] font-mono font-bold text-[10.5px] sm:text-xs truncate block">{scannedMemberModal.bikeInfo.licensePlate || scannedMemberModal.bikeInfo.plateNo || 'N/A'}</strong>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-[#52605d] text-center text-[10px] py-1 italic">No motorcycle details recorded</p>
-                  )}
+                      );
+                    }
+                    return <p className="text-[#52605d] text-center text-[10px] py-1 italic">No motorcycle details recorded</p>;
+                  })()}
                 </div>
 
                 {/* Event Attendance Context */}
@@ -1288,9 +1337,9 @@ export const QRScan: React.FC<QRScanProps> = ({ setActiveTab }) => {
               <div className="flex-1 overflow-y-auto overscroll-contain pr-1 space-y-2 scroll-smooth">
                 {/* Scanned Member Details Card */}
                 <div className="p-2.5 sm:p-3 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-[#e2ece2] text-xs text-left flex items-center gap-2.5">
-                  {alreadyScannedMemberModal.avatar ? (
+                  {(resolvedDuplicateMember?.avatar || alreadyScannedMemberModal.avatar) ? (
                     <img
-                      src={alreadyScannedMemberModal.avatar}
+                      src={resolvedDuplicateMember?.avatar || alreadyScannedMemberModal.avatar}
                       alt={alreadyScannedMemberModal.name}
                       className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-amber-300 shrink-0"
                       onError={(e) => {

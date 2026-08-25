@@ -32,8 +32,8 @@ export interface UseRealtimeSyncResult extends RealtimeSnapshot {
 export function useRealtimeSync(sessionKey?: string | null): UseRealtimeSyncResult {
   const [snapshot, setSnapshot] = useState<RealtimeSnapshot>(() => getRealtimeSnapshot());
 
-  // Connect on app load. Deliberately not gated on auth: the landing page's biometric sign-in path
-  // never mints a server token, and those sessions still need live data.
+  // Connect on app load. `connectRealtime()` is a no-op until a session token exists, since the
+  // server refuses tokenless sockets — the sign-in effect below is what actually opens it.
   useEffect(() => {
     installRealtimeBackstops();
     connectRealtime();
@@ -46,8 +46,8 @@ export function useRealtimeSync(sessionKey?: string | null): UseRealtimeSyncResu
     };
   }, []);
 
-  // Sign-in / sign-out: re-handshake so the socket moves between the anonymous and authenticated
-  // rooms (authenticated sockets receive document bodies, anonymous ones get change signals only).
+  // Sign-in opens the socket, sign-out tears it down, and a switched identity re-runs the
+  // server handshake so the token is verified again.
   useEffect(() => {
     refreshRealtimeAuth();
   }, [sessionKey]);

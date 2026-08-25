@@ -6,7 +6,7 @@ import { store, safeFetchJson, authFetch, getCachedData, setCachedData } from '.
 import { loadFromSession, saveToSession } from '../lib/storageSecurity';
 import { User, FinanceYearArchive, ArchivePackageData, TreasurerActionRequest } from '../types';
 import { CustomSelect } from './CustomSelect';
-import { OfficialLoader } from './OfficialLoader';
+import { OfficialLoader, CardValueSkeleton, CardSubSkeleton, CardMiniSpinner } from './OfficialLoader';
 import { YearlyArchiveModal } from './YearlyArchiveModal';
 import { ArchiveExportModal } from './ArchiveExportModal';
 import { TreasurerAuthModal } from './TreasurerAuthModal';
@@ -168,6 +168,11 @@ export const Finances: React.FC = () => {
     );
   });
 
+  // Local Loading States for Individual Cards (does not block whole page)
+  const [isLoadingFinances, setIsLoadingFinances] = useState<boolean>(() => records.length === 0);
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState<boolean>(() => expenses.length === 0);
+  const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(() => users.length === 0);
+
   // Main Mode Toggle: "funds", "expenses", or "accounts"
   const [activeTab, setActiveTab] = useState<'funds' | 'expenses' | 'accounts'>(() => {
     const saved = loadFromSession<string>('bcc_finances_tab', 'funds');
@@ -210,6 +215,7 @@ export const Finances: React.FC = () => {
   // Modal State for Funds
   const [showAddRecordModal, setShowAddRecordModal] = useState(false);
   const [showConfirmRecordModal, setShowConfirmRecordModal] = useState(false);
+  const [isWaiveAction, setIsWaiveAction] = useState(false);
   const [editingRecord, setEditingRecord] = useState<FinanceRecord | null>(null);
   const [financeNoticeModal, setFinanceNoticeModal] = useState<{ title: string; message: string; isError?: boolean } | null>(null);
 
@@ -750,9 +756,12 @@ export const Finances: React.FC = () => {
         return !isUserAdmin;
       });
       setUsers(freshUsers);
+      setIsLoadingUsers(false);
       const latestRecs = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, savedRecs);
       ensureApprovedMembersHaveFeesAndMonthlyDues(latestRecs);
-    }).catch(() => {});
+    }).catch(() => {
+      setIsLoadingUsers(false);
+    });
 
     safeFetchJson('/api/mongodb/financeLogs')
       .then(data => {
@@ -776,6 +785,9 @@ export const Finances: React.FC = () => {
       .catch(err => {
         console.warn('MongoDB financeLogs fetch error:', err);
         ensureApprovedMembersHaveFeesAndMonthlyDues(savedRecs);
+      })
+      .finally(() => {
+        setIsLoadingFinances(false);
       });
 
     // 2. Load Expense Records
@@ -815,6 +827,7 @@ export const Finances: React.FC = () => {
             authFetch(`/api/mongodb/liquidationLogs/${id}`, { method: 'DELETE' }).catch(() => {});
             authFetch(`/api/mongodb/expenseLogs/${id}`, { method: 'DELETE' }).catch(() => {});
           });
+          setIsLoadingExpenses(false);
         } else {
           // Fallback to expenseLogs if liquidationLogs is empty
           safeFetchJson('/api/mongodb/expenseLogs')
@@ -833,7 +846,10 @@ export const Finances: React.FC = () => {
                 });
               }
             })
-            .catch(err => console.warn('MongoDB expenseLogs fetch error:', err));
+            .catch(err => console.warn('MongoDB expenseLogs fetch error:', err))
+            .finally(() => {
+              setIsLoadingExpenses(false);
+            });
         }
       })
       .catch(() => {
@@ -848,7 +864,10 @@ export const Finances: React.FC = () => {
               localStorage.setItem(LOCAL_STORAGE_EXPENSE_KEY, JSON.stringify(cleanData));
             }
           })
-          .catch(err => console.warn('MongoDB expense/liquidation fetch error:', err));
+          .catch(err => console.warn('MongoDB expense/liquidation fetch error:', err))
+          .finally(() => {
+            setIsLoadingExpenses(false);
+          });
       });
 
     setFinanceArchives(store.getFinanceArchives());
@@ -1080,38 +1099,44 @@ export const Finances: React.FC = () => {
 
       return createdMonths.map(m => {
         const monthStr = `${m} ${recYear}`;
-        const alreadyPaid = records.some(r =>
+        const paidOrWaivedRec = records.find(r =>
           r.userId === recUserId &&
-          r.status === 'Paid' &&
+          (r.status === 'Paid' || r.status === 'Waived') &&
           (
             (r.itemType === 'Monthly Due' && (r.coveredMonth === monthStr || r.customItemName?.includes(monthStr))) ||
             (r.itemType === 'Annual Upfront Promo' && (r.coveredMonth?.includes(recYear) || r.customItemName?.includes(recYear)))
           )
         );
 
+        const isSettled = Boolean(paidOrWaivedRec);
+        const settledLabel = paidOrWaivedRec?.status === 'Waived' ? `${m} (Waived)` : `${m} (Already Paid)`;
+
         return {
           value: m,
-          label: alreadyPaid ? `${m} (Already Paid)` : m,
-          disabled: alreadyPaid,
+          label: isSettled ? settledLabel : m,
+          disabled: isSettled,
         };
       });
     }
 
     return MONTHS_LIST.map(m => {
       const monthStr = `${m} ${recYear}`;
-      const alreadyPaid = records.some(r =>
+      const paidOrWaivedRec = records.find(r =>
         r.userId === recUserId &&
-        r.status === 'Paid' &&
+        (r.status === 'Paid' || r.status === 'Waived') &&
         (
           (r.itemType === 'Monthly Due' && (r.coveredMonth === monthStr || r.customItemName?.includes(monthStr))) ||
           (r.itemType === 'Annual Upfront Promo' && (r.coveredMonth?.includes(recYear) || r.customItemName?.includes(recYear)))
         )
       );
 
+      const isSettled = Boolean(paidOrWaivedRec);
+      const settledLabel = paidOrWaivedRec?.status === 'Waived' ? `${m} (Waived)` : `${m} (Already Paid)`;
+
       return {
         value: m,
-        label: alreadyPaid ? `${m} (Already Paid)` : m,
-        disabled: alreadyPaid,
+        label: isSettled ? settledLabel : m,
+        disabled: isSettled,
       };
     });
   }, [recItemType, recYear, recUserId, records, monthlyDuesList]);
@@ -1121,13 +1146,27 @@ export const Finances: React.FC = () => {
     const monthStr = `${recMonth} ${recYear}`;
     return records.some(r =>
       r.userId === recUserId &&
-      r.status === 'Paid' &&
+      (r.status === 'Paid' || r.status === 'Waived') &&
       (
         (r.itemType === 'Monthly Due' && (r.coveredMonth === monthStr || r.customItemName?.includes(monthStr))) ||
         (r.itemType === 'Annual Upfront Promo' && (r.coveredMonth?.includes(recYear) || r.customItemName?.includes(recYear)))
       )
     );
   }, [recItemType, recMonth, recYear, recUserId, records]);
+
+  // Validation for Waiving Monthly Dues
+  const isWaiveValid = useMemo(() => {
+    if (!hasMembers || !recUserId) return false;
+    if (recItemType !== 'Monthly Due') return false;
+    if (monthlyDuesList.length === 0) return false;
+    if (!recMonth || !recYear) return false;
+    const dueExists = monthlyDuesList.some(
+      d => String(d.year) === String(recYear) && d.month === recMonth
+    );
+    if (!dueExists) return false;
+    if (isSelectedMonthAlreadyPaid) return false;
+    return true;
+  }, [hasMembers, recUserId, recItemType, monthlyDuesList, recMonth, recYear, isSelectedMonthAlreadyPaid]);
 
   // Form Validation for Recording Payment
   const isRecordFormValid = useMemo(() => {
@@ -1444,16 +1483,42 @@ export const Finances: React.FC = () => {
     if (!isRecordFormValid) {
       return;
     }
+    setIsWaiveAction(false);
+    setShowConfirmRecordModal(true);
+  };
+
+  // Initiate Waive Record for Monthly Due
+  const handleInitiateWaiveRecord = (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (!canManageFinances) return;
+    if (!hasMembers) {
+      setFinanceNoticeModal({
+        title: 'No Registered Members',
+        message: 'No registered members found. Please register members in the Members Directory before recording waivers.',
+        isError: true,
+      });
+      return;
+    }
+    if (!isWaiveValid) {
+      return;
+    }
+    setIsWaiveAction(true);
     setShowConfirmRecordModal(true);
   };
 
   // Proceed with Saving Payment Record after confirmation
   const handleProceedSaveRecord = async () => {
     setShowConfirmRecordModal(false);
-    if (!canManageFinances || !hasMembers || !isRecordFormValid) return;
+    if (!canManageFinances || !hasMembers) return;
+    if (isWaiveAction) {
+      if (!isWaiveValid) return;
+    } else {
+      if (!isRecordFormValid) return;
+    }
 
+    const isWaiving = isWaiveAction;
     const effectiveYear = recYear || String(new Date().getFullYear());
-    const amountNum = parseFloat(recAmount) || 0;
+    const amountNum = isWaiving ? 0 : (parseFloat(recAmount) || 0);
     const selectedUser = users.find(u => u.id === recUserId);
     const todayStr = new Date().toISOString().split('T')[0];
     const coveredMonthStr = recItemType === 'Monthly Due' 
@@ -1461,7 +1526,15 @@ export const Finances: React.FC = () => {
       : recItemType === 'Annual Upfront Promo'
       ? `Full Year ${effectiveYear}`
       : undefined;
-    const effectiveStatus = (recItemType === 'Monthly Due' || recItemType === 'Annual Upfront Promo') ? 'Paid' : recStatus;
+    const effectiveStatus: 'Paid' | 'Pending' | 'Overdue' | 'Waived' = isWaiving
+      ? 'Waived'
+      : (recItemType === 'Monthly Due' || recItemType === 'Annual Upfront Promo')
+      ? 'Paid'
+      : recStatus;
+
+    const effectiveNotes = isWaiving
+      ? (recNotes.trim() || 'Waived (Joined before club started)')
+      : (recItemType === 'Monthly Due' ? (recNotes.trim() || undefined) : (recNotes.trim() || (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo Package (Full Year Dues)' : undefined)));
 
     await runWithLoader(
       async () => {
@@ -1555,15 +1628,15 @@ export const Finances: React.FC = () => {
             amount: amountNum,
             status: effectiveStatus,
             dueDate: recDueDate,
-            paidDate: effectiveStatus === 'Paid' ? todayStr : editingRecord.paidDate,
-            paymentMethod: recMethod,
-            referenceNo: undefined,
-            notes: recItemType === 'Monthly Due' ? undefined : (recNotes.trim() || (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo Package (Full Year Dues)' : undefined)),
+            paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? (editingRecord.paidDate || todayStr) : editingRecord.paidDate,
+            paymentMethod: isWaiving ? 'N/A' : recMethod,
+            referenceNo: isWaiving ? undefined : (editingRecord.referenceNo || undefined),
+            notes: effectiveNotes,
             updatedAt: todayStr,
           };
 
           let updated = workingRecords.map(r => (r.id === editingRecord.id ? updatedRecord : r));
-          if (effectiveStatus === 'Paid') {
+          if (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') {
             const itemKey = recItemType === 'Other' ? recCustomItemName : (recItemType === 'Monthly Due' ? coveredMonthStr : undefined);
             updated = updated.filter(r => {
               if (r.id !== editingRecord.id && r.userId === recUserId && (r.status === 'Pending' || r.status === 'Overdue')) {
@@ -1616,10 +1689,10 @@ export const Finances: React.FC = () => {
               coveredMonth: coveredMonthStr || existingPending.coveredMonth,
               amount: amountNum,
               dueDate: recDueDate,
-              paidDate: effectiveStatus === 'Paid' ? todayStr : undefined,
+              paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? todayStr : undefined,
               status: effectiveStatus,
-              paymentMethod: recMethod,
-              notes: recNotes.trim() || existingPending.notes,
+              paymentMethod: isWaiving ? 'N/A' : recMethod,
+              notes: effectiveNotes || existingPending.notes,
               updatedAt: todayStr,
             };
             const updated = workingRecords.map(r => (r.id === existingPending.id ? updatedRecord : r));
@@ -1636,16 +1709,16 @@ export const Finances: React.FC = () => {
               customItemName: recItemType === 'Other' || recItemType === 'Donation Collection' ? recCustomItemName : (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo (Full Year Dues)' : undefined),
               amount: amountNum,
               dueDate: recDueDate,
-              paidDate: effectiveStatus === 'Paid' ? todayStr : undefined,
+              paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? todayStr : undefined,
               status: effectiveStatus,
-              paymentMethod: recMethod,
+              paymentMethod: isWaiving ? 'N/A' : recMethod,
               referenceNo: undefined,
-              notes: recItemType === 'Monthly Due' ? undefined : (recNotes.trim() || (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo Package (Full Year Dues)' : undefined)),
+              notes: effectiveNotes,
               updatedAt: todayStr,
             };
 
             let updatedList = [...workingRecords, newRec];
-            if (effectiveStatus === 'Paid') {
+            if (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') {
               const itemKey = recItemType === 'Other' ? recCustomItemName : (recItemType === 'Monthly Due' ? coveredMonthStr : undefined);
               updatedList = updatedList.filter(r => {
                 if (r.id !== newRec.id && r.userId === recUserId && (r.status === 'Pending' || r.status === 'Overdue')) {
@@ -1675,7 +1748,7 @@ export const Finances: React.FC = () => {
         await Promise.all(syncPromises);
       },
       {
-        message: editingRecord ? 'Updating Payment Record & Refreshing...' : 'Recording Transaction & Refreshing...',
+        message: isWaiving ? 'Waiving Monthly Due & Refreshing...' : (editingRecord ? 'Updating Payment Record & Refreshing...' : 'Recording Transaction & Refreshing...'),
       }
     );
   };
@@ -2232,19 +2305,28 @@ export const Finances: React.FC = () => {
             <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               <span className="hidden sm:inline">Total </span>Funds
             </span>
-            <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-[#1b4332] truncate">
-              ₱{(Number(totalFundsWithCarryOver) || 0).toLocaleString()}.00
-            </p>
-            <div className="space-y-0.5">
-              <span className="text-[9px] sm:text-[10px] text-[#2d6a4f] font-semibold block truncate">
-                {totalPaidCount} {totalPaidCount === 1 ? 'payment' : 'payments'}
-              </span>
-              {totalArchivedCarryOver > 0 && (
-                <span className="text-[8.5px] font-extrabold text-emerald-800 bg-emerald-100/80 px-1.5 py-0.2 rounded-md block truncate">
-                  +₱{totalArchivedCarryOver.toLocaleString()} carryover
-                </span>
-              )}
-            </div>
+            {isLoadingFinances ? (
+              <div className="py-0.5 space-y-1">
+                <CardValueSkeleton className="w-24 h-5 sm:h-6" />
+                <CardSubSkeleton className="w-16 h-3" />
+              </div>
+            ) : (
+              <>
+                <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-[#1b4332] truncate">
+                  ₱{(Number(totalFundsWithCarryOver) || 0).toLocaleString()}.00
+                </p>
+                <div className="space-y-0.5">
+                  <span className="text-[9px] sm:text-[10px] text-[#2d6a4f] font-semibold block truncate">
+                    {totalPaidCount} {totalPaidCount === 1 ? 'payment' : 'payments'}
+                  </span>
+                  {totalArchivedCarryOver > 0 && (
+                    <span className="text-[8.5px] font-extrabold text-emerald-800 bg-emerald-100/80 px-1.5 py-0.2 rounded-md block truncate">
+                      +₱{totalArchivedCarryOver.toLocaleString()} carryover
+                    </span>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -2257,12 +2339,21 @@ export const Finances: React.FC = () => {
             <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               <span className="hidden sm:inline">Total </span>Expenses
             </span>
-            <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-rose-800 truncate">
-              ₱{(Number(totalExpenses) || 0).toLocaleString()}.00
-            </p>
-            <span className="text-[9px] sm:text-[10px] text-rose-700 font-semibold block truncate">
-              {expenses.length} {expenses.length === 1 ? 'expense' : 'expenses'}
-            </span>
+            {isLoadingExpenses ? (
+              <div className="py-0.5 space-y-1">
+                <CardValueSkeleton className="w-24 h-5 sm:h-6" />
+                <CardSubSkeleton className="w-16 h-3" />
+              </div>
+            ) : (
+              <>
+                <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-rose-800 truncate">
+                  ₱{(Number(totalExpenses) || 0).toLocaleString()}.00
+                </p>
+                <span className="text-[9px] sm:text-[10px] text-rose-700 font-semibold block truncate">
+                  {expenses.length} {expenses.length === 1 ? 'expense' : 'expenses'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -2277,14 +2368,23 @@ export const Finances: React.FC = () => {
             <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               Net Treasury
             </span>
-            <p className={`font-heading text-sm sm:text-base lg:text-lg font-black truncate ${
-              netBalance >= 0 ? 'text-[#1b4332]' : 'text-rose-700'
-            }`}>
-              ₱{(Number(netBalance) || 0).toLocaleString()}.00
-            </p>
-            <span className="text-[9px] sm:text-[10px] text-[#52605d] font-semibold block truncate">
-              {totalArchivedCarryOver > 0 ? `Net + ₱${totalArchivedCarryOver.toLocaleString()} carryover` : 'Funds - Expenses'}
-            </span>
+            {isLoadingFinances || isLoadingExpenses ? (
+              <div className="py-0.5 space-y-1">
+                <CardValueSkeleton className="w-24 h-5 sm:h-6" />
+                <CardSubSkeleton className="w-20 h-3" />
+              </div>
+            ) : (
+              <>
+                <p className={`font-heading text-sm sm:text-base lg:text-lg font-black truncate ${
+                  netBalance >= 0 ? 'text-[#1b4332]' : 'text-rose-700'
+                }`}>
+                  ₱{(Number(netBalance) || 0).toLocaleString()}.00
+                </p>
+                <span className="text-[9px] sm:text-[10px] text-[#52605d] font-semibold block truncate">
+                  {totalArchivedCarryOver > 0 ? `Net + ₱${totalArchivedCarryOver.toLocaleString()} carryover` : 'Funds - Expenses'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -2297,12 +2397,21 @@ export const Finances: React.FC = () => {
             <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               Discount
             </span>
-            <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-indigo-950 truncate">
-              ₱{(Number(totalDiscount) || 0).toLocaleString()}.00
-            </p>
-            <span className="text-[9px] sm:text-[10px] text-indigo-700 font-semibold block truncate">
-              {paidAnnualPromos.length} Promo{paidAnnualPromos.length === 1 ? '' : 's'}
-            </span>
+            {isLoadingFinances ? (
+              <div className="py-0.5 space-y-1">
+                <CardValueSkeleton className="w-20 h-5 sm:h-6" />
+                <CardSubSkeleton className="w-14 h-3" />
+              </div>
+            ) : (
+              <>
+                <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-indigo-950 truncate">
+                  ₱{(Number(totalDiscount) || 0).toLocaleString()}.00
+                </p>
+                <span className="text-[9px] sm:text-[10px] text-indigo-700 font-semibold block truncate">
+                  {paidAnnualPromos.length} Promo{paidAnnualPromos.length === 1 ? '' : 's'}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
@@ -2315,12 +2424,21 @@ export const Finances: React.FC = () => {
             <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
               Pending<span className="hidden sm:inline"> Dues</span>
             </span>
-            <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-amber-900 truncate">
-              ₱{(Number(totalPending) || 0).toLocaleString()}.00
-            </p>
-            <span className="text-[9px] sm:text-[10px] text-amber-700 font-semibold block truncate">
-              Uncollected balance
-            </span>
+            {isLoadingFinances ? (
+              <div className="py-0.5 space-y-1">
+                <CardValueSkeleton className="w-20 h-5 sm:h-6" />
+                <CardSubSkeleton className="w-16 h-3" />
+              </div>
+            ) : (
+              <>
+                <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-amber-900 truncate">
+                  ₱{(Number(totalPending) || 0).toLocaleString()}.00
+                </p>
+                <span className="text-[9px] sm:text-[10px] text-amber-700 font-semibold block truncate">
+                  Uncollected balance
+                </span>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -2605,6 +2723,7 @@ export const Finances: React.FC = () => {
                     const isPaid = rec.status === 'Paid';
                     const isPending = rec.status === 'Pending';
                     const isOverdue = rec.status === 'Overdue';
+                    const isWaived = rec.status === 'Waived';
 
                     return (
                       <tr key={rec.id} className="hover:bg-[#f7f9f7]/60 transition-colors">
@@ -2626,13 +2745,13 @@ export const Finances: React.FC = () => {
                         {/* Dates */}
                         <td className="py-3.5 px-3 text-[#52605d]">
                           <p className="font-medium text-[#1b4332] text-[11px]">
-                            {rec.status === 'Pending' ? '-' : formatDisplayDate(rec.paidDate || rec.dueDate)}
+                            {rec.status === 'Pending' ? '-' : (isWaived ? `${formatDisplayDate(rec.paidDate || rec.dueDate)}` : formatDisplayDate(rec.paidDate || rec.dueDate))}
                           </p>
                         </td>
 
                         {/* Method */}
                         <td className="py-3.5 px-3 text-[#52605d] font-medium">
-                          {rec.status === 'Pending' ? '-' : (rec.paymentMethod || 'Cash')}
+                          {rec.status === 'Pending' ? '-' : (isWaived ? 'Waived (Exempted)' : (rec.paymentMethod || 'Cash'))}
                         </td>
 
                         {/* Status */}
@@ -2641,6 +2760,8 @@ export const Finances: React.FC = () => {
                             className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                               isPaid
                                 ? 'bg-emerald-100 text-emerald-800'
+                                : isWaived
+                                ? 'bg-amber-100 text-amber-900 border border-amber-300'
                                 : isPending
                                 ? 'bg-amber-100 text-amber-800'
                                 : isOverdue
@@ -2649,6 +2770,7 @@ export const Finances: React.FC = () => {
                             }`}
                           >
                             {isPaid && <CheckCircle2 className="w-3 h-3 text-emerald-700" />}
+                            {isWaived && <HeartHandshake className="w-3 h-3 text-amber-700" />}
                             {isPending && <Clock className="w-3 h-3 text-amber-700" />}
                             {isOverdue && <AlertCircle className="w-3 h-3 text-rose-700" />}
                             <span>{rec.status}</span>
@@ -3332,9 +3454,15 @@ export const Finances: React.FC = () => {
                         <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-[#74c69d] block">
                           Total Payments Paid to Club (Joining to Present)
                         </span>
-                        <h3 className="font-heading text-2xl sm:text-3xl font-black text-white mt-0.5">
-                          ₱{totalPaid.toLocaleString()}.00
-                        </h3>
+                        {isLoadingFinances ? (
+                          <div className="py-1">
+                            <CardValueSkeleton className="w-36 h-8 bg-white/20" />
+                          </div>
+                        ) : (
+                          <h3 className="font-heading text-2xl sm:text-3xl font-black text-white mt-0.5">
+                            ₱{totalPaid.toLocaleString()}.00
+                          </h3>
+                        )}
                         <p className="text-xs text-stone-200 mt-0.5 font-medium">
                           Accumulated paid transactions for <span className="font-bold text-white">{memberName}</span> <span className="font-mono text-stone-300">({memberNo})</span>
                         </p>
@@ -3351,7 +3479,11 @@ export const Finances: React.FC = () => {
                       {/* Membership Fee Paid */}
                       <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
                         <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Membership Fee</span>
-                        <p className="text-sm sm:text-base font-black text-white">₱{mfPaid.toLocaleString()}.00</p>
+                        {isLoadingFinances ? (
+                          <CardValueSkeleton className="w-16 h-5 bg-white/20" />
+                        ) : (
+                          <p className="text-sm sm:text-base font-black text-white">₱{mfPaid.toLocaleString()}.00</p>
+                        )}
                         <span className="text-[10px] text-stone-200 block">
                           {mfPaid > 0 ? '✓ Fully Paid' : 'Pending'}
                         </span>
@@ -3362,9 +3494,13 @@ export const Finances: React.FC = () => {
                         <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">
                           {hasMemberPromo ? 'Monthly Dues (Promo)' : 'Monthly Dues'}
                         </span>
-                        <p className="text-sm sm:text-base font-black text-white">
-                          ₱{(hasMemberPromo ? promoPaid : duesPaid).toLocaleString()}.00
-                        </p>
+                        {isLoadingFinances ? (
+                          <CardValueSkeleton className="w-16 h-5 bg-white/20" />
+                        ) : (
+                          <p className="text-sm sm:text-base font-black text-white">
+                            ₱{(hasMemberPromo ? promoPaid : duesPaid).toLocaleString()}.00
+                          </p>
+                        )}
                         <span className="text-[10px] text-stone-200 block">
                           {hasMemberPromo ? '✓ Full Year Promo' : `${uRecords.filter(r => r.itemType === 'Monthly Due' && r.status === 'Paid').length} month(s) paid`}
                         </span>
@@ -3373,7 +3509,11 @@ export const Finances: React.FC = () => {
                       {/* Other Collections Paid */}
                       <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
                         <span className="text-[10px] font-extrabold text-[#74c69d] uppercase block">Other Collections</span>
-                        <p className="text-sm sm:text-base font-black text-white">₱{otherPaid.toLocaleString()}.00</p>
+                        {isLoadingFinances ? (
+                          <CardValueSkeleton className="w-16 h-5 bg-white/20" />
+                        ) : (
+                          <p className="text-sm sm:text-base font-black text-white">₱{otherPaid.toLocaleString()}.00</p>
+                        )}
                         <span className="text-[10px] text-stone-200 block">
                           Vests & special fees
                         </span>
@@ -3382,7 +3522,11 @@ export const Finances: React.FC = () => {
                       {/* Promo Discount Card */}
                       <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
                         <span className="text-[10px] font-extrabold text-indigo-200 uppercase block">Discount</span>
-                        <p className="text-sm sm:text-base font-black text-indigo-100">₱{memberPromoDiscount.toLocaleString()}.00</p>
+                        {isLoadingFinances ? (
+                          <CardValueSkeleton className="w-16 h-5 bg-white/20" />
+                        ) : (
+                          <p className="text-sm sm:text-base font-black text-indigo-100">₱{memberPromoDiscount.toLocaleString()}.00</p>
+                        )}
                         <span className="text-[10px] text-indigo-200 block">
                           {hasMemberPromo ? '✓ ₱200 Promo Discount' : 'Standard Rate'}
                         </span>
@@ -3391,7 +3535,11 @@ export const Finances: React.FC = () => {
                       {/* Pending Dues */}
                       <div className="p-3 rounded-xl bg-white/10 backdrop-blur-xs border border-white/15 space-y-1">
                         <span className="text-[10px] font-extrabold text-amber-300 uppercase block">Pending Balance</span>
-                        <p className="text-sm sm:text-base font-black text-amber-200">₱{totalPending.toLocaleString()}.00</p>
+                        {isLoadingFinances ? (
+                          <CardValueSkeleton className="w-16 h-5 bg-white/20" />
+                        ) : (
+                          <p className="text-sm sm:text-base font-black text-amber-200">₱{totalPending.toLocaleString()}.00</p>
+                        )}
                         <span className="text-[10px] text-stone-200 block">
                           {totalPending > 0 ? 'Unsettled dues' : '✓ All Clear'}
                         </span>
@@ -3438,6 +3586,7 @@ export const Finances: React.FC = () => {
                         const isPaid = rec.status === 'Paid';
                         const isPending = rec.status === 'Pending';
                         const isOverdue = rec.status === 'Overdue';
+                        const isWaived = rec.status === 'Waived';
 
                         return (
                           <div
@@ -3457,6 +3606,8 @@ export const Finances: React.FC = () => {
                                 className={`px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider shrink-0 ${
                                   isPaid
                                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : isWaived
+                                    ? 'bg-amber-100 text-amber-900 border border-amber-300'
                                     : isPending
                                     ? 'bg-amber-100 text-amber-800 border border-amber-300'
                                     : isOverdue
@@ -3478,7 +3629,7 @@ export const Finances: React.FC = () => {
                               <div>
                                 <span className="text-[#52605d] font-bold block">Method:</span>
                                 <span className="font-semibold text-[#1b4332]">
-                                  {isPending ? '-' : (rec.paymentMethod || 'Cash')}
+                                  {isPending ? '-' : (isWaived ? 'Waived (Exempted)' : (rec.paymentMethod || 'Cash'))}
                                 </span>
                               </div>
                               <div>
@@ -3527,6 +3678,7 @@ export const Finances: React.FC = () => {
                             const isPaid = rec.status === 'Paid';
                             const isPending = rec.status === 'Pending';
                             const isOverdue = rec.status === 'Overdue';
+                            const isWaived = rec.status === 'Waived';
 
                             return (
                               <tr key={rec.id} className="hover:bg-[#f7f9f7]/60 transition-colors">
@@ -3544,6 +3696,8 @@ export const Finances: React.FC = () => {
                                     className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                                       isPaid
                                         ? 'bg-emerald-100 text-emerald-800'
+                                        : isWaived
+                                        ? 'bg-amber-100 text-amber-900 border border-amber-300'
                                         : isPending
                                         ? 'bg-amber-100 text-amber-800'
                                         : isOverdue
@@ -3555,7 +3709,7 @@ export const Finances: React.FC = () => {
                                   </span>
                                 </td>
                                 <td className="py-3.5 px-3 text-[#52605d] font-medium">
-                                  {isPending ? '-' : (rec.paymentMethod || 'Cash')}
+                                  {isPending ? '-' : (isWaived ? 'Waived (Exempted)' : (rec.paymentMethod || 'Cash'))}
                                 </td>
                                 <td className="py-3.5 px-3 font-mono text-[#1b4332]">
                                   {rec.referenceNo || '-'}
@@ -3893,6 +4047,18 @@ export const Finances: React.FC = () => {
                     >
                       Cancel
                     </button>
+                    {recItemType === 'Monthly Due' && !editingRecord && (
+                      <button
+                        type="button"
+                        onClick={handleInitiateWaiveRecord}
+                        disabled={!isWaiveValid}
+                        title="Waive monthly due for members who joined before the club started"
+                        className="px-3 py-1 bg-amber-600 hover:bg-amber-700 disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shadow-sm flex items-center gap-1 whitespace-nowrap"
+                      >
+                        <HeartHandshake className="w-3 h-3 text-amber-200 shrink-0" />
+                        <span>Waive</span>
+                      </button>
+                    )}
                     <button
                       type="submit"
                       disabled={!isRecordFormValid}
@@ -3914,24 +4080,24 @@ export const Finances: React.FC = () => {
         {showConfirmRecordModal && (
           <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-2.5 sm:p-4 overflow-y-auto animate-in fade-in duration-200">
             <div className="bg-white rounded-2xl max-w-[320px] sm:max-w-[360px] w-[94vw] p-3.5 sm:p-4 shadow-2xl border border-[#e2ece2] space-y-2.5 my-auto text-center animate-in zoom-in-95 duration-200">
-              <div className="w-9 h-9 bg-emerald-100 rounded-full flex items-center justify-center mx-auto text-emerald-700 shadow-inner">
-                <CheckCircle2 className="w-4.5 h-4.5" />
+              <div className={`w-9 h-9 ${isWaiveAction ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'} rounded-full flex items-center justify-center mx-auto shadow-inner`}>
+                {isWaiveAction ? <HeartHandshake className="w-4.5 h-4.5" /> : <CheckCircle2 className="w-4.5 h-4.5" />}
               </div>
 
               <div className="space-y-0.5">
                 <h3 className="font-heading text-sm font-extrabold text-[#1b4332]">
-                  {editingRecord ? 'Confirm Update?' : 'Confirm Payment?'}
+                  {isWaiveAction ? 'Confirm Due Waiver?' : (editingRecord ? 'Confirm Update?' : 'Confirm Payment?')}
                 </h3>
                 <p className="text-[10px] text-[#52605d] leading-tight">
-                  Review payment details before saving.
+                  {isWaiveAction ? 'Waiving this monthly due will exempt the member (e.g. joined before club started).' : 'Review payment details before saving.'}
                 </p>
               </div>
 
               <div className="p-2.5 bg-[#f7f9f7] rounded-xl border border-[#e2ece2] text-left space-y-1.5 text-[10px] sm:text-[11px]">
                 <div className="flex items-center justify-between gap-1">
                   <span className="text-[9px] font-bold uppercase text-[#52605d]">Member</span>
-                  <span className="text-[9px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded-full border border-emerald-200 truncate">
-                    {recItemType}
+                  <span className={`text-[9px] font-bold ${isWaiveAction ? 'text-amber-800 bg-amber-100 border-amber-200' : 'text-emerald-800 bg-emerald-100 border-emerald-200'} px-1.5 py-0.5 rounded-full border truncate`}>
+                    {isWaiveAction ? 'Waived Due' : recItemType}
                   </span>
                 </div>
                 <div>
@@ -3959,9 +4125,17 @@ export const Finances: React.FC = () => {
                       <span className="font-bold text-[#1b4332] truncate max-w-[140px]">{recCustomItemName}</span>
                     </div>
                   )}
+                  {!isWaiveAction && (
+                    <div className="flex items-center justify-between text-[#52605d]">
+                      <span>Method:</span>
+                      <span className="font-bold text-[#1b4332]">{recMethod}</span>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between text-[#52605d]">
-                    <span>Method:</span>
-                    <span className="font-bold text-[#1b4332]">{recMethod}</span>
+                    <span>Status:</span>
+                    <span className={`font-bold ${isWaiveAction ? 'text-amber-700' : 'text-emerald-700'}`}>
+                      {isWaiveAction ? 'Waived (₱0.00)' : 'Paid'}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between text-[#52605d]">
                     <span>Date:</span>
@@ -3972,7 +4146,7 @@ export const Finances: React.FC = () => {
                 <div className="pt-1.5 border-t border-[#e2ece2] flex items-center justify-between">
                   <span className="font-bold text-[#52605d]">Total:</span>
                   <span className="text-xs font-black text-[#1b4332]">
-                    ₱{(parseFloat(recAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    {isWaiveAction ? '₱0.00 (Waived)' : `₱${(parseFloat(recAmount) || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
                   </span>
                 </div>
               </div>
@@ -3988,10 +4162,10 @@ export const Finances: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleProceedSaveRecord}
-                  className="w-full px-2.5 py-1.5 rounded-lg bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-[11px] transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1 text-center"
+                  className={`w-full px-2.5 py-1.5 rounded-lg ${isWaiveAction ? 'bg-amber-600 hover:bg-amber-700' : 'bg-[#1b4332] hover:bg-[#2d6a4f]'} text-white font-extrabold text-[11px] transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1 text-center`}
                 >
-                  <Check className="w-3 h-3 text-[#74c69d] shrink-0" />
-                  <span>{editingRecord ? 'Save' : 'Confirm'}</span>
+                  {isWaiveAction ? <HeartHandshake className="w-3 h-3 text-amber-200 shrink-0" /> : <Check className="w-3 h-3 text-[#74c69d] shrink-0" />}
+                  <span>{isWaiveAction ? 'Confirm Waive' : (editingRecord ? 'Save' : 'Confirm')}</span>
                 </button>
               </div>
             </div>

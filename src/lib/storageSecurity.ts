@@ -380,18 +380,21 @@ export function clearAuthToken(): void {
 }
 
 /**
- * Helper to check whether there is currently an active authenticated session
+ * Helper to check whether there is currently an active authenticated session.
+ *
+ * A session is the server-signed token and nothing else. A leftover
+ * `bcc_current_user_id_v2` entry used to be enough to count as "signed in",
+ * which meant anyone could hand themselves a session by writing one key in
+ * devtools. The server will only ever accept the token, so the client's idea of
+ * "signed in" now matches what the API will actually authorize.
  */
 export function hasActiveUserSession(): boolean {
   try {
     if (typeof window !== 'undefined') {
-      const current =
-        (window.localStorage && window.localStorage.getItem('bcc_current_user_id_v2')) ||
-        (window.sessionStorage && window.sessionStorage.getItem('bcc_current_user_id_v2'));
       const token =
         (window.localStorage && window.localStorage.getItem(AUTH_TOKEN_KEY)) ||
         (window.sessionStorage && window.sessionStorage.getItem(AUTH_TOKEN_KEY));
-      return Boolean(current && current.trim().length > 0) || Boolean(token && token.trim().length > 0);
+      return Boolean(token && token.trim().length > 0);
     }
   } catch {}
   return false;

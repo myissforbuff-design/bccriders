@@ -14,7 +14,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { TreasurerActionRequest, TreasurerActionType, TreasurerTargetType } from '../types';
-import { store } from '../lib/db';
+import { store, authFetch } from '../lib/db';
 import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
@@ -136,18 +136,22 @@ export const TreasurerAuthModal: React.FC<TreasurerAuthModalProps> = ({
     e.preventDefault();
     setAdminAuthError('');
 
-    // Check against standard admin passwords or users
-    const allUsers = store.getUsers();
-    const adminUser = allUsers.find((u) => u.role === 'admin' || u.role?.toLowerCase() === 'admin');
-
-    const isValid =
-      adminPassword === 'admin' ||
-      adminPassword === 'admin123' ||
-      adminPassword === 'password' ||
-      (adminUser && adminUser.password && adminPassword === adminUser.password);
-
-    if (!isValid) {
-      setAdminAuthError('Invalid admin credentials. Please try again.');
+    // The admin password is verified server-side against the real admin record. This used to be a
+    // client-side check that also accepted 'admin', 'admin123' and 'password', which meant any
+    // treasurer could authorise their own financial action without an admin present.
+    try {
+      const res = await authFetch('/api/auth/verify-admin-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: adminPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        setAdminAuthError(data?.error || 'Invalid admin credentials. Please try again.');
+        return;
+      }
+    } catch {
+      setAdminAuthError('Could not reach the server to verify admin credentials. Please try again.');
       return;
     }
 
@@ -172,7 +176,8 @@ export const TreasurerAuthModal: React.FC<TreasurerAuthModalProps> = ({
         store.updateTreasurerRequestStatus(
           grantedReq.id,
           'Granted',
-          adminUser?.name || 'System Administrator',
+          store.getUsers().find((u) => (u.role || '').toLowerCase() === 'admin')?.name ||
+            'System Administrator',
           'Authorized via Co-Present Admin Password'
         );
 

@@ -7,7 +7,6 @@ interface AuthContextType {
   currentUser: User | null;
   isAuthenticated: boolean;
   isAdmin: boolean;
-  login: (usernameOrEmail: string, passwordAttempt: string) => boolean;
   loginWithUserId: (userOrId: User | string, token?: string) => boolean;
   logout: () => void;
   switchUser: (userId: string, token?: string) => void;
@@ -45,19 +44,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('bcc_users_updated', handleUsersUpdated);
   }, []);
 
+  // The server rejected our session token (expired, or signed with a retired
+  // key after a deploy). Sign out cleanly so the rider sees the login screen
+  // instead of a shell full of empty lists.
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      store.logout();
+      clearSensitiveStorage();
+      setCurrentUser(null);
+    };
+
+    window.addEventListener('bcc_session_expired', handleSessionExpired);
+    return () => window.removeEventListener('bcc_session_expired', handleSessionExpired);
+  }, []);
+
   const refreshUserData = () => {
     const user = store.getCurrentUser();
     setCurrentUser(user ? { ...user } : null);
-  };
-
-  const login = (usernameOrEmail: string, passwordAttempt: string): boolean => {
-    const user = store.login(usernameOrEmail, passwordAttempt);
-    if (user) {
-      setCurrentUser({ ...user });
-      store.fetchAuthenticatedData().catch(() => {});
-      return true;
-    }
-    return false;
   };
 
   const loginWithUserId = (userOrId: User | string, token?: string): boolean => {
@@ -94,7 +97,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         currentUser,
         isAuthenticated: !!currentUser,
         isAdmin: currentUser?.role === 'admin',
-        login,
         loginWithUserId,
         logout,
         switchUser,

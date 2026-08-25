@@ -51,4 +51,58 @@ export const OfficialLoader: React.FC<OfficialLoaderProps> = ({ isLoading, messa
   );
 };
 
+/**
+ * Reusable animated skeleton placeholder for metric/currency values inside cards.
+ * Prevents full-screen flashing and keeps layout stable while MongoDB resolves.
+ */
+export const CardValueSkeleton: React.FC<{
+  className?: string;
+  width?: string;
+  height?: string;
+  light?: boolean;
+}> = ({ className = '', width = 'w-24 sm:w-28', height = 'h-5 sm:h-6', light = false }) => (
+  <div
+    className={`animate-pulse rounded-lg my-0.5 ${height} ${width} ${
+      light ? 'bg-white/30' : 'bg-[#e2ece2]'
+    } ${className}`}
+  />
+);
+
+/**
+ * Reusable sub-label skeleton placeholder inside cards.
+ */
+export const CardSubSkeleton: React.FC<{
+  className?: string;
+  width?: string;
+  height?: string;
+  light?: boolean;
+}> = ({ className = '', width = 'w-16 sm:w-20', height = 'h-3', light = false }) => (
+  <div
+    className={`animate-pulse rounded-md my-0.5 ${height} ${width} ${
+      light ? 'bg-white/20' : 'bg-[#e2ece2]/70'
+    } ${className}`}
+  />
+);
+
+/**
+ * Reusable micro-spinner for card headers or status badges.
+ */
+export const CardMiniSpinner: React.FC<{ light?: boolean; size?: 'xs' | 'sm' | 'md' }> = ({
+  light = false,
+  size = 'sm',
+}) => {
+  const sizeClasses =
+    size === 'xs' ? 'w-2.5 h-2.5 border' : size === 'md' ? 'w-4 h-4 border-2' : 'w-3.5 h-3.5 border-2';
+  return (
+    <div className="inline-flex items-center gap-1.5 py-0.5">
+      <div
+        className={`animate-spin rounded-full ${sizeClasses} ${
+          light ? 'border-white/30 border-t-white' : 'border-[#1b4332]/25 border-t-[#1b4332]'
+        }`}
+      />
+    </div>
+  );
+};
+
+
 

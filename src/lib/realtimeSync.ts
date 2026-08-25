@@ -308,6 +308,10 @@ function resolveSocketUrl(): string | undefined {
 
 /**
  * Opens (or reuses) the singleton socket. Safe to call repeatedly — call it on app load.
+ *
+ * The server refuses sockets without a valid session token, so there is nothing to gain by
+ * connecting before sign-in — it would just burn the reconnection budget against a handshake
+ * that is guaranteed to fail. `refreshRealtimeAuth()` picks it up as soon as a token exists.
  */
 export function connectRealtime(): Socket | null {
   if (typeof window === 'undefined') return null;
@@ -317,8 +321,15 @@ export function connectRealtime(): Socket | null {
     return socket;
   }
 
+  const token = getAuthToken();
+  if (!token) {
+    lastHandshakeToken = null;
+    emitStatus({ status: 'idle', lastError: null, authenticated: false });
+    return null;
+  }
+
   const url = resolveSocketUrl();
-  lastHandshakeToken = getAuthToken() || null;
+  lastHandshakeToken = token;
 
   emitStatus({ status: 'connecting', lastError: null });
 
@@ -464,12 +475,20 @@ export function disconnectRealtime(): void {
 }
 
 /**
- * Re-handshakes when the session token changes (sign-in, sign-out, token refresh) so the socket
- * lands in the right broadcast room. No-op when the token is unchanged.
+ * Re-handshakes when the session token changes (sign-in, sign-out, token refresh). On sign-out the
+ * socket is torn down rather than reconnected, because the server now rejects tokenless sockets.
+ * No-op when the token is unchanged.
  */
 export function refreshRealtimeAuth(): void {
   const token = getAuthToken() || null;
   if (token === lastHandshakeToken) return;
+
+  if (!token) {
+    // Signed out (or the server rejected our token). Stop rather than retry.
+    disconnectRealtime();
+    return;
+  }
+
   lastHandshakeToken = token;
   if (!socket) {
     connectRealtime();

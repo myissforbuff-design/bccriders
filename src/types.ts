@@ -6,6 +6,8 @@ export type UserRole =
   | 'Treasurer'
   | 'Road Captain'
   | 'Safety Officer'
+  | 'Sgt. at Arms'
+  | 'P.I.O.'
   | 'Social Media'
   | 'Members Representative'
   | 'Member'
@@ -18,6 +20,8 @@ export const CLUB_OFFICER_ROLES = [
   'Treasurer',
   'Road Captain',
   'Safety Officer',
+  'Sgt. at Arms',
+  'P.I.O.',
   'Social Media',
   'Members Representative',
 ] as const;
@@ -29,6 +33,8 @@ export const CLUB_ROLES = [
   'Treasurer',
   'Road Captain',
   'Safety Officer',
+  'Sgt. at Arms',
+  'P.I.O.',
   'Social Media',
   'Members Representative',
   'Member',

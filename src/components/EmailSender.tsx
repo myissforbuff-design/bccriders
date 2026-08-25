@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Send,
@@ -20,18 +20,21 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Search,
+  Mail,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { authFetch } from '../lib/db';
+import { authFetch, store, safeFetchJson } from '../lib/db';
 import { OutboundEmail, User as UserType } from '../types';
 import { ModalPortal } from './ModalPortal';
 import { OfficialLoader } from './OfficialLoader';
 
 interface EmailSenderProps {
   onEmailSent?: () => void;
+  members?: UserType[];
 }
 
-export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
+export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent, members: initialPropMembers }) => {
   const { currentUser, isAdmin } = useAuth();
 
   // Form State
@@ -45,6 +48,42 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [ccInput, setCcInput] = useState('');
   const [bccInput, setBccInput] = useState('');
+
+  // Interactive Member Dropdown State
+  const [isMemberDropdownOpen, setIsMemberDropdownOpen] = useState(false);
+  const [memberSearchQuery, setMemberSearchQuery] = useState('');
+  const memberDropdownRef = useRef<HTMLDivElement>(null);
+  const memberSearchInputRef = useRef<HTMLInputElement>(null);
+
+  // Close dropdown on click outside or escape key
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (memberDropdownRef.current && !memberDropdownRef.current.contains(event.target as Node)) {
+        setIsMemberDropdownOpen(false);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isMemberDropdownOpen) {
+        setIsMemberDropdownOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isMemberDropdownOpen]);
+
+  // Focus search input when dropdown opens
+  useEffect(() => {
+    if (isMemberDropdownOpen) {
+      setTimeout(() => {
+        memberSearchInputRef.current?.focus();
+      }, 60);
+    }
+  }, [isMemberDropdownOpen]);
 
   // Status & Feedback State
   const [isSending, setIsSending] = useState(false);
@@ -119,8 +158,19 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
     }
   };
 
-  // Members list for quick selection
-  const [membersList, setMembersList] = useState<UserType[]>([]);
+  // Members list for quick selection - initialized immediately with local store or props
+  const [membersList, setMembersList] = useState<UserType[]>(() => {
+    if (initialPropMembers && initialPropMembers.length > 0) {
+      return initialPropMembers.filter((m) => m.email && m.email.includes('@'));
+    }
+    const localUsers = store.getUsers() || [];
+    return localUsers.filter(
+      (m) =>
+        m.approvalStatus !== 'Pending' &&
+        m.email &&
+        m.email.includes('@')
+    );
+  });
 
   // Quick Templates
   const EMAIL_TEMPLATES = [
@@ -141,21 +191,95 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
     },
   ];
 
-  // Fetch registered members for autocomplete dropdown
+  // Fetch registered members for autocomplete dropdown and broadcast count
   useEffect(() => {
     const fetchMembers = async () => {
+      // 1. Immediately hydrate from local store
+      const local = store.getUsers() || [];
+      const validLocal = local.filter(
+        (m: UserType) => m.approvalStatus !== 'Pending' && m.email && m.email.includes('@')
+      );
+      if (validLocal.length > 0) {
+        setMembersList(validLocal);
+      }
+
+      // 2. Fetch fresh members from MongoDB
+      try {
+        await store.refreshUsersFromServer();
+        const fresh = store.getUsers() || [];
+        const validFresh = fresh.filter(
+          (m: UserType) => m.approvalStatus !== 'Pending' && m.email && m.email.includes('@')
+        );
+        if (validFresh.length > 0) {
+          setMembersList(validFresh);
+        }
+      } catch (err) {
+        console.warn('Could not refresh users from server:', err);
+      }
+
+      // 3. Fallback direct fetch to /api/mongodb/members
       try {
         const res = await authFetch('/api/mongodb/members');
         const data = await res.json();
-        if (data.success && Array.isArray(data.data)) {
-          setMembersList(data.data.filter((m: UserType) => m.email && m.email.includes('@')));
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          const validRemote = data.data.filter(
+            (m: UserType) => m.approvalStatus !== 'Pending' && m.email && m.email.includes('@')
+          );
+          if (validRemote.length > 0) {
+            setMembersList(validRemote);
+          }
         }
       } catch (err) {
         console.warn('Could not load members for email picker:', err);
       }
     };
+
     fetchMembers();
-  }, []);
+
+    // Listen to real-time member updates
+    const handleUsersUpdated = (e: Event) => {
+      const updated = ((e as CustomEvent).detail || store.getUsers()) as UserType[];
+      if (Array.isArray(updated)) {
+        const valid = updated.filter(
+          (m: UserType) => m.approvalStatus !== 'Pending' && m.email && m.email.includes('@')
+        );
+        if (valid.length > 0) {
+          setMembersList(valid);
+        }
+      }
+    };
+
+    window.addEventListener('bcc_users_updated', handleUsersUpdated);
+    return () => window.removeEventListener('bcc_users_updated', handleUsersUpdated);
+  }, [initialPropMembers]);
+
+  // Filtered members for interactive search dropdown
+  const filteredMembers = useMemo(() => {
+    if (!memberSearchQuery.trim()) return membersList;
+    const q = memberSearchQuery.toLowerCase().trim();
+    return membersList.filter((m) => {
+      const name = (m.name || '').toLowerCase();
+      const username = (m.username || '').toLowerCase();
+      const email = (m.email || '').toLowerCase();
+      const memberNo = (m.memberNumber || '').toLowerCase();
+      const role = (m.role || '').toLowerCase();
+      const chapter = (m.chapter || '').toLowerCase();
+      const phone = (m.phone || m.mobileNo || '').toLowerCase();
+      return (
+        name.includes(q) ||
+        username.includes(q) ||
+        email.includes(q) ||
+        memberNo.includes(q) ||
+        role.includes(q) ||
+        chapter.includes(q) ||
+        phone.includes(q)
+      );
+    });
+  }, [membersList, memberSearchQuery]);
+
+  const selectedMemberObj = useMemo(() => {
+    return membersList.find((m) => m.email?.toLowerCase() === selectedMemberEmail.toLowerCase());
+  }, [membersList, selectedMemberEmail]);
 
   // Fetch sent emails outbox
   const fetchOutbox = async () => {
@@ -448,25 +572,255 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent }) => {
           )}
 
           {recipientMode === 'member' && (
-            <div className="space-y-1">
-              <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] block">
-                Select Registered Member <span className="text-rose-600">*</span>
-              </label>
+            <div className="space-y-1 relative" ref={memberDropdownRef}>
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] sm:text-xs font-bold text-[#1b4332] block">
+                  Select Registered Member <span className="text-rose-600">*</span>
+                </label>
+                <span className="text-[10px] text-[#52605d] font-bold">
+                  {membersList.length} member{membersList.length === 1 ? '' : 's'} available
+                </span>
+              </div>
+
               <div className="relative">
-                <select
-                  required
-                  value={selectedMemberEmail}
-                  onChange={(e) => setSelectedMemberEmail(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-semibold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] appearance-none cursor-pointer"
+                {/* Interactive Trigger Button */}
+                <button
+                  type="button"
+                  onClick={() => setIsMemberDropdownOpen((prev) => !prev)}
+                  className={`w-full text-left p-2.5 sm:p-3 rounded-2xl border transition-all flex items-center justify-between gap-2.5 cursor-pointer select-none ${
+                    isMemberDropdownOpen
+                      ? 'bg-white border-[#2d6a4f] ring-2 ring-[#2d6a4f]/20 shadow-xs'
+                      : selectedMemberObj
+                      ? 'bg-emerald-50/40 hover:bg-emerald-50 border-emerald-300/80 text-[#1b4332]'
+                      : 'bg-[#f7f9f7] hover:bg-white hover:border-[#2d6a4f]/60 border-[#e2ece2] text-[#52605d]'
+                  }`}
                 >
-                  <option value="">-- Choose Member from Roster --</option>
-                  {membersList.map((m) => (
-                    <option key={m.id} value={m.email}>
-                      {m.name || m.username} ({m.memberNumber || 'BRC-MEMBER'}) — {m.email}
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-4 h-4 text-[#52605d] absolute right-3 top-2.5 pointer-events-none" />
+                  {selectedMemberObj ? (
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                      {/* Avatar / Initials */}
+                      <div className="w-8 h-8 rounded-xl overflow-hidden bg-[#1b4332] text-white flex items-center justify-center font-black text-xs shrink-0 border border-emerald-700/20 shadow-2xs">
+                        {selectedMemberObj.avatar ? (
+                          <img
+                            src={selectedMemberObj.avatar}
+                            alt={selectedMemberObj.name || selectedMemberObj.username}
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <span>
+                            {(selectedMemberObj.name || selectedMemberObj.username || 'M').charAt(0).toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Name, Role & Email */}
+                      <div className="min-w-0 flex-1 space-y-0.5">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-extrabold text-xs text-[#1b4332] truncate">
+                            {selectedMemberObj.name || selectedMemberObj.username}
+                          </span>
+                          <span className="px-1.5 py-0.2 rounded-md text-[9px] font-extrabold bg-[#1b4332] text-white">
+                            {selectedMemberObj.role || 'Member'}
+                          </span>
+                          {selectedMemberObj.memberNumber && (
+                            <span className="px-1.5 py-0.2 rounded-md text-[9px] font-bold bg-white text-[#2d6a4f] border border-[#c8e6c9]">
+                              {selectedMemberObj.memberNumber}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 text-[10.5px] text-[#52605d] font-mono truncate">
+                          <Mail className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                          <span className="truncate">{selectedMemberObj.email}</span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2.5 min-w-0 flex-1 text-[#52605d]">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-100/60 border border-emerald-200 text-emerald-800 flex items-center justify-center shrink-0">
+                        <User className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <span className="font-bold text-xs text-stone-700 block">
+                          -- Choose Member from Roster --
+                        </span>
+                        <span className="text-[10px] text-[#52605d] block">
+                          Search by name, callsign, member #, role or email
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Actions Right */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {selectedMemberObj && (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedMemberEmail('');
+                        }}
+                        title="Clear selection"
+                        className="p-1 rounded-lg hover:bg-rose-100 text-stone-400 hover:text-rose-600 transition-colors cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </span>
+                    )}
+                    <div className={`p-1 rounded-lg transition-transform duration-200 ${isMemberDropdownOpen ? 'rotate-180 text-[#1b4332]' : 'text-[#52605d]'}`}>
+                      <ChevronDown className="w-4 h-4" />
+                    </div>
+                  </div>
+                </button>
+
+                {/* Dropdown Popover */}
+                <AnimatePresence>
+                  {isMemberDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                      animate={{ opacity: 1, y: 4, scale: 1 }}
+                      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                      transition={{ duration: 0.15, ease: 'easeOut' }}
+                      className="absolute z-50 left-0 right-0 w-full bg-white border border-[#e2ece2] rounded-2xl shadow-xl overflow-hidden flex flex-col mt-1 divide-y divide-[#f0f4f1]"
+                    >
+                      {/* Sticky Search Input Bar */}
+                      <div className="p-2.5 bg-[#f7f9f7] sticky top-0 z-10 space-y-1.5">
+                        <div className="relative flex items-center">
+                          <Search className="w-4 h-4 text-[#2d6a4f] absolute left-3 pointer-events-none" />
+                          <input
+                            ref={memberSearchInputRef}
+                            type="text"
+                            value={memberSearchQuery}
+                            onChange={(e) => setMemberSearchQuery(e.target.value)}
+                            placeholder="Type to search name, email, member #, role..."
+                            className="w-full pl-9 pr-8 py-2 rounded-xl bg-white border border-[#e2ece2] text-xs font-bold text-[#1b4332] placeholder:text-stone-400 placeholder:font-normal focus:outline-none focus:border-[#2d6a4f] focus:ring-1 focus:ring-[#2d6a4f]"
+                          />
+                          {memberSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setMemberSearchQuery('')}
+                              className="absolute right-2.5 p-1 text-stone-400 hover:text-stone-700 rounded-full hover:bg-stone-100 transition-colors cursor-pointer"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Search Filter Status */}
+                        <div className="flex items-center justify-between text-[10px] text-[#52605d] px-1 font-semibold">
+                          <span>
+                            {memberSearchQuery.trim()
+                              ? `Matching results: ${filteredMembers.length}`
+                              : `Total active members: ${membersList.length}`}
+                          </span>
+                          {memberSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => setMemberSearchQuery('')}
+                              className="text-[#2d6a4f] hover:underline font-bold cursor-pointer"
+                            >
+                              Reset filter
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Members List Container */}
+                      <div className="overflow-y-auto max-h-64 sm:max-h-72 p-1.5 space-y-1">
+                        {filteredMembers.length === 0 ? (
+                          <div className="p-6 text-center space-y-2">
+                            <div className="w-10 h-10 rounded-full bg-amber-50 text-amber-700 mx-auto flex items-center justify-center">
+                              <Search className="w-4 h-4" />
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-xs font-bold text-[#1b4332]">No matching members found</p>
+                              <p className="text-[10.5px] text-[#52605d]">
+                                {memberSearchQuery.trim()
+                                  ? `No members found matching "${memberSearchQuery}"`
+                                  : 'No members available in the directory'}
+                              </p>
+                            </div>
+                            {memberSearchQuery && (
+                              <button
+                                type="button"
+                                onClick={() => setMemberSearchQuery('')}
+                                className="px-3 py-1 rounded-lg bg-[#f7f9f7] hover:bg-[#e8f5e9] border border-[#e2ece2] text-xs font-bold text-[#1b4332] transition-colors cursor-pointer inline-block"
+                              >
+                                Clear search query
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          filteredMembers.map((m) => {
+                            const isSelected = m.email?.toLowerCase() === selectedMemberEmail?.toLowerCase();
+                            return (
+                              <div
+                                key={m.id || m.email}
+                                onClick={() => {
+                                  setSelectedMemberEmail(m.email);
+                                  setIsMemberDropdownOpen(false);
+                                  setMemberSearchQuery('');
+                                }}
+                                className={`p-2 sm:p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between gap-2 text-left ${
+                                  isSelected
+                                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950 font-bold shadow-2xs'
+                                    : 'bg-white hover:bg-[#f7f9f7] border-transparent hover:border-[#e2ece2] text-[#1b4332]'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                  {/* Avatar */}
+                                  <div className="w-8 h-8 rounded-xl overflow-hidden bg-[#1b4332] text-white flex items-center justify-center font-black text-xs shrink-0 border border-emerald-800/20">
+                                    {m.avatar ? (
+                                      <img
+                                        src={m.avatar}
+                                        alt={m.name || m.username}
+                                        className="w-full h-full object-cover"
+                                        referrerPolicy="no-referrer"
+                                      />
+                                    ) : (
+                                      <span>{(m.name || m.username || 'M').charAt(0).toUpperCase()}</span>
+                                    )}
+                                  </div>
+
+                                  {/* Member Info */}
+                                  <div className="min-w-0 flex-1 space-y-0.5">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="font-extrabold text-xs text-[#1b4332] truncate">
+                                        {m.name || m.username}
+                                      </span>
+                                      <span className="px-1.5 py-0.2 rounded-md text-[9px] font-black bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                        {m.role || 'Member'}
+                                      </span>
+                                      {m.memberNumber && (
+                                        <span className="px-1.5 py-0.2 rounded-md text-[9px] font-bold bg-[#f7f9f7] text-[#52605d] border border-[#e2ece2]">
+                                          {m.memberNumber}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-1 text-[10px] text-[#52605d] font-mono truncate">
+                                      <Mail className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                                      <span className="truncate">{m.email}</span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Selection Checkmark */}
+                                {isSelected ? (
+                                  <div className="w-5 h-5 rounded-full bg-[#1b4332] text-white flex items-center justify-center shrink-0 shadow-2xs">
+                                    <Check className="w-3 h-3" />
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-stone-400 font-bold hover:text-[#1b4332] shrink-0 opacity-0 group-hover:opacity-100">
+                                    Select
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             </div>
           )}

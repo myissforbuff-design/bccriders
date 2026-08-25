@@ -128,6 +128,37 @@ export const RoleAvatarBadge: React.FC<RoleAvatarBadgeProps> = ({
     );
   }
 
+  if (
+    normRole === 'Sgt. at Arms' ||
+    normRole === 'Sgt at Arms' ||
+    normRole === 'Sergeant-at-Arms' ||
+    normRole === 'Sergeant at Arms'
+  ) {
+    return (
+      <span
+        title="Sgt. at Arms"
+        className={`absolute rounded-full bg-slate-700 text-white font-extrabold flex items-center justify-center ring-2 ring-white shadow-xs ${containerClass} ${className}`}
+      >
+        SA
+      </span>
+    );
+  }
+
+  if (
+    normRole === 'P.I.O.' ||
+    normRole === 'PIO' ||
+    normRole === 'Public Information Officer'
+  ) {
+    return (
+      <span
+        title="P.I.O."
+        className={`absolute rounded-full bg-cyan-700 text-white font-extrabold flex items-center justify-center ring-2 ring-white shadow-xs ${containerClass} ${className}`}
+      >
+        PIO
+      </span>
+    );
+  }
+
   return (
     <span
       title={normRole || 'Verified Member'}

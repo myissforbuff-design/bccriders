@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import crypto from 'crypto';
 import path from 'path';
 import { MongoClient, Db, ChangeStream } from 'mongodb';
 import { Server as SocketIOServer, Socket } from 'socket.io';
@@ -124,6 +125,18 @@ async function getInboundMongoDb(): Promise<Db | null> {
   }
 }
 
+// Bootstrap password for the seeded administrator, used only when the database has no admin yet.
+// It lives in the environment rather than in this file: a constant committed to the repo is a
+// published credential, and this one was `bccriders123`.
+const ADMIN_BOOTSTRAP_PASSWORD = (process.env.ADMIN_INITIAL_PASSWORD || '').trim() || 'bccriders123';
+
+if (!process.env.ADMIN_INITIAL_PASSWORD) {
+  console.warn(
+    '[Auth] ADMIN_INITIAL_PASSWORD is not set, so the seeded admin still uses the password published ' +
+      "in this repository. Set ADMIN_INITIAL_PASSWORD, or change the admin's password in the app."
+  );
+}
+
 // Initial default seed data for automatic database creation
 const INITIAL_SEED_MEMBERS = [
   {
@@ -133,7 +146,7 @@ const INITIAL_SEED_MEMBERS = [
     email: 'admin@bccriders.org',
     role: 'admin',
     memberNumber: 'BRC-0000',
-    password: 'bccriders123',
+    password: ADMIN_BOOTSTRAP_PASSWORD,
     phone: '+63 917 123 4567',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
     bio: 'Founder & Club President. Honda Africa Twin enthusiast.',
@@ -203,7 +216,9 @@ function sanitizeRegistrationForMongo(rawReg: any) {
     age: rest.age,
     gender: rest.gender || 'Male',
     email: emailStr,
-    password: rest.password || 'bccriders123',
+    // No default password. An applicant record with no credential simply cannot sign in
+    // (see verifyPassword) instead of accepting the well-known string this used to fall back to.
+    password: rest.password || '',
     phone: rest.phone || rest.mobileNo || '',
     mobileNo: rest.mobileNo || rest.phone || '',
     address: rest.address || '',
@@ -258,6 +273,10 @@ async function initMongoIndexes() {
     await database.collection('expenseLogs').createIndex({ id: 1 }, { unique: true });
     await database.collection('liquidationLogs').createIndex({ id: 1 }, { unique: true });
     await database.collection('settings').createIndex({ id: 1 }, { unique: true });
+    await database.collection('activities').createIndex({ id: 1 }, { unique: true });
+
+    // Clean up 'avatar' and 'photoUrl' columns/fields from 'activities' (and any legacy 'activites') collections
+    await cleanupActivitiesCollection(database);
 
     // Clean up obsolete fields from existing MongoDB documents in 'members' collection
     await database.collection('members').updateMany(
@@ -351,9 +370,11 @@ async function initMongoIndexes() {
     if (count === 0) {
       console.log('Seeding initial member documents into MongoDB...');
       for (const member of INITIAL_SEED_MEMBERS) {
+        const seedDoc = sanitizeMemberForMongo({ ...member });
+        normalizePasswordForWrite(seedDoc);
         await database.collection('members').updateOne(
           { id: member.id },
-          { $set: sanitizeMemberForMongo(member) },
+          { $set: seedDoc },
           { upsert: true }
         );
       }
@@ -445,22 +466,58 @@ app.get('/api/resend/status', (req, res) => {
 // ==========================================
 // Session Token & API Authorization Guard
 // ==========================================
-const SERVER_AUTH_SECRET = process.env.AUTH_SECRET || 'bcc-riders-club-auth-security-key-2026';
+// Tokens are `base64url(payload).base64url(HMAC-SHA256(payload))`.
+//
+// The previous scheme reduced the signature to `Math.abs(djb2Hash).toString(36)` — at most 2^31
+// possible signatures over a payload the client fully controls. Minting a token that claimed
+// `role: "admin"` and a ten-year expiry was a few seconds of offline brute force, so every guard
+// built on top of it was decorative. HMAC-SHA256 makes the signature unforgeable without the key.
+
+const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+const SERVER_AUTH_SECRET = resolveAuthSecret();
+
+function resolveAuthSecret(): string {
+  const explicit = (process.env.AUTH_SECRET || '').trim();
+  if (explicit.length >= 24) return explicit;
+  if (explicit) {
+    console.warn('[Auth] AUTH_SECRET is under 24 characters — too weak to sign sessions with, ignoring it.');
+  }
+
+  // Never fall back to a constant committed to the repo: anyone who can read the source could mint
+  // valid admin sessions. Deriving from the Mongo URI keeps the key server-only and stable across
+  // restarts, so sessions survive a Render redeploy or spin-down.
+  const mongoUri = (process.env.MONGODB_URI || '').trim();
+  if (mongoUri) {
+    console.warn(
+      '[Auth] AUTH_SECRET is not set — deriving a session signing key from MONGODB_URI. ' +
+        'Set AUTH_SECRET in the environment to decouple sessions from the database credentials.'
+    );
+    return crypto.createHash('sha256').update(`bcc-session-signing-v1:${mongoUri}`).digest('hex');
+  }
+
+  // Nothing stable to derive from. Random-per-boot stays secure at the cost of signing everyone out
+  // on restart — deliberately preferred over a predictable key.
+  console.warn(
+    '[Auth] Neither AUTH_SECRET nor MONGODB_URI is set — using a random per-boot signing key. ' +
+      'Every session will be invalidated on restart.'
+  );
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function signPayload(base64Payload: string): string {
+  return crypto.createHmac('sha256', SERVER_AUTH_SECRET).update(base64Payload).digest('base64url');
+}
 
 function generateSessionToken(userId: string, role = 'user'): string {
   const payload = {
     userId: String(userId || ''),
     role: String(role || 'user'),
     issuedAt: Date.now(),
-    expiresAt: Date.now() + 7 * 24 * 60 * 60 * 1000, // 7 days
+    expiresAt: Date.now() + SESSION_TTL_MS,
   };
   const base64 = Buffer.from(JSON.stringify(payload)).toString('base64url');
-  let hash = 0;
-  for (let i = 0; i < base64.length; i++) {
-    hash = ((hash << 5) - hash + base64.charCodeAt(i) + SERVER_AUTH_SECRET.charCodeAt(i % SERVER_AUTH_SECRET.length)) | 0;
-  }
-  const sig = Math.abs(hash).toString(36);
-  return `${base64}.${sig}`;
+  return `${base64}.${signPayload(base64)}`;
 }
 
 function verifySessionToken(token: string): { valid: boolean; userId?: string; role?: string } {
@@ -468,22 +525,137 @@ function verifySessionToken(token: string): { valid: boolean; userId?: string; r
   const parts = token.split('.');
   if (parts.length !== 2) return { valid: false };
   const [base64, sig] = parts;
-  let hash = 0;
-  for (let i = 0; i < base64.length; i++) {
-    hash = ((hash << 5) - hash + base64.charCodeAt(i) + SERVER_AUTH_SECRET.charCodeAt(i % SERVER_AUTH_SECRET.length)) | 0;
-  }
-  const expectedSig = Math.abs(hash).toString(36);
-  if (sig !== expectedSig) return { valid: false };
+
+  // Constant-time compare so the expected signature can't be recovered a byte at a time by timing
+  // the response. Length is checked first because timingSafeEqual throws on a mismatch.
+  const provided = Buffer.from(sig);
+  const expected = Buffer.from(signPayload(base64));
+  if (provided.length !== expected.length) return { valid: false };
+  if (!crypto.timingSafeEqual(provided, expected)) return { valid: false };
 
   try {
-    const jsonStr = Buffer.from(base64, 'base64url').toString('utf8');
-    const payload = JSON.parse(jsonStr);
+    const payload = JSON.parse(Buffer.from(base64, 'base64url').toString('utf8'));
     if (!payload.userId || !payload.expiresAt) return { valid: false };
     if (Date.now() > payload.expiresAt) return { valid: false };
     return { valid: true, userId: payload.userId, role: payload.role };
   } catch {
     return { valid: false };
   }
+}
+
+// ==========================================
+// PASSWORD STORAGE
+// ==========================================
+//
+// Member passwords were stored and compared as plain text, with `|| 'bccriders123'` as the fallback —
+// so any account whose document had no password field accepted one publicly-known string, and a leaked
+// database dump was a leaked password list.
+//
+// Format: `scrypt$<N>$<r>$<p>$<saltHex>$<hashHex>`. scrypt is in Node's stdlib, so this needs no new
+// dependency. Existing plaintext rows still verify (there is no other way to let anyone in), and are
+// upgraded in place on the next successful sign-in — see `rehashLegacyPassword`.
+
+const SCRYPT_N = 16384; // ~16 MB, ~50-80ms per hash on Render's free tier
+const SCRYPT_r = 8;
+const SCRYPT_p = 1;
+const SCRYPT_KEYLEN = 32;
+
+function hashPassword(plain: string): string {
+  const salt = crypto.randomBytes(16);
+  const derived = crypto.scryptSync(String(plain), salt, SCRYPT_KEYLEN, {
+    N: SCRYPT_N,
+    r: SCRYPT_r,
+    p: SCRYPT_p,
+  });
+  return `scrypt$${SCRYPT_N}$${SCRYPT_r}$${SCRYPT_p}$${salt.toString('hex')}$${derived.toString('hex')}`;
+}
+
+function isHashedPassword(stored: string): boolean {
+  return typeof stored === 'string' && stored.startsWith('scrypt$');
+}
+
+/**
+ * Verifies a password attempt against whatever is stored.
+ *
+ * `legacy: true` means the stored value was plain text and the caller should rehash it.
+ * An empty stored value never matches — no default password.
+ */
+function verifyPassword(attempt: string, stored: unknown): { valid: boolean; legacy: boolean } {
+  const storedStr = typeof stored === 'string' ? stored : '';
+  const attemptStr = String(attempt || '');
+  if (!storedStr || !attemptStr) return { valid: false, legacy: false };
+
+  if (!isHashedPassword(storedStr)) {
+    // Legacy plaintext row. Constant-time compare anyway; length check first because
+    // timingSafeEqual throws on differing lengths.
+    const a = Buffer.from(attemptStr);
+    const b = Buffer.from(storedStr.trim());
+    const valid = a.length === b.length && crypto.timingSafeEqual(a, b);
+    return { valid, legacy: true };
+  }
+
+  const parts = storedStr.split('$');
+  if (parts.length !== 6) return { valid: false, legacy: false };
+  const [, nStr, rStr, pStr, saltHex, hashHex] = parts;
+
+  try {
+    const derived = crypto.scryptSync(attemptStr, Buffer.from(saltHex, 'hex'), hashHex.length / 2, {
+      N: Number(nStr),
+      r: Number(rStr),
+      p: Number(pStr),
+    });
+    const expected = Buffer.from(hashHex, 'hex');
+    const valid = derived.length === expected.length && crypto.timingSafeEqual(derived, expected);
+    return { valid, legacy: false };
+  } catch {
+    return { valid: false, legacy: false };
+  }
+}
+
+/**
+ * Upgrades a verified plaintext password to a hash, in whichever collection the document came from.
+ * Fire-and-forget: a failure here must never block a sign-in that already succeeded.
+ */
+async function rehashLegacyPassword(collection: string, memberId: string, plain: string): Promise<void> {
+  try {
+    const database = await getMongoDb();
+    if (!database || !memberId) return;
+    await database
+      .collection(collection)
+      .updateOne({ id: memberId }, { $set: { password: hashPassword(plain) } });
+    console.log(`[Auth] Upgraded ${collection}/${memberId} password to scrypt.`);
+  } catch (err: any) {
+    console.warn('[Auth] Could not upgrade a legacy password hash:', err?.message || err);
+  }
+}
+
+/**
+ * Prepares an incoming member/registration payload for an upsert.
+ *
+ * - a new plaintext password is hashed before it ever reaches the database
+ * - an already-hashed value round-trips untouched (the client may echo one back)
+ * - an absent or empty password is *removed* from the payload, so `$set` preserves whatever is
+ *   already stored instead of blanking the account's credentials
+ */
+function normalizePasswordForWrite(doc: any): void {
+  if (!doc || typeof doc !== 'object') return;
+  const raw = typeof doc.password === 'string' ? doc.password.trim() : '';
+  if (!raw) {
+    delete doc.password;
+    return;
+  }
+  doc.password = isHashedPassword(raw) ? raw : hashPassword(raw);
+}
+
+/**
+ * Removes the credential from an outgoing document. Clients never need it — sign-in is server-side —
+ * and shipping it meant every authenticated member held every other member's password.
+ */
+function stripPasswordForRead<T extends Record<string, any>>(doc: T): T {
+  if (doc && typeof doc === 'object' && 'password' in doc) {
+    delete (doc as any).password;
+  }
+  return doc;
 }
 
 // Authentication middleware to reject unauthorized requests with a 401 status
@@ -536,7 +708,22 @@ async function loadServerSecuritySettings() {
   }
 }
 
-// Optional session token extractor for MongoDB and internal endpoints
+// ==========================================
+// MongoDB API authorization gate
+// ==========================================
+//
+// `requireAuth` above was defined but never attached to a single route, so every collection endpoint
+// — including DELETE /members/:id and the whole finance ledger — was reachable by anyone who knew
+// the URL. One gate mounted ahead of the route definitions closes all of them at once; Express runs
+// middleware in registration order, and the collection routes are declared further down this file.
+//
+// Only two things genuinely need to work before sign-in: a prospective member submitting their
+// application, and the status probe (which returns no member data).
+const PUBLIC_MONGODB_ROUTES: Array<{ method: string; path: RegExp }> = [
+  { method: 'POST', path: /^\/registration\/?$/ },
+  { method: 'GET', path: /^\/status\/?$/ },
+];
+
 app.use('/api/mongodb', (req, res, next) => {
   const authHeader = (req.headers.authorization || '').trim();
   const token = authHeader.startsWith('Bearer ')
@@ -549,6 +736,23 @@ app.use('/api/mongodb', (req, res, next) => {
       (req as any).authUserRole = result.role;
     }
   }
+
+  // `req.path` is relative to the mount point here, so it reads as `/registration`, `/members/:id`.
+  // The exact-match regexes keep /registration/accept/:id and /registration/reject/:id protected.
+  const isPublic = PUBLIC_MONGODB_ROUTES.some(
+    (route) => route.method === req.method.toUpperCase() && route.path.test(req.path)
+  );
+  if (isPublic) return next();
+
+  if (!(req as any).authUserId) {
+    return res.status(401).json({
+      success: false,
+      error: 'Unauthorized: please sign in to access club data.',
+      code: 'UNAUTHORIZED',
+      data: [],
+    });
+  }
+
   next();
 });
 
@@ -608,9 +812,9 @@ const REDACTED_REALTIME_FIELDS = [
   'applicantSignature',
 ];
 
-// Rooms: authenticated sockets receive document bodies, anonymous sockets receive signals only.
+// Single broadcast room. Sockets only reach it after the handshake verifies their session token,
+// so there is no anonymous room to fan out to any more.
 const ROOM_AUTHENTICATED = 'realtime:authenticated';
-const ROOM_ANONYMOUS = 'realtime:anonymous';
 
 // `auto` prefers one database-level change stream (1 cursor, cheapest on Atlas shared tiers)
 // and falls back to per-collection collection.watch() if the deployment rejects it.
@@ -619,10 +823,11 @@ const REALTIME_WATCH_MODE = (process.env.REALTIME_WATCH_MODE || 'auto').toLowerC
   | 'database'
   | 'collection';
 
-// Set REALTIME_REQUIRE_AUTH=true to refuse sockets without a valid session token.
-// Default false because biometric sign-in does not mint a server token, and those
-// sessions would otherwise silently lose real-time updates.
-const REALTIME_REQUIRE_AUTH = String(process.env.REALTIME_REQUIRE_AUTH || '').toLowerCase() === 'true';
+// Every real-time subscriber must present the same session token the REST layer requires.
+// There is no anonymous tier: `/api/mongodb/*` is authenticated, so an anonymous socket could
+// only ever receive change signals for data it is not allowed to read back.
+// Set REALTIME_REQUIRE_AUTH=false only for local debugging.
+const REALTIME_REQUIRE_AUTH = String(process.env.REALTIME_REQUIRE_AUTH || 'true').toLowerCase() !== 'false';
 
 // Set REALTIME_INCLUDE_DOCUMENTS=false to broadcast signals only, for every collection.
 const REALTIME_INCLUDE_DOCUMENTS = String(process.env.REALTIME_INCLUDE_DOCUMENTS || 'true').toLowerCase() !== 'false';
@@ -705,15 +910,9 @@ function broadcastRealtimeChange(payload: RealtimeChangePayload): void {
   realtimeState.changesEmitted += 1;
   realtimeState.lastChangeAt = payload.at;
 
-  const signalOnly: RealtimeChangePayload = { ...payload };
-  delete signalOnly.document;
-
-  if (payload.document !== undefined) {
-    io.to(ROOM_AUTHENTICATED).emit('db:change', payload);
-  } else {
-    io.to(ROOM_AUTHENTICATED).emit('db:change', signalOnly);
-  }
-  io.to(ROOM_ANONYMOUS).emit('db:change', signalOnly);
+  // Signal-only collections already arrive here with no `document`, so this single emit
+  // covers both cases. `sanitizeRealtimeDocument` has stripped credential fields upstream.
+  io.to(ROOM_AUTHENTICATED).emit('db:change', payload);
 }
 
 /** Translate a raw Mongo change stream event into a broadcast. */
@@ -958,7 +1157,8 @@ io.use((socket: Socket, next) => {
 
 io.on('connection', (socket: Socket) => {
   const authenticated = Boolean(socket.data.authenticated);
-  socket.join(authenticated ? ROOM_AUTHENTICATED : ROOM_ANONYMOUS);
+  // With REALTIME_REQUIRE_AUTH on (the default) only verified sockets get this far.
+  socket.join(ROOM_AUTHENTICATED);
 
   // Clients treat `db:ready` as "do a full resync now" — it fires on first connect AND on
   // every reconnect, which is what closes the gap for changes missed while disconnected.
@@ -1079,6 +1279,525 @@ app.post('/api/settings/security', async (req, res) => {
   });
 });
 
+// ==========================================
+// AUTH: WebAuthn / Biometric Sign-In (server-verified)
+// ==========================================
+//
+// The biometric path used to be decided entirely in the browser: `biometrics.ts` generated its own
+// challenge, never transmitted the assertion, and the server was never consulted. Registration kept
+// only the credential ID and discarded the public key, so nothing could be verified even in
+// principle — a localStorage entry *was* a login, and `storedList[0]` was the fallback identity.
+//
+// Now: the server issues a single-use challenge, stores the credential public key at registration,
+// and verifies the assertion signature against it before minting a session token.
+
+const WEBAUTHN_CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const WEBAUTHN_COLLECTION = 'webauthnCredentials';
+
+// Credentials enrolled before this change have no stored public key and can never be verified.
+// While this is true they are accepted on a weaker check (credential ID must be registered to that
+// user server-side) so nobody is locked out on deploy day. Set BIOMETRIC_ALLOW_LEGACY=false once
+// riders have re-enrolled — GET /api/auth/webauthn/pending-reenrollment lists who hasn't.
+const BIOMETRIC_ALLOW_LEGACY = (process.env.BIOMETRIC_ALLOW_LEGACY || 'true').trim() !== 'false';
+
+interface WebAuthnChallengeEntry {
+  purpose: 'register' | 'authenticate';
+  userId: string | null;
+  expiresAt: number;
+}
+
+const webauthnChallenges = new Map<string, WebAuthnChallengeEntry>();
+
+function pruneWebAuthnChallenges(): void {
+  const now = Date.now();
+  for (const [key, entry] of webauthnChallenges) {
+    if (now > entry.expiresAt) webauthnChallenges.delete(key);
+  }
+}
+
+function issueWebAuthnChallenge(purpose: 'register' | 'authenticate', userId: string | null): string {
+  pruneWebAuthnChallenges();
+  const challenge = crypto.randomBytes(32).toString('base64url');
+  webauthnChallenges.set(challenge, {
+    purpose,
+    userId,
+    expiresAt: Date.now() + WEBAUTHN_CHALLENGE_TTL_MS,
+  });
+  return challenge;
+}
+
+/** Single-use by construction: the first assertion presenting a challenge consumes it. */
+function consumeWebAuthnChallenge(
+  challenge: string,
+  purpose: 'register' | 'authenticate'
+): WebAuthnChallengeEntry | null {
+  pruneWebAuthnChallenges();
+  const entry = webauthnChallenges.get(challenge);
+  if (!entry) return null;
+  webauthnChallenges.delete(challenge);
+  if (entry.purpose !== purpose) return null;
+  if (Date.now() > entry.expiresAt) return null;
+  return entry;
+}
+
+/** Accepts base64url or standard base64, so the client encoding doesn't have to be exact. */
+function decodeB64(value: unknown): Buffer {
+  const str = String(value || '').replace(/-/g, '+').replace(/_/g, '/');
+  return Buffer.from(str, 'base64');
+}
+
+function allowedWebAuthnOrigins(req: express.Request): string[] {
+  const configured = (process.env.WEBAUTHN_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const host = (req.headers.host || '').trim();
+  const list = [...configured];
+  if (host) {
+    list.push(`https://${host}`);
+    // Plain http only for local development; never for a deployed host.
+    if (/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) list.push(`http://${host}`);
+  }
+  return list;
+}
+
+/**
+ * Validates the browser-supplied clientDataJSON against the challenge we issued and the origin the
+ * request actually came from. Returns the parsed object, or a reason string on rejection.
+ */
+function verifyClientData(
+  clientDataJSONB64: unknown,
+  expectedType: 'webauthn.create' | 'webauthn.get',
+  req: express.Request
+): { ok: boolean; reason?: string; clientData?: any; challenge?: string } {
+  let clientData: any;
+  try {
+    clientData = JSON.parse(decodeB64(clientDataJSONB64).toString('utf8'));
+  } catch {
+    return { ok: false, reason: 'clientDataJSON is not valid JSON.' };
+  }
+
+  if (clientData.type !== expectedType) {
+    return { ok: false, reason: `Unexpected ceremony type "${clientData.type}".` };
+  }
+
+  const origins = allowedWebAuthnOrigins(req);
+  if (origins.length > 0 && !origins.includes(String(clientData.origin))) {
+    return { ok: false, reason: `Origin "${clientData.origin}" is not allowed.` };
+  }
+
+  // Normalise: browsers emit base64url here.
+  const challenge = String(clientData.challenge || '').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  if (!challenge) return { ok: false, reason: 'Assertion carried no challenge.' };
+
+  return { ok: true, clientData, challenge };
+}
+
+/**
+ * Verifies an assertion signature against a stored SPKI public key.
+ *
+ * WebAuthn signs `authenticatorData || SHA256(clientDataJSON)`. ES256 signatures arrive DER-encoded,
+ * which is what Node's default `dsaEncoding` expects, so both ES256 and RS256 verify with 'sha256'.
+ */
+function verifyAssertionSignature(
+  publicKeySpki: Buffer,
+  authenticatorData: Buffer,
+  clientDataJSONB64: unknown,
+  signature: Buffer
+): boolean {
+  try {
+    const keyObject = crypto.createPublicKey({ key: publicKeySpki, format: 'der', type: 'spki' });
+    const clientDataHash = crypto.createHash('sha256').update(decodeB64(clientDataJSONB64)).digest();
+    const signedData = Buffer.concat([authenticatorData, clientDataHash]);
+    return crypto.verify('sha256', signedData, keyObject, signature);
+  } catch (err) {
+    console.warn('[WebAuthn] Signature verification error:', err);
+    return false;
+  }
+}
+
+/** authenticatorData layout: rpIdHash(32) | flags(1) | signCount(4, big-endian) | ... */
+function parseAuthenticatorData(authData: Buffer): {
+  rpIdHash: Buffer;
+  flags: number;
+  signCount: number;
+  userVerified: boolean;
+} | null {
+  if (!authData || authData.length < 37) return null;
+  const flags = authData[32];
+  return {
+    rpIdHash: authData.subarray(0, 32),
+    flags,
+    signCount: authData.readUInt32BE(33),
+    userVerified: (flags & 0x04) !== 0, // UV bit — we register with userVerification:'required'
+  };
+}
+
+function rpIdMatches(rpIdHash: Buffer, req: express.Request): boolean {
+  const candidates = allowedWebAuthnOrigins(req)
+    .map((origin) => {
+      try {
+        return new URL(origin).hostname;
+      } catch {
+        return '';
+      }
+    })
+    .filter(Boolean);
+  return candidates.some((hostname) =>
+    crypto.createHash('sha256').update(hostname).digest().equals(rpIdHash)
+  );
+}
+
+/** Resolves a rider's role so the session token carries the right privilege level. */
+async function lookupUserRole(userId: string): Promise<{ found: boolean; role: string; user?: any }> {
+  const database = await getMongoDb();
+  if (database) {
+    try {
+      const doc = await database.collection('members').findOne({ id: userId });
+      if (doc) return { found: true, role: String(doc.role || 'user'), user: doc };
+    } catch (err) {
+      console.warn('[WebAuthn] Role lookup notice:', err);
+    }
+  }
+  const seed = INITIAL_SEED_MEMBERS.find((m: any) => m.id === userId);
+  if (seed) return { found: true, role: String(seed.role || 'user'), user: seed };
+  return { found: false, role: 'user' };
+}
+
+// Step 1: hand out a server-generated challenge. Replaces the client-side crypto.getRandomValues().
+app.post('/api/auth/webauthn/challenge', async (req, res) => {
+  const purpose = req.body?.purpose === 'register' ? 'register' : 'authenticate';
+  const requestedUser = String(req.body?.userId || req.body?.username || '').trim();
+
+  // Registration binds to the authenticated session, not to a body-supplied id.
+  if (purpose === 'register') {
+    const authHeader = (req.headers.authorization || '').trim();
+    const token = authHeader.startsWith('Bearer ')
+      ? authHeader.substring(7).trim()
+      : ((req.headers['x-session-token'] as string) || '').trim();
+    const result = verifySessionToken(token);
+    if (!result.valid || !result.userId) {
+      return res.status(401).json({
+        success: false,
+        error: 'Sign in before enrolling a biometric credential.',
+        code: 'UNAUTHORIZED',
+      });
+    }
+    return res.json({
+      success: true,
+      challenge: issueWebAuthnChallenge('register', result.userId),
+      userId: result.userId,
+    });
+  }
+
+  // Authentication: return the credential IDs this server has on file, so a device holding a stale
+  // localStorage entry can't steer the ceremony toward a credential we don't recognise.
+  let allowCredentials: Array<{ id: string; transports?: string[] }> = [];
+  let resolvedUserId: string | null = null;
+  if (requestedUser) {
+    const database = await getMongoDb();
+    if (database) {
+      try {
+        const escaped = requestedUser.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const docs = await database
+          .collection(WEBAUTHN_COLLECTION)
+          .find({
+            $or: [
+              { userId: requestedUser },
+              { username: { $regex: new RegExp(`^${escaped}$`, 'i') } },
+            ],
+          })
+          .toArray();
+        allowCredentials = docs.map((d: any) => ({ id: d.credentialId, transports: d.transports }));
+        if (docs.length > 0) resolvedUserId = String(docs[0].userId || '') || null;
+      } catch (err) {
+        console.warn('[WebAuthn] allowCredentials lookup notice:', err);
+      }
+    }
+  }
+
+  res.json({
+    success: true,
+    challenge: issueWebAuthnChallenge('authenticate', resolvedUserId),
+    allowCredentials,
+  });
+});
+
+// Step 2: store the credential public key. Requires an authenticated session — otherwise anyone
+// could enrol their own fingerprint against the president's account.
+app.post('/api/auth/webauthn/register', requireAuth, async (req, res) => {
+  const authUserId = String((req as any).authUserId || '');
+  const { credentialId, publicKey, clientDataJSON, transports, deviceName, username } = req.body || {};
+
+  if (!credentialId || !clientDataJSON) {
+    return res.status(400).json({ success: false, error: 'credentialId and clientDataJSON are required.' });
+  }
+
+  const clientCheck = verifyClientData(clientDataJSON, 'webauthn.create', req);
+  if (!clientCheck.ok || !clientCheck.challenge) {
+    return res.status(400).json({ success: false, error: clientCheck.reason || 'Invalid client data.' });
+  }
+
+  const entry = consumeWebAuthnChallenge(clientCheck.challenge, 'register');
+  if (!entry) {
+    return res.status(400).json({ success: false, error: 'Challenge is unknown, already used, or expired.' });
+  }
+  if (entry.userId && entry.userId !== authUserId) {
+    return res.status(403).json({ success: false, error: 'Challenge was issued for a different account.' });
+  }
+
+  if (!publicKey) {
+    return res.status(400).json({
+      success: false,
+      error:
+        'This browser did not expose the credential public key, so the credential cannot be verified on sign-in. ' +
+        'Biometric login is unavailable on this browser — please use password sign-in.',
+      code: 'NO_PUBLIC_KEY',
+    });
+  }
+
+  // Reject a key Node can't parse now rather than at first sign-in.
+  try {
+    crypto.createPublicKey({ key: decodeB64(publicKey), format: 'der', type: 'spki' });
+  } catch {
+    return res.status(400).json({ success: false, error: 'Credential public key could not be parsed.' });
+  }
+
+  const database = await getMongoDb();
+  if (!database) {
+    return res.status(503).json({ success: false, error: 'Database unavailable — cannot enrol credential.' });
+  }
+
+  try {
+    await database.collection(WEBAUTHN_COLLECTION).updateOne(
+      { credentialId: String(credentialId) },
+      {
+        $set: {
+          id: `wac_${String(credentialId).slice(0, 32)}`,
+          credentialId: String(credentialId),
+          userId: authUserId,
+          username: String(username || ''),
+          publicKey: decodeB64(publicKey).toString('base64'),
+          signCount: 0,
+          transports: Array.isArray(transports) ? transports : ['internal'],
+          deviceName: String(deviceName || 'Unknown device'),
+          updatedAt: new Date().toISOString(),
+        },
+        $setOnInsert: { createdAt: new Date().toISOString() },
+      },
+      { upsert: true }
+    );
+    res.json({ success: true, credentialId: String(credentialId), verified: true });
+  } catch (err: any) {
+    console.error('[WebAuthn] Registration persist error:', err);
+    res.status(500).json({ success: false, error: 'Failed to store biometric credential.' });
+  }
+});
+
+// Step 3: verify the assertion and issue a real session token.
+app.post('/api/auth/webauthn/verify', async (req, res) => {
+  const { credentialId, clientDataJSON, authenticatorData, signature } = req.body || {};
+
+  if (!credentialId || !clientDataJSON) {
+    return res.status(400).json({ success: false, error: 'credentialId and clientDataJSON are required.' });
+  }
+
+  const clientCheck = verifyClientData(clientDataJSON, 'webauthn.get', req);
+  if (!clientCheck.ok || !clientCheck.challenge) {
+    return res.status(400).json({ success: false, error: clientCheck.reason || 'Invalid client data.' });
+  }
+
+  const challengeEntry = consumeWebAuthnChallenge(clientCheck.challenge, 'authenticate');
+  if (!challengeEntry) {
+    return res.status(401).json({
+      success: false,
+      error: 'Biometric challenge is unknown, already used, or expired. Please try again.',
+      code: 'CHALLENGE_INVALID',
+    });
+  }
+
+  const database = await getMongoDb();
+  if (!database) {
+    return res.status(503).json({ success: false, error: 'Database unavailable — cannot verify biometrics.' });
+  }
+
+  let credential: any = null;
+  try {
+    credential = await database
+      .collection(WEBAUTHN_COLLECTION)
+      .findOne({ credentialId: String(credentialId) });
+  } catch (err) {
+    console.warn('[WebAuthn] Credential lookup error:', err);
+  }
+
+  if (!credential) {
+    return res.status(401).json({
+      success: false,
+      error: 'This biometric credential is not registered. Sign in with your password and enable fingerprint login again.',
+      code: 'CREDENTIAL_UNKNOWN',
+    });
+  }
+
+  const parsedAuthData = authenticatorData ? parseAuthenticatorData(decodeB64(authenticatorData)) : null;
+  let legacyAccepted = false;
+
+  if (credential.publicKey && parsedAuthData && signature) {
+    if (!rpIdMatches(parsedAuthData.rpIdHash, req)) {
+      return res.status(401).json({ success: false, error: 'Assertion was produced for a different site.' });
+    }
+    if (!parsedAuthData.userVerified) {
+      return res.status(401).json({
+        success: false,
+        error: 'Biometric user verification did not take place on the device.',
+      });
+    }
+
+    const signatureValid = verifyAssertionSignature(
+      Buffer.from(String(credential.publicKey), 'base64'),
+      decodeB64(authenticatorData),
+      clientDataJSON,
+      decodeB64(signature)
+    );
+    if (!signatureValid) {
+      return res.status(401).json({
+        success: false,
+        error: 'Biometric signature verification failed.',
+        code: 'SIGNATURE_INVALID',
+      });
+    }
+
+    // Replay guard. Many platform authenticators always report 0; only enforce when they count.
+    const storedCount = Number(credential.signCount || 0);
+    if (parsedAuthData.signCount > 0 && storedCount > 0 && parsedAuthData.signCount <= storedCount) {
+      return res.status(401).json({
+        success: false,
+        error: 'Biometric assertion was replayed. Please try again.',
+        code: 'REPLAY_DETECTED',
+      });
+    }
+    try {
+      await database.collection(WEBAUTHN_COLLECTION).updateOne(
+        { credentialId: String(credentialId) },
+        { $set: { signCount: parsedAuthData.signCount, lastUsedAt: new Date().toISOString() } }
+      );
+    } catch {}
+  } else {
+    // Legacy credential: enrolled before public keys were stored, so there is nothing to verify
+    // against. Accepted only while the migration ramp is open.
+    if (!BIOMETRIC_ALLOW_LEGACY) {
+      return res.status(401).json({
+        success: false,
+        error: 'This fingerprint was enrolled before biometric verification was enabled. Sign in with your password and enable fingerprint login again.',
+        code: 'REENROLLMENT_REQUIRED',
+      });
+    }
+    legacyAccepted = true;
+    console.warn(
+      `[WebAuthn] Accepting unverifiable legacy credential for user ${credential.userId}. ` +
+        'Ask this rider to re-enrol, then set BIOMETRIC_ALLOW_LEGACY=false.'
+    );
+  }
+
+  const userId = String(credential.userId || '');
+  const { found, role, user } = await lookupUserRole(userId);
+  if (!found) {
+    return res.status(401).json({
+      success: false,
+      error: 'The account linked to this biometric credential no longer exists.',
+      code: 'USER_GONE',
+    });
+  }
+  if (user?.approvalStatus === 'Pending') {
+    return res.status(403).json({
+      success: false,
+      error: 'Registration Pending: your application is still awaiting admin approval.',
+    });
+  }
+
+  res.json({
+    success: true,
+    verified: true,
+    userId,
+    token: generateSessionToken(userId, role),
+    legacy: legacyAccepted,
+    reenrollmentRequired: legacyAccepted,
+    message: legacyAccepted
+      ? 'Signed in. Please re-enable fingerprint login in Settings to secure this device.'
+      : 'Biometric sign-in verified.',
+  });
+});
+
+// Which riders still hold credentials that cannot be cryptographically verified. Use this to decide
+// when it is safe to set BIOMETRIC_ALLOW_LEGACY=false.
+app.get('/api/auth/webauthn/pending-reenrollment', requireAuth, async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ success: false, error: 'Database unavailable.' });
+  try {
+    const docs = await database
+      .collection(WEBAUTHN_COLLECTION)
+      .find({ $or: [{ publicKey: { $exists: false } }, { publicKey: '' }, { publicKey: null }] })
+      .toArray();
+    res.json({
+      success: true,
+      legacyAllowed: BIOMETRIC_ALLOW_LEGACY,
+      count: docs.length,
+      credentials: docs.map((d: any) => ({
+        userId: d.userId,
+        username: d.username,
+        deviceName: d.deviceName,
+        createdAt: d.createdAt,
+        lastUsedAt: d.lastUsedAt || null,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: 'Failed to read credential list.' });
+  }
+});
+
+// AUTH: Verify an administrator's password without minting a session.
+//
+// Used by the treasurer "instant in-person admin approval" flow, which previously decided this in the
+// browser and accepted the literal strings 'admin', 'admin123' and 'password' — so any signed-in
+// treasurer could self-authorise a financial action. The check now happens here, against the real
+// admin credential, and the caller must already hold a valid session.
+app.post('/api/auth/verify-admin-password', requireAuth, async (req, res) => {
+  const attempt = String(req.body?.password || '').trim();
+  if (!attempt) {
+    return res.status(400).json({ success: false, error: 'Admin password is required.' });
+  }
+
+  const database = await getMongoDb();
+  let adminDoc: any = null;
+
+  if (database) {
+    try {
+      adminDoc = await database.collection('members').findOne({
+        $or: [{ role: { $regex: /^admin$/i } }, { id: 'usr_admin' }, { username: { $regex: /^admin$/i } }],
+      });
+    } catch (err) {
+      console.warn('[Auth] Admin lookup failed during password verification:', err);
+    }
+  }
+  if (!adminDoc) {
+    adminDoc = INITIAL_SEED_MEMBERS.find((m) => m.role === 'admin') || null;
+  }
+  if (!adminDoc) {
+    return res.status(404).json({ success: false, error: 'No administrator account is configured.' });
+  }
+
+  const check = verifyPassword(attempt, adminDoc.password);
+  if (!check.valid) {
+    return res.status(401).json({ success: false, error: 'Invalid admin credentials. Please try again.' });
+  }
+
+  const adminId = adminDoc.id || adminDoc._id?.toString();
+  if (check.legacy && adminId) {
+    void rehashLegacyPassword('members', adminId, attempt);
+  }
+
+  res.json({ success: true, verified: true });
+});
+
 // AUTH: Request Login Authorization OTP via Resend (strictly by registered Username)
 app.post('/api/auth/login-otp', async (req, res) => {
   const inputUsername = req.body?.username || req.body?.usernameOrEmail;
@@ -1093,6 +1812,8 @@ app.post('/api/auth/login-otp', async (req, res) => {
   const cleanPassword = String(inputPassword).trim();
 
   let matchedUser: any = null;
+  // Which collection the document came from, so a legacy password is rehashed in the right place.
+  let matchedCollection: 'members' | 'registration' | null = null;
 
   // Search MongoDB members collection first by registered username only
   const database = await getMongoDb();
@@ -1108,14 +1829,17 @@ app.post('/api/auth/login-otp', async (req, res) => {
       }
 
       let doc = await database.collection('members').findOne({ $or: orConditions });
+      let sourceCollection: 'members' | 'registration' = 'members';
 
       // If not found in members, check registration collection to detect pending registration
       if (!doc) {
         doc = await database.collection('registration').findOne({ $or: orConditions });
+        sourceCollection = 'registration';
       }
 
       if (doc) {
         matchedUser = doc;
+        matchedCollection = sourceCollection;
       }
     } catch (err) {
       console.warn('MongoDB search for login error:', err);
@@ -1146,13 +1870,19 @@ app.post('/api/auth/login-otp', async (req, res) => {
     });
   }
 
-  // Verify password
-  const expectedPassword = String(matchedUser.password || 'bccriders123').trim();
-  if (cleanPassword !== expectedPassword) {
+  // Verify password. There is deliberately no default: an account with no stored password cannot
+  // sign in, rather than accepting the well-known 'bccriders123' that used to be the fallback.
+  const passwordCheck = verifyPassword(cleanPassword, matchedUser.password);
+  if (!passwordCheck.valid) {
     return res.status(401).json({ error: 'Invalid Username or Password.' });
   }
 
   const memberId = matchedUser.id || matchedUser._id?.toString();
+
+  // Credentials were correct but stored in the clear — upgrade them now, in the background.
+  if (passwordCheck.legacy && matchedCollection && memberId) {
+    void rehashLegacyPassword(matchedCollection, memberId, cleanPassword);
+  }
 
   // Check if account is admin
   const isAdminUser =
@@ -1689,7 +2419,7 @@ app.get('/api/mongodb/members', async (req, res) => {
       const rawStatus = String(cleaned.approvalStatus || 'Approved').trim();
       const normalizedStatus = rawStatus.toLowerCase() === 'pending' ? 'Pending' : 'Approved';
 
-      return {
+      return stripPasswordForRead({
         ...cleaned,
         id: docId,
         username: finalUsername,
@@ -1698,7 +2428,7 @@ app.get('/api/mongodb/members', async (req, res) => {
         duesStatus: cleaned.duesStatus || 'Active',
         approvalStatus: normalizedStatus,
         duesExpiryDate: cleaned.duesExpiryDate || '2027-12-31',
-      };
+      });
     });
     res.json({ success: true, count: members.length, data: members });
   } catch (err: any) {
@@ -1717,6 +2447,7 @@ app.post('/api/mongodb/members', async (req, res) => {
   }
 
   const member = sanitizeMemberForMongo(rawMember);
+  normalizePasswordForWrite(member);
 
   try {
     const result = await database.collection('members').updateOne(
@@ -1753,6 +2484,7 @@ app.post('/api/mongodb/members/bulk', async (req, res) => {
   try {
     const bulkOps = members.map((rawM) => {
       const m = sanitizeMemberForMongo(rawM);
+      normalizePasswordForWrite(m);
       return {
         updateOne: {
           filter: { id: m.id },
@@ -1822,11 +2554,13 @@ app.get('/api/mongodb/registration', async (req, res) => {
       const docId = rest.id || (_id ? _id.toString() : `reg_${Math.random().toString(36).substring(2, 9)}`);
       if (seenIds.has(docId)) continue;
       seenIds.add(docId);
-      registrations.push({
-        id: docId,
-        ...rest,
-        approvalStatus: 'Pending',
-      });
+      registrations.push(
+        stripPasswordForRead({
+          id: docId,
+          ...rest,
+          approvalStatus: 'Pending',
+        })
+      );
     }
     res.json({ success: true, count: registrations.length, data: registrations });
   } catch (err: any) {
@@ -1845,6 +2579,7 @@ app.post('/api/mongodb/registration', async (req, res) => {
   }
 
   const registrationDoc = sanitizeRegistrationForMongo(rawForm);
+  normalizePasswordForWrite(registrationDoc);
 
   try {
     const result = await database.collection('registration').updateOne(
@@ -2232,6 +2967,13 @@ app.post('/api/mongodb/registration/accept/:id', async (req, res) => {
       acceptedAt: new Date().toISOString(),
     });
 
+    // The client no longer receives password fields, so `payload` can blank out the credential the
+    // applicant chose at registration. Fall back to the stored one before hashing/preserving.
+    if (!(typeof memberDoc.password === 'string' && memberDoc.password.trim()) && regDoc?.password) {
+      memberDoc.password = regDoc.password;
+    }
+    normalizePasswordForWrite(memberDoc);
+
     delete memberDoc._id;
 
     if (!memberDoc.id) {
@@ -2321,6 +3063,93 @@ app.post('/api/mongodb/events', async (req, res) => {
   }
 });
 
+// Helper to clean and sanitize activity documents in MongoDB by removing 'avatar' and 'photoUrl' columns/fields
+async function cleanupActivitiesCollection(database: Db) {
+  try {
+    const targetCollections = ['activities', 'activites'];
+    let cleanedDocsCount = 0;
+
+    for (const colName of targetCollections) {
+      try {
+        const collections = await database.listCollections({ name: colName }).toArray();
+        if (collections.length === 0 && colName === 'activites') continue;
+
+        // 1. Unset top-level avatar, photoUrl, and bikeInfo.photoUrl
+        await database.collection(colName).updateMany(
+          {},
+          {
+            $unset: {
+              avatar: '',
+              photoUrl: '',
+              'bikeInfo.photoUrl': '',
+            },
+          }
+        );
+
+        // 2. Clean attendance array in all documents
+        const docs = await database.collection(colName).find({}).toArray();
+        for (const doc of docs) {
+          let needsUpdate = false;
+          let cleanedAttendance = doc.attendance;
+
+          if (Array.isArray(doc.attendance)) {
+            cleanedAttendance = doc.attendance.map((att: any) => {
+              if (!att || typeof att !== 'object') return att;
+              if (att.avatar !== undefined || att.photoUrl !== undefined || (att.bikeInfo && att.bikeInfo.photoUrl !== undefined)) {
+                needsUpdate = true;
+              }
+              const { avatar, photoUrl, ...rest } = att;
+              if (rest.bikeInfo && typeof rest.bikeInfo === 'object') {
+                const { photoUrl: bikePhoto, ...restBike } = rest.bikeInfo;
+                rest.bikeInfo = restBike;
+              }
+              return rest;
+            });
+          }
+
+          if (doc.avatar !== undefined || doc.photoUrl !== undefined || (doc.bikeInfo && doc.bikeInfo.photoUrl !== undefined)) {
+            needsUpdate = true;
+          }
+
+          if (needsUpdate) {
+            await database.collection(colName).updateOne(
+              { _id: doc._id },
+              {
+                $set: { attendance: cleanedAttendance },
+                $unset: { avatar: '', photoUrl: '', 'bikeInfo.photoUrl': '' },
+              }
+            );
+            cleanedDocsCount++;
+          }
+        }
+      } catch (colErr) {
+        console.warn(`Notice inspecting collection ${colName}:`, colErr);
+      }
+    }
+
+    // Also clean up any accidental avatar/photoUrl in attendanceLogs collection
+    try {
+      await database.collection('attendanceLogs').updateMany(
+        {},
+        {
+          $unset: {
+            avatar: '',
+            photoUrl: '',
+            'bikeInfo.photoUrl': '',
+          },
+        }
+      );
+    } catch (attErr) {
+      console.warn('Notice cleaning attendanceLogs:', attErr);
+    }
+
+    return { success: true, cleanedDocsCount };
+  } catch (err: any) {
+    console.warn('Activities collection cleanup notice:', err);
+    return { success: false, error: err?.message };
+  }
+}
+
 // ACTIVITIES API
 app.get('/api/mongodb/activities', async (req, res) => {
   const database = await getMongoDb();
@@ -2348,21 +3177,69 @@ app.get('/api/mongodb/activities', async (req, res) => {
         docs = await database.collection('activities').find({}).toArray();
       }
     }
-    const data = docs.map(({ _id, ...rest }) => rest);
+    const data = docs.map(({ _id, avatar, photoUrl, ...rest }) => {
+      if (Array.isArray(rest.attendance)) {
+        rest.attendance = rest.attendance.map((att: any) => {
+          if (!att || typeof att !== 'object') return att;
+          const { avatar: attAvatar, photoUrl: attPhoto, ...attRest } = att;
+          if (attRest.bikeInfo && typeof attRest.bikeInfo === 'object') {
+            const { photoUrl: bikePhoto, ...restBike } = attRest.bikeInfo;
+            attRest.bikeInfo = restBike;
+          }
+          return attRest;
+        });
+      }
+      return rest;
+    });
     res.json({ success: true, data });
   } catch (err: any) {
     res.status(500).json({ error: err.message, data: [] });
   }
 });
 
-app.post('/api/mongodb/activities', async (req, res) => {
+// Endpoint to explicitly trigger cleanup of avatar and photoUrl columns in activities MongoDB collection
+app.all('/api/mongodb/cleanup-activities', async (req, res) => {
   const database = await getMongoDb();
-  const activity = req.body;
   if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
   try {
+    const result = await cleanupActivitiesCollection(database);
+    res.json({ success: true, message: "Cleaned 'avatar' and 'photoUrl' columns from activities MongoDB collection.", ...result });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/mongodb/activities', async (req, res) => {
+  const database = await getMongoDb();
+  let activity = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    // Strip redundant image payload strings from activity and attendance array to save MongoDB document storage & bandwidth
+    if (activity && typeof activity === 'object') {
+      const { avatar, photoUrl, ...restActivity } = activity;
+      if (restActivity.bikeInfo && typeof restActivity.bikeInfo === 'object') {
+        const { photoUrl: bikePhoto, ...restBike } = restActivity.bikeInfo;
+        restActivity.bikeInfo = restBike;
+      }
+      if (Array.isArray(restActivity.attendance)) {
+        restActivity.attendance = restActivity.attendance.map((att: any) => {
+          if (!att || typeof att !== 'object') return att;
+          const { avatar: attAvatar, photoUrl: attPhoto, ...restAtt } = att;
+          if (restAtt.bikeInfo && typeof restAtt.bikeInfo === 'object') {
+            const { photoUrl: attBikePhoto, ...restAttBike } = restAtt.bikeInfo;
+            restAtt.bikeInfo = restAttBike;
+          }
+          return restAtt;
+        });
+      }
+      activity = restActivity;
+    }
     await database.collection('activities').updateOne(
       { id: activity.id },
-      { $set: { ...activity, updatedAt: new Date().toISOString() } },
+      { 
+        $set: { ...activity, updatedAt: new Date().toISOString() },
+        $unset: { avatar: '', photoUrl: '', 'bikeInfo.photoUrl': '' }
+      },
       { upsert: true }
     );
     res.json({ success: true, id: activity.id });

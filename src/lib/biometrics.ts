@@ -1,7 +1,20 @@
 /**
  * Biometric Authentication Module (WebAuthn / Passkeys)
  * Supports Fingerprint, Touch ID, Face ID on Android and iOS mobile browsers
+ *
+ * The ceremony is server-driven. The browser no longer decides who signed in:
+ *
+ *   1. `POST /api/auth/webauthn/challenge` — the server issues a single-use random challenge.
+ *      (Previously generated locally with crypto.getRandomValues, which proves nothing to anyone.)
+ *   2. `navigator.credentials.get/create` runs the device's fingerprint / Face ID sensor.
+ *   3. The assertion is sent to the server, which verifies the signature against the credential's
+ *      stored public key and only then returns a session token.
+ *
+ * The local `bcc_biometric_credentials_v1` list is now just a UI convenience — it decides which
+ * credential to *offer*, never who you are.
  */
+
+import { getAuthToken } from './storageSecurity';
 
 export interface BiometricCredentialInfo {
   credentialId: string;
@@ -145,6 +158,46 @@ export function getBiometricForUser(userIdOrUsername: string): BiometricCredenti
 }
 
 /**
+ * Requests a single-use challenge from the server. Everything downstream is worthless without it —
+ * a locally generated challenge can be replayed, and the server has no way to know it issued one.
+ */
+async function fetchServerChallenge(
+  purpose: 'register' | 'authenticate',
+  userIdOrUsername?: string
+): Promise<{
+  ok: boolean;
+  challenge?: string;
+  allowCredentials?: Array<{ id: string; transports?: string[] }>;
+  error?: string;
+}> {
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const token = getAuthToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+      headers['x-session-token'] = token;
+    }
+
+    const res = await fetch('/api/auth/webauthn/challenge', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ purpose, userId: userIdOrUsername || undefined }),
+    });
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok || !data?.challenge) {
+      return { ok: false, error: data?.error || 'Could not start biometric verification with the server.' };
+    }
+    return { ok: true, challenge: data.challenge, allowCredentials: data.allowCredentials || [] };
+  } catch {
+    return {
+      ok: false,
+      error: 'Could not reach the server to start biometric verification. Check your connection.',
+    };
+  }
+}
+
+/**
  * Register Biometrics (Fingerprint / Touch ID / Face ID) for the logged-in user.
  */
 export async function registerBiometricCredential(user: {
@@ -161,8 +214,14 @@ export async function registerBiometricCredential(user: {
       };
     }
 
-    const challenge = new Uint8Array(32);
-    crypto.getRandomValues(challenge);
+    const challengeResult = await fetchServerChallenge('register');
+    if (!challengeResult.ok || !challengeResult.challenge) {
+      return {
+        success: false,
+        error: challengeResult.error || 'Could not obtain a registration challenge from the server.',
+      };
+    }
+    const challenge = base64UrlToBuffer(challengeResult.challenge);
 
     // Convert user ID to Uint8Array
     const enc = new TextEncoder();
@@ -201,6 +260,22 @@ export async function registerBiometricCredential(user: {
     }
 
     const credentialId = bufferToBase64Url(credential.rawId);
+    const attestation = credential.response as AuthenticatorAttestationResponse;
+
+    // The public key is the entire point of this change: without it the server can never verify a
+    // future assertion. `getPublicKey()` exists in Chrome 85+ / Safari 15+; anything older gets a
+    // clear message instead of a credential that would silently fail to verify at sign-in.
+    const publicKeyBuffer =
+      typeof attestation.getPublicKey === 'function' ? attestation.getPublicKey() : null;
+    if (!publicKeyBuffer) {
+      return {
+        success: false,
+        error:
+          'This browser cannot expose the credential key required to verify fingerprint sign-in. ' +
+          'Please update your browser, or continue using password sign-in.',
+      };
+    }
+
     const newEntry: BiometricCredentialInfo = {
       credentialId,
       userId: user.id,
@@ -210,30 +285,58 @@ export async function registerBiometricCredential(user: {
       createdAt: new Date().toISOString(),
     };
 
-    // Save locally
+    // Register with the server FIRST. If the server won't store the key, this credential cannot be
+    // used to sign in — saving it locally would just produce a button that always fails.
+    const token = getAuthToken();
+    if (!token) {
+      return {
+        success: false,
+        error: 'Your session has expired. Please sign in again before enabling fingerprint login.',
+      };
+    }
+
+    try {
+      const res = await fetch('/api/auth/webauthn/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+          'x-session-token': token,
+        },
+        body: JSON.stringify({
+          credentialId,
+          publicKey: bufferToBase64Url(publicKeyBuffer),
+          clientDataJSON: bufferToBase64Url(attestation.clientDataJSON),
+          transports:
+            typeof attestation.getTransports === 'function'
+              ? attestation.getTransports()
+              : ['internal'],
+          deviceName: newEntry.deviceName,
+          username: user.username,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        return {
+          success: false,
+          error: data?.error || 'The server rejected this biometric credential.',
+        };
+      }
+    } catch {
+      return {
+        success: false,
+        error: 'Could not reach the server to register this credential. Please try again.',
+      };
+    }
+
+    // Server accepted and stored the key — only now remember it locally, so the sign-in screen
+    // knows to offer this credential.
     const currentList = getStoredBiometrics();
     const filtered = currentList.filter(
       (c) => c.userId !== user.id && c.credentialId !== credentialId
     );
     filtered.unshift(newEntry);
     saveStoredBiometrics(filtered);
-
-    // Also sync to server database if available
-    try {
-      fetch('/api/mongodb/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: `bio_${user.id}`,
-          category: 'biometrics',
-          userId: user.id,
-          username: user.username,
-          credentialId,
-          deviceName: newEntry.deviceName,
-          createdAt: newEntry.createdAt,
-        }),
-      }).catch(() => {});
-    } catch {}
 
     return { success: true, credential: newEntry };
   } catch (err: any) {
@@ -259,6 +362,10 @@ export async function authenticateBiometricCredential(
   matchedCredential?: BiometricCredentialInfo;
   userId?: string;
   username?: string;
+  /** Server-signed session token. Sign-in is only legitimate when this is present. */
+  token?: string;
+  /** True when the server accepted an unverifiable legacy credential — prompt a re-enrolment. */
+  reenrollmentRequired?: boolean;
 }> {
   try {
     const supported = await isBiometricsSupported();
@@ -270,41 +377,51 @@ export async function authenticateBiometricCredential(
     }
 
     const storedList = getStoredBiometrics();
-    if (storedList.length === 0) {
-      return {
-        success: false,
-        error: 'No registered fingerprint or biometric profile found on this device. Please sign in with your password and enable fingerprint login in Settings > Security.',
-      };
+
+    // Ask the server for the challenge and for the credential IDs it actually has on file. The
+    // server list is authoritative: a stale or planted localStorage entry can no longer steer the
+    // ceremony toward a credential the server doesn't recognise.
+    const lookupHint = targetUser?.username || targetUser?.id || storedList[0]?.username || '';
+    const challengeResult = await fetchServerChallenge('authenticate', lookupHint);
+    if (!challengeResult.ok || !challengeResult.challenge) {
+      return { success: false, error: challengeResult.error || 'Could not start biometric verification.' };
     }
 
-    const challenge = new Uint8Array(32);
-    crypto.getRandomValues(challenge);
+    const serverCreds = challengeResult.allowCredentials || [];
+    let allowCredentials: PublicKeyCredentialDescriptor[] | undefined;
 
-    // Filter allowed credentials if a specific user was requested
-    let allowCredentials: PublicKeyCredentialDescriptor[] | undefined = undefined;
-    if (targetUser) {
-      const userCreds = storedList.filter(
-        (c) =>
-          c.userId.toLowerCase() === targetUser.id.toLowerCase() ||
-          c.username.toLowerCase() === targetUser.username.toLowerCase()
-      );
-      if (userCreds.length > 0) {
-        allowCredentials = userCreds.map((c) => ({
-          id: base64UrlToBuffer(c.credentialId) as any,
-          type: 'public-key',
-          transports: ['internal'],
-        }));
-      }
+    if (serverCreds.length > 0) {
+      allowCredentials = serverCreds.map((c) => ({
+        id: base64UrlToBuffer(c.id) as any,
+        type: 'public-key',
+        transports: (c.transports as AuthenticatorTransport[]) || ['internal'],
+      }));
     } else if (storedList.length > 0) {
-      allowCredentials = storedList.map((c) => ({
+      // No server-side record for this hint (or no username typed). Offer what the device knows and
+      // let the server reject it if the credential isn't registered.
+      const candidates = targetUser
+        ? storedList.filter(
+            (c) =>
+              c.userId.toLowerCase() === targetUser.id.toLowerCase() ||
+              c.username.toLowerCase() === targetUser.username.toLowerCase()
+          )
+        : storedList;
+      const list = candidates.length > 0 ? candidates : storedList;
+      allowCredentials = list.map((c) => ({
         id: base64UrlToBuffer(c.credentialId) as any,
         type: 'public-key',
         transports: ['internal'],
       }));
+    } else {
+      return {
+        success: false,
+        error:
+          'No registered fingerprint or biometric profile found for this account. Please sign in with your password and enable fingerprint login in Settings > Security.',
+      };
     }
 
     const requestOptions: PublicKeyCredentialRequestOptions = {
-      challenge,
+      challenge: base64UrlToBuffer(challengeResult.challenge),
       rpId: window.location.hostname || undefined,
       allowCredentials,
       userVerification: 'required',
@@ -319,19 +436,50 @@ export async function authenticateBiometricCredential(
       return { success: false, error: 'Biometric verification cancelled.' };
     }
 
-    const rawIdStr = bufferToBase64Url(assertion.rawId);
-    // Match the raw ID to stored credential
-    const matched = storedList.find((c) => c.credentialId === rawIdStr) || storedList[0];
+    const response = assertion.response as AuthenticatorAssertionResponse;
+    const credentialId = bufferToBase64Url(assertion.rawId);
 
-    if (!matched) {
-      return { success: false, error: 'Unrecognized biometric credential.' };
+    // Hand the assertion to the server. It verifies the signature against the stored public key and
+    // decides *who this is* — the old code picked `storedList[0]` when nothing matched, which could
+    // sign a rider into someone else's account on a shared phone.
+    let verifyData: any = {};
+    try {
+      const res = await fetch('/api/auth/webauthn/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          credentialId,
+          clientDataJSON: bufferToBase64Url(response.clientDataJSON),
+          authenticatorData: bufferToBase64Url(response.authenticatorData),
+          signature: bufferToBase64Url(response.signature),
+        }),
+      });
+      verifyData = await res.json().catch(() => ({}));
+      if (!res.ok || !verifyData?.success || !verifyData?.token) {
+        return {
+          success: false,
+          error: verifyData?.error || 'The server could not verify this fingerprint. Please use password sign-in.',
+        };
+      }
+    } catch {
+      return {
+        success: false,
+        error: 'Could not reach the server to verify your fingerprint. Check your connection and try again.',
+      };
     }
+
+    const verifiedUserId = String(verifyData.userId || '');
+    const matched =
+      storedList.find((c) => c.credentialId === credentialId) ||
+      storedList.find((c) => c.userId === verifiedUserId);
 
     return {
       success: true,
-      matchedCredential: matched,
-      userId: matched.userId,
-      username: matched.username,
+      matchedCredential: matched || undefined,
+      userId: verifiedUserId,
+      username: matched?.username,
+      token: String(verifyData.token),
+      reenrollmentRequired: Boolean(verifyData.reenrollmentRequired),
     };
   } catch (err: any) {
     console.error('Biometric authentication error:', err);

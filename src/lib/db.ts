@@ -86,6 +86,32 @@ function saveToStorage<T>(key: string, data: T): void {
   saveToLocal<T>(key, data);
 }
 
+/**
+ * Session expiry signalling.
+ *
+ * Every `/api/mongodb/*` route is now authenticated server-side, so a rejected
+ * or expired token comes back as `401`. Swallowing that into an empty array
+ * would render blank screens and spinners with no explanation, so instead we
+ * clear the dead token once and let `AuthContext` sign the rider out and show
+ * the login screen. The guard keeps a burst of parallel 401s from firing the
+ * event (and the logout) several times over.
+ */
+let sessionExpiryNotified = false;
+
+export function resetSessionExpiryNotice(): void {
+  sessionExpiryNotified = false;
+}
+
+function handleUnauthorizedResponse(url: string): void {
+  clearAuthToken();
+  if (sessionExpiryNotified) return;
+  sessionExpiryNotified = true;
+  console.warn(`[Auth] Session rejected by the server while requesting ${url} — signing out.`);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('bcc_session_expired', { detail: { url } }));
+  }
+}
+
 // Authenticated fetch wrapper injecting Bearer token
 export async function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = getAuthToken();
@@ -99,10 +125,19 @@ export async function authFetch(url: string, options?: RequestInit): Promise<Res
     authHeaders['x-session-token'] = token;
   }
 
-  return fetch(url, {
+  const res = await fetch(url, {
     ...options,
     headers: authHeaders,
   });
+
+  // Catch a dead session here rather than at each call site — most mutation
+  // callers end in `.catch(() => {})` and would otherwise fail silently,
+  // leaving the rider looking at a screen that quietly stopped saving.
+  if (res.status === 401 || res.status === 403) {
+    handleUnauthorizedResponse(url);
+  }
+
+  return res;
 }
 
 // MongoDB Status Helper
@@ -122,6 +157,10 @@ export async function safeFetchJson<T = any>(
   try {
     const res = await authFetch(url, options);
     const contentType = res.headers.get('content-type') || '';
+    if (res.status === 401 || res.status === 403) {
+      handleUnauthorizedResponse(url);
+      return { success: false, unauthorized: true, data: [] as any };
+    }
     if (!res.ok || !contentType.includes('application/json')) {
       const cached = getCachedData<T | null>(url, null);
       if (cached !== null) {
@@ -537,6 +576,13 @@ export class DataStoreService {
 
   // Current User Session
   getCurrentUser(): User | null {
+    // No server-signed token means no session. The cached user id on its own is
+    // just a browser-owned string, and every API route now rejects it, so
+    // trusting it would only produce a signed-in shell with no data in it.
+    if (!hasActiveUserSession()) {
+      this.currentUserId = '';
+      return null;
+    }
     if (!this.currentUserId) {
       const activeSessionId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
       if (activeSessionId) {
@@ -580,6 +626,7 @@ export class DataStoreService {
     this.currentUserId = targetId;
     if (token) {
       setAuthToken(token);
+      resetSessionExpiryNotice();
     }
     saveToStorage(STORAGE_KEYS.CURRENT_USER, targetId);
 
@@ -604,6 +651,8 @@ export class DataStoreService {
 
   logout(): void {
     this.currentUserId = '';
+    clearAuthToken();
+    resetSessionExpiryNotice();
     clearSensitiveStorage();
   }
 
@@ -624,7 +673,14 @@ export class DataStoreService {
     };
   }
 
-  // Check credentials strictly by registered Username (used for 2FA OTP flow)
+  // Pre-flight lookup for the sign-in form (used by the 2FA OTP flow).
+  //
+  // This does NOT check the password and never did anything but drive local UI hints — the server
+  // is the only thing that verifies credentials, via /api/auth/login-otp. It used to compare the
+  // attempt against `matched.password` from the cached user list, which is doubly meaningless now:
+  // the browser owns that cache, and the API no longer sends password fields to clients at all.
+  // Kept because it gives the rider an instant "your application is still pending" message and a
+  // fallback display identity if the server response omits one.
   checkCredentials(usernameInput: string, passwordAttempt: string): { success: boolean; user?: User; error?: string } {
     const rawInput = (usernameInput || '').trim();
     const normalizedUsername = rawInput.toLowerCase();
@@ -655,11 +711,6 @@ export class DataStoreService {
       };
     }
 
-    const expectedPassword = (matched.password || 'bccriders123').trim();
-    if (cleanPassword !== expectedPassword) {
-      return { success: false, error: 'Invalid Username or Password.' };
-    }
-
     return { success: true, user: this.sanitizeUser(matched) };
   }
 
@@ -668,37 +719,13 @@ export class DataStoreService {
     return this.setCurrentUser(userOrId, token);
   }
 
-  // Auth / Login Simulation strictly by registered Username
-  login(usernameInput: string, passwordAttempt: string): User | null {
-    const rawInput = (usernameInput || '').trim();
-    const normalizedUsername = rawInput.toLowerCase();
-    const cleanPassword = (passwordAttempt || '').trim();
-
-    if (!normalizedUsername || !cleanPassword) return null;
-
-    const matched = this.users.find((u) => {
-      const uUsername = (u.username || '').trim().toLowerCase();
-      const uRole = (u.role || '').trim().toLowerCase();
-
-      return (
-        (uUsername && uUsername === normalizedUsername) ||
-        (normalizedUsername === 'admin' && (uRole === 'admin' || u.role === 'admin'))
-      );
-    });
-
-    if (matched) {
-      if (matched.approvalStatus === 'Pending') {
-        return null;
-      }
-      const expectedPassword = (matched.password || 'bccriders123').trim();
-      if (cleanPassword !== expectedPassword) {
-        return null;
-      }
-      return this.setCurrentUser(matched.id);
-    }
-
-    return null;
-  }
+  // Auth / Login — REMOVED.
+  //
+  // This used to verify `passwordAttempt` against the locally cached user list and grant a session
+  // with no server token. Both inputs were browser-owned (`bcc_users_v2`), so it authenticated
+  // against data the caller could edit. All sign-ins now go through /api/auth/login-otp or
+  // /api/auth/webauthn/verify, which check credentials server-side and return a signed token.
+  // `checkCredentials` is retained: it only drives local UI hints and grants nothing.
 
   // Users Management
   getUsers(): User[] {
@@ -782,7 +809,9 @@ export class DataStoreService {
       age: newUser.age,
       gender: newUser.gender || 'Male',
       email: emailStr || 'rider@bccriders.org',
-      password: newUser.password || 'bccriders123',
+      // No publicly-known default: an applicant who somehow submits without a password gets an
+      // account that cannot sign in until one is set, rather than one everybody can sign into.
+      password: newUser.password || '',
       role: newUser.role || 'Member',
       memberNumber: isPending ? 'Pending' : (newUser.memberNumber || `BRC-${String(this.users.length).padStart(4, '0')}`).replace(/^BCC-/, 'BRC-'),
       phone: newUser.phone || newUser.mobileNo || '+63 917 000 0000',

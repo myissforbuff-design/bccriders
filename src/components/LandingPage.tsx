@@ -31,7 +31,7 @@ interface LandingPageProps {
 }
 
 export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
-  const { login, loginWithUserId } = useAuth();
+  const { loginWithUserId } = useAuth();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -86,6 +86,19 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
       const matchedUserId = result.userId || result.matchedCredential?.userId;
       const matchedUsername = result.username || result.matchedCredential?.username;
 
+      // The server verified the assertion and issued this token; without it there is no session.
+      if (!result.token) {
+        setError('Biometric sign-in could not be verified by the server. Please use password sign-in.');
+        return;
+      }
+
+      if (result.reenrollmentRequired) {
+        console.warn(
+          '[Biometrics] Signed in with a legacy credential that cannot be cryptographically verified. ' +
+            'Re-enable fingerprint login in Settings > Security to secure this device.'
+        );
+      }
+
       const user = store.getUsers().find(
         (u) =>
           (matchedUserId && u.id === matchedUserId) ||
@@ -93,10 +106,10 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
       );
 
       if (user) {
-        loginWithUserId(user);
+        loginWithUserId(user, result.token);
         onLoginSuccess();
       } else if (matchedUserId) {
-        loginWithUserId(matchedUserId);
+        loginWithUserId(matchedUserId, result.token);
         onLoginSuccess();
       } else {
         setError('Registered user account not found for these biometric credentials.');
@@ -269,26 +282,13 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
 
     const matchedUser = credCheck.user;
 
-    // Fast-path: If user is recognized as Admin locally and Admin OTP is disabled, log in directly without OTP
-    const isMatchedAdmin =
-      matchedUser &&
-      (matchedUser.role === 'admin' ||
-        matchedUser.role?.toLowerCase() === 'admin' ||
-        matchedUser.username?.toLowerCase() === 'admin' ||
-        matchedUser.id === 'usr_admin');
-
-    if (credCheck.success && isMatchedAdmin) {
-      const securitySettings = store.getSecuritySettings();
-      if (!securitySettings.adminOtpEnabled) {
-        const success = login(cleanUsername, cleanPassword);
-        if (success) {
-          setLoading(false);
-          onLoginSuccess();
-          window.location.reload();
-          return;
-        }
-      }
-    }
+    // NOTE: there used to be a local "admin fast-path" here that signed an admin straight in when
+    // `store.getSecuritySettings().adminOtpEnabled` was false — decided entirely from localStorage,
+    // which the browser owns. Planting an admin record in `bcc_users_v2` and flipping
+    // `bcc_security_settings_v1` was enough to become an admin without the server ever being asked,
+    // and the resulting session carried no token. The OTP-disabled admin case is handled server-side
+    // by /api/auth/login-otp (it returns requiresOtp:false plus a signed token), so every sign-in now
+    // goes through the request below.
 
     // 2. Request OTP from backend (which checks MongoDB database and sends Resend authorization email)
     try {
@@ -316,7 +316,11 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
         } else if (targetId) {
           loginWithUserId(targetId, data.token);
         } else {
-          login(cleanUsername, cleanPassword);
+          // No identity in the server response: fail closed rather than fall back to a local,
+          // tokenless sign-in that would then be denied by every data request.
+          setLoading(false);
+          setError('Sign-in could not be completed. Please try again.');
+          return;
         }
         setLoading(false);
         onLoginSuccess();
@@ -349,10 +353,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
       loginWithUserId(targetId, token);
       onLoginSuccess();
     } else {
-      const success = login(username, password);
-      if (success) {
-        onLoginSuccess();
-      }
+      setError('Sign-in could not be completed. Please try again.');
     }
   };
 

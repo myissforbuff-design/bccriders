@@ -3828,7 +3828,7 @@ export const Settings: React.FC = () => {
       {activeSubTab === 'inbound' && (
         <div className="space-y-4 sm:space-y-6">
           {/* Section 1: Sending Email via Resend */}
-          <EmailSender />
+          <EmailSender members={getApprovedNonAdminMembers()} />
 
           {/* Section 2: Receiving Email (Inbound Webhook Inbox) */}
           <InboundEmailViewer />

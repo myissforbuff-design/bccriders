@@ -5,6 +5,7 @@ import { loadFromSession } from '../lib/storageSecurity';
 import { TabType } from './Navigation';
 import { User } from '../types';
 import { RoleAvatarBadge } from './RoleAvatarBadge';
+import { CardValueSkeleton, CardSubSkeleton } from './OfficialLoader';
 import {
   Users,
   ArrowUpRight,
@@ -36,6 +37,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   const [allUsers, setAllUsers] = useState<User[]>(() => store.getUsers());
   const [searchTerm, setSearchTerm] = useState('');
+  const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(() => allUsers.length === 0);
 
   // Fetch latest members and registrations from MongoDB database on mount and listen to updates
   useEffect(() => {
@@ -48,6 +50,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
         }
       } catch (err) {
         console.warn('Notice while loading dashboard members:', err);
+      } finally {
+        setIsLoadingUsers(false);
       }
     };
 
@@ -57,6 +61,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       const updated = (e as CustomEvent).detail || store.getUsers();
       if (Array.isArray(updated)) {
         setAllUsers([...updated]);
+        setIsLoadingUsers(false);
       }
     };
 
@@ -91,6 +96,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   });
 
+  const [isLoadingFinances, setIsLoadingFinances] = useState<boolean>(() => financeRecords.length === 0);
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState<boolean>(() => expenseRecords.length === 0);
+
   useEffect(() => {
     if (!currentUser) return;
 
@@ -105,12 +113,16 @@ export const Dashboard: React.FC<DashboardProps> = ({
         })
         .catch(() => {
           setFinanceRecords(loadFromSession<any[]>('bcc_finance_records_v3', []));
+        })
+        .finally(() => {
+          setIsLoadingFinances(false);
         });
 
       safeFetchJson('/api/mongodb/liquidationLogs')
         .then((data) => {
           if (data.success && Array.isArray(data.data) && data.data.length > 0) {
             setExpenseRecords(data.data);
+            setIsLoadingExpenses(false);
           } else {
             safeFetchJson('/api/mongodb/expenseLogs')
               .then((expData) => {
@@ -122,11 +134,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
               })
               .catch(() => {
                 setExpenseRecords(loadFromSession<any[]>('bcc_expense_records_v1', []));
+              })
+              .finally(() => {
+                setIsLoadingExpenses(false);
               });
           }
         })
         .catch(() => {
           setExpenseRecords(loadFromSession<any[]>('bcc_expense_records_v1', []));
+          setIsLoadingExpenses(false);
         });
     };
 
@@ -232,14 +248,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <div>
-              <p className="font-heading text-sm sm:text-2xl font-extrabold text-[#1b4332]">
-                {activeMembersCount}{' '}
-                <span className="text-[9px] sm:text-xs font-normal text-[#52605d]">/ {totalMembers}</span>
-              </p>
-              <span className="text-[8.5px] sm:text-[11px] text-[#2d6a4f] font-medium flex items-center gap-0.5 mt-0.5">
-                <ArrowUpRight className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
-                {totalMembers > 0 ? Math.round((activeMembersCount / totalMembers) * 100) : 0}% active
-              </span>
+              {isLoadingUsers ? (
+                <div className="py-1 space-y-1">
+                  <CardValueSkeleton className="w-16 h-6 sm:h-8" />
+                  <CardSubSkeleton className="w-14 h-3" />
+                </div>
+              ) : (
+                <>
+                  <p className="font-heading text-sm sm:text-2xl font-extrabold text-[#1b4332]">
+                    {activeMembersCount}{' '}
+                    <span className="text-[9px] sm:text-xs font-normal text-[#52605d]">/ {totalMembers}</span>
+                  </p>
+                  <span className="text-[8.5px] sm:text-[11px] text-[#2d6a4f] font-medium flex items-center gap-0.5 mt-0.5">
+                    <ArrowUpRight className="w-2.5 h-2.5 sm:w-3 sm:h-3" />
+                    {totalMembers > 0 ? Math.round((activeMembersCount / totalMembers) * 100) : 0}% active
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -258,12 +283,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
               </div>
             </div>
             <div>
-              <p className={`font-heading text-sm sm:text-2xl font-extrabold ${pendingApprovalsCount > 0 ? 'text-amber-900' : 'text-[#1b4332]'}`}>
-                {pendingApprovalsCount}
-              </p>
-              <span className="text-[8.5px] sm:text-[11px] text-[#52605d] font-medium block mt-0.5 truncate">
-                {pendingApprovalsCount > 0 ? 'Action in Roster' : 'All processed'}
-              </span>
+              {isLoadingUsers ? (
+                <div className="py-1 space-y-1">
+                  <CardValueSkeleton className="w-12 h-6 sm:h-8" />
+                  <CardSubSkeleton className="w-14 h-3" />
+                </div>
+              ) : (
+                <>
+                  <p className={`font-heading text-sm sm:text-2xl font-extrabold ${pendingApprovalsCount > 0 ? 'text-amber-900' : 'text-[#1b4332]'}`}>
+                    {pendingApprovalsCount}
+                  </p>
+                  <span className="text-[8.5px] sm:text-[11px] text-[#52605d] font-medium block mt-0.5 truncate">
+                    {pendingApprovalsCount > 0 ? 'Action in Roster' : 'All processed'}
+                  </span>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -277,12 +311,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Total Funds</span>
-              <p className="font-heading text-sm sm:text-2xl font-black text-[#1b4332] truncate">
-                ₱{totalCollected.toLocaleString()}.00
-              </p>
-              <span className="text-[8.5px] sm:text-[11px] text-[#2d6a4f] font-semibold block truncate">
-                {totalPaidCount} verified payments
-              </span>
+              {isLoadingFinances ? (
+                <div className="py-1 space-y-1">
+                  <CardValueSkeleton className="w-28 h-6 sm:h-8" />
+                  <CardSubSkeleton className="w-20 h-3" />
+                </div>
+              ) : (
+                <>
+                  <p className="font-heading text-sm sm:text-2xl font-black text-[#1b4332] truncate">
+                    ₱{totalCollected.toLocaleString()}.00
+                  </p>
+                  <span className="text-[8.5px] sm:text-[11px] text-[#2d6a4f] font-semibold block truncate">
+                    {totalPaidCount} verified payments
+                  </span>
+                </>
+              )}
             </div>
             <div className="p-1.5 sm:p-3 rounded-lg sm:rounded-xl bg-[#d8f3dc] text-[#1b4332] shrink-0 ml-2">
               <Coins className="w-4 h-4 sm:w-6 sm:h-6" />
@@ -296,12 +339,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Total Expenses</span>
-              <p className="font-heading text-sm sm:text-2xl font-black text-rose-700 truncate">
-                ₱{totalExpenses.toLocaleString()}.00
-              </p>
-              <span className="text-[8.5px] sm:text-[11px] text-rose-600 font-semibold block truncate">
-                {expenseRecords.length} liquidated items
-              </span>
+              {isLoadingExpenses ? (
+                <div className="py-1 space-y-1">
+                  <CardValueSkeleton className="w-28 h-6 sm:h-8" />
+                  <CardSubSkeleton className="w-20 h-3" />
+                </div>
+              ) : (
+                <>
+                  <p className="font-heading text-sm sm:text-2xl font-black text-rose-700 truncate">
+                    ₱{totalExpenses.toLocaleString()}.00
+                  </p>
+                  <span className="text-[8.5px] sm:text-[11px] text-rose-600 font-semibold block truncate">
+                    {expenseRecords.length} liquidated items
+                  </span>
+                </>
+              )}
             </div>
             <div className="p-1.5 sm:p-3 rounded-lg sm:rounded-xl bg-rose-100 text-rose-800 shrink-0 ml-2">
               <TrendingDown className="w-4 h-4 sm:w-6 sm:h-6" />
@@ -315,12 +367,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
               <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Net Treasury Balance</span>
-              <p className={`font-heading text-sm sm:text-2xl font-black truncate ${netBalance >= 0 ? 'text-[#1b4332]' : 'text-rose-700'}`}>
-                ₱{netBalance.toLocaleString()}.00
-              </p>
-              <span className="text-[8.5px] sm:text-[11px] text-[#52605d] font-semibold block truncate">
-                Funds Collected minus Expenses
-              </span>
+              {isLoadingFinances || isLoadingExpenses ? (
+                <div className="py-1 space-y-1">
+                  <CardValueSkeleton className="w-28 h-6 sm:h-8" />
+                  <CardSubSkeleton className="w-24 h-3" />
+                </div>
+              ) : (
+                <>
+                  <p className={`font-heading text-sm sm:text-2xl font-black truncate ${netBalance >= 0 ? 'text-[#1b4332]' : 'text-rose-700'}`}>
+                    ₱{netBalance.toLocaleString()}.00
+                  </p>
+                  <span className="text-[8.5px] sm:text-[11px] text-[#52605d] font-semibold block truncate">
+                    Funds Collected minus Expenses
+                  </span>
+                </>
+              )}
             </div>
             <div className={`p-1.5 sm:p-3 rounded-lg sm:rounded-xl shrink-0 ml-2 ${netBalance >= 0 ? 'bg-emerald-100 text-emerald-900' : 'bg-rose-100 text-rose-900'}`}>
               <Wallet className="w-4 h-4 sm:w-6 sm:h-6" />

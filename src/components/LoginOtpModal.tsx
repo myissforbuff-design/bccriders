@@ -68,9 +68,14 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
         return;
       }
 
-      // Biometric authentication verified! Proceed with login
+      // Biometric assertion verified server-side — `token` is the proof, so require it.
+      if (!result.token) {
+        setError(result.error || 'Biometric sign-in could not be verified. Please enter the code instead.');
+        return;
+      }
+
       const targetUserId = result.userId || userId || '';
-      onSuccess(targetUserId);
+      onSuccess(targetUserId, result.token);
     } catch (err: any) {
       setError(err?.message || 'Biometric verification failed.');
     } finally {
