@@ -3413,51 +3413,6 @@ app.get('/api/mongodb/financeLogs', async (req, res) => {
   try {
     const docs = await database.collection('financeLogs').find({}).sort({ updatedAt: -1 }).toArray();
     let data = docs.map(({ _id, ...rest }) => rest);
-
-    // Ensure all approved members have their membership fee log recorded
-    try {
-      const members = await database.collection('members').find({}).toArray();
-      const feeSettings = await database.collection('settings').findOne({ id: 'finance_settings' });
-      const feeAmount = Number(feeSettings?.membershipFee) || 200;
-      const todayStr = new Date().toISOString().split('T')[0];
-
-      for (const member of members) {
-        if (member.role === 'admin' || member.id === 'usr_admin') continue;
-        const hasFee = data.some(
-          (d: any) =>
-            d.itemType === 'Membership Fee' &&
-            (d.userId === member.id ||
-              (member.username && d.userId === member.username) ||
-              (d.userMemberNo && member.memberNumber && d.userMemberNo === member.memberNumber))
-        );
-        if (!hasFee) {
-          const feeDoc = {
-            id: `rec_mf_${member.id}`,
-            itemType: 'Membership Fee',
-            userId: member.id,
-            userName: member.name || `${member.firstName || ''} ${member.lastName || ''}`.trim() || 'Club Member',
-            userMemberNo: member.memberNumber || 'BRC-MEMBER',
-            amount: feeAmount,
-            dueDate: member.joinDate || todayStr,
-            paidDate: todayStr,
-            status: 'Paid',
-            paymentMethod: 'Cash',
-            notes: 'Payment recorded upon member approval',
-            createdAt: todayStr,
-            updatedAt: todayStr,
-          };
-          await database.collection('financeLogs').updateOne(
-            { id: feeDoc.id },
-            { $set: feeDoc },
-            { upsert: true }
-          );
-          data.unshift(feeDoc);
-        }
-      }
-    } catch (autoErr) {
-      console.warn('Notice while auto-checking member fees in financeLogs:', autoErr);
-    }
-
     res.json({ success: true, count: data.length, data });
   } catch (err: any) {
     res.status(500).json({ error: err.message, data: [] });
@@ -3543,6 +3498,28 @@ app.delete('/api/mongodb/financeLogs', async (req, res) => {
       });
     }
     res.json({ success: true, id, userId, deletedCount: result?.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/financeLogs/type/monthlyDues', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('financeLogs').deleteMany({ itemType: 'Monthly Due' });
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/financeLogs/all', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('financeLogs').deleteMany({});
+    res.json({ success: true, deletedCount: result.deletedCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

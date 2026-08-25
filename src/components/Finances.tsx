@@ -218,6 +218,7 @@ export const Finances: React.FC = () => {
   const [isWaiveAction, setIsWaiveAction] = useState(false);
   const [editingRecord, setEditingRecord] = useState<FinanceRecord | null>(null);
   const [financeNoticeModal, setFinanceNoticeModal] = useState<{ title: string; message: string; isError?: boolean } | null>(null);
+  const [showDeleteAllConfirmModal, setShowDeleteAllConfirmModal] = useState(false);
 
   // Form State for Payment Record
   const [recUserId, setRecUserId] = useState('');
@@ -766,11 +767,12 @@ export const Finances: React.FC = () => {
     safeFetchJson('/api/mongodb/financeLogs')
       .then(data => {
         if (data.success && Array.isArray(data.data)) {
-          ensureApprovedMembersHaveFeesAndMonthlyDues(data.data);
+          setRecords(data.data);
           setCachedData(LOCAL_STORAGE_REC_KEY, data.data);
           setCachedData('/api/mongodb/financeLogs', data.data);
           saveToSession(LOCAL_STORAGE_REC_KEY, data.data);
           localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(data.data));
+          ensureApprovedMembersHaveFeesAndMonthlyDues(data.data);
         } else {
           ensureApprovedMembersHaveFeesAndMonthlyDues(savedRecs);
           if (savedRecs.length > 0) {
@@ -916,6 +918,41 @@ export const Finances: React.FC = () => {
     return authFetch(`/api/mongodb/financeLogs/${recordId}`, {
       method: 'DELETE',
     }).catch(err => console.warn('MongoDB financeLogs delete error:', err));
+  };
+
+  const handleDeleteAllFinanceLogs = () => {
+    setShowDeleteAllConfirmModal(true);
+  };
+
+  const confirmDeleteAllFinanceLogs = async () => {
+    setShowDeleteAllConfirmModal(false);
+    try {
+      const res = await authFetch('/api/mongodb/financeLogs/all', { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        setRecords([]);
+        setCachedData(LOCAL_STORAGE_REC_KEY, []);
+        setCachedData('/api/mongodb/financeLogs', []);
+        saveToSession(LOCAL_STORAGE_REC_KEY, []);
+        localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify([]));
+        setFinanceNoticeModal({
+          title: 'Finance Logs Cleared',
+          message: `Successfully deleted ${data.deletedCount || 0} finance log documents from MongoDB.`,
+        });
+      } else {
+        setFinanceNoticeModal({
+          title: 'Deletion Failed',
+          message: data.error || 'Failed to delete finance logs.',
+          isError: true,
+        });
+      }
+    } catch (err: any) {
+      setFinanceNoticeModal({
+        title: 'Error',
+        message: err.message || 'Error deleting finance logs.',
+        isError: true,
+      });
+    }
   };
 
   // Save Expense Records
@@ -2493,6 +2530,17 @@ export const Finances: React.FC = () => {
         {/* Action Controls & Primary Action Button */}
         {canManageFinances && (
           <div className="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+            {activeTab === 'funds' && (
+              <button
+                type="button"
+                onClick={handleDeleteAllFinanceLogs}
+                className="w-full sm:w-auto px-3 py-2.5 bg-amber-700 hover:bg-amber-800 text-white rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-xs active:scale-95 flex items-center justify-center gap-2"
+                title="Delete all finance logs from MongoDB"
+              >
+                <Trash2 className="w-4 h-4 text-amber-200" />
+                <span>Delete All Finance Logs</span>
+              </button>
+            )}
             {/* Primary Action Button: Record Payment or Liquidate Expense */}
             {activeTab === 'funds' || activeTab === 'accounts' ? (
               <button
@@ -4474,6 +4522,45 @@ export const Finances: React.FC = () => {
 
       {/* Official Processing Loader */}
       <OfficialLoader isLoading={isProcessing} message={processingMsg} />
+
+      {/* Delete All Finance Logs Confirmation Modal */}
+      <ModalPortal>
+        {showDeleteAllConfirmModal && (
+          <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+            <div className="bg-white rounded-2xl sm:rounded-3xl max-w-md w-full p-5 sm:p-6 shadow-2xl border border-stone-200 space-y-5 animate-in fade-in zoom-in-95 duration-150">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 text-rose-600 border border-rose-200 flex items-center justify-center mx-auto">
+                <Trash2 className="w-6 h-6" />
+              </div>
+
+              <div className="text-center space-y-1.5">
+                <h3 className="text-base font-heading font-black text-stone-900">
+                  Delete All Finance Logs?
+                </h3>
+                <p className="text-xs text-[#52605d] leading-relaxed">
+                  Are you sure you want to delete <span className="font-bold text-stone-900">ALL finance logs</span> from MongoDB? This action is permanent and will wipe out all transaction records.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteAllConfirmModal(false)}
+                  className="w-full py-2.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-700 text-xs font-black transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmDeleteAllFinanceLogs}
+                  className="w-full py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-black transition-colors cursor-pointer shadow-sm"
+                >
+                  Yes, Delete All
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </ModalPortal>
 
       {/* Finance Action / Error Notice Modal */}
       <ModalPortal>

@@ -1611,7 +1611,7 @@ export class DataStoreService {
     return roles.map((r) => r.name);
   }
 
-  saveClubRole(roleData: Omit<ClubRoleDefinition, 'id' | 'createdAt'> & { id?: string }): ClubRoleDefinition {
+  saveClubRole(roleData: Omit<ClubRoleDefinition, 'id'> & { id?: string }): ClubRoleDefinition {
     const roleId = roleData.id || `role_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 
     const newRole: ClubRoleDefinition = {
