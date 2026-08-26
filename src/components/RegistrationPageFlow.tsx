@@ -8,6 +8,7 @@ import { OfficialLoader } from './OfficialLoader';
 import { CustomSelect } from './CustomSelect';
 import { useFormAutoSave } from '../hooks/useFormAutoSave';
 import { BirthdateDropdownPicker } from './BirthdateDropdownPicker';
+import { InteractiveDatePicker } from './InteractiveDatePicker';
 import {
   User as UserIcon,
   Phone,
@@ -1648,15 +1649,12 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                         />
                       </div>
 
-                      <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                          OR Expiration Date <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="date"
+                      <div>
+                        <InteractiveDatePicker
+                          label="OR Expiration Date"
                           value={bikeOrExpiryDate}
-                          onChange={(e) => setBikeOrExpiryDate(e.target.value)}
-                          className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
+                          onChange={(val) => setBikeOrExpiryDate(val)}
+                          required
                         />
                       </div>
 
@@ -1698,15 +1696,12 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                         />
                       </div>
 
-                      <div className="space-y-1">
-                        <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] block">
-                          License Expiration Date <span className="text-rose-500">*</span>
-                        </label>
-                        <input
-                          type="date"
+                      <div>
+                        <InteractiveDatePicker
+                          label="License Expiration Date"
                           value={licenseExpiryDate}
-                          onChange={(e) => setLicenseExpiryDate(e.target.value)}
-                          className="w-full px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-xl bg-white border border-[#e2ece2] text-[#1b4332] text-[10px] sm:text-xs font-medium focus:outline-none focus:border-[#2d6a4f]"
+                          onChange={(val) => setLicenseExpiryDate(val)}
+                          required
                         />
                       </div>
                     </div>

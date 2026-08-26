@@ -1580,23 +1580,20 @@ export const Settings: React.FC = () => {
           recs[existingIdx].notes = 'Satisfied by Annual Upfront Promo Package';
           recs[existingIdx].updatedAt = todayStr;
           updated = true;
-          authFetch('/api/mongodb/financeLogs', {
+          authFetch(`/api/mongodb/financeLogs/${recs[existingIdx].id}`, { method: 'DELETE' }).catch(() => {});
+          authFetch('/api/mongodb/monthlyDueLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(recs[existingIdx]),
           }).catch(err => console.warn('MongoDB update monthly due sync error:', err));
         } else if (!hasAnnualPromo && recs[existingIdx].notes?.includes('Satisfied by Annual Upfront Promo Package')) {
+          authFetch(`/api/mongodb/monthlyDueLogs/${recs[existingIdx].id}`, { method: 'DELETE' }).catch(() => {});
           authFetch(`/api/mongodb/financeLogs/${recs[existingIdx].id}`, { method: 'DELETE' }).catch(() => {});
           recs.splice(existingIdx, 1);
           updated = true;
         } else if (!hasAnnualPromo && recs[existingIdx].status === 'Pending' && recs[existingIdx].amount !== due.amount) {
           recs[existingIdx].amount = due.amount;
           updated = true;
-          authFetch('/api/mongodb/financeLogs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(recs[existingIdx]),
-          }).catch(err => console.warn('MongoDB update monthly due sync error:', err));
         }
       });
 

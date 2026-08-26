@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BirthdateDropdownPicker } from './BirthdateDropdownPicker';
+import { InteractiveDatePicker } from './InteractiveDatePicker';
 
 export function cleanBarangayCityAddress(address?: string, streetAddress?: string): string {
   if (!address) return '';
@@ -1022,14 +1023,11 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 />
               </div>
               <div>
-                <label className="font-bold text-[#1b4332] block mb-1">
-                  OR Expiry Date <span className="text-rose-600 font-extrabold">*</span>
-                </label>
-                <input
-                  type="date"
+                <InteractiveDatePicker
+                  label="OR Expiry Date"
                   value={orExpiryDate}
-                  onChange={(e) => setOrExpiryDate(e.target.value)}
-                  className={inputStyle}
+                  onChange={(val) => setOrExpiryDate(val)}
+                  required
                 />
               </div>
             </div>
