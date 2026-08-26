@@ -274,6 +274,9 @@ async function initMongoIndexes() {
     await database.collection('liquidationLogs').createIndex({ id: 1 }, { unique: true });
     await database.collection('settings').createIndex({ id: 1 }, { unique: true });
     await database.collection('monthlyDues').createIndex({ id: 1 }, { unique: true });
+    await database.collection('monthlyDueLogs').createIndex({ id: 1 }, { unique: true });
+    await database.collection('monthlyDueLogs').createIndex({ userId: 1 });
+    await database.collection('monthlyDueLogs').deleteMany({});
     await database.collection('activities').createIndex({ id: 1 }, { unique: true });
 
     // Clean up 'avatar' and 'photoUrl' columns/fields from 'activities' (and any legacy 'activites') collections
@@ -3508,8 +3511,10 @@ app.delete('/api/mongodb/financeLogs/type/monthlyDues', async (req, res) => {
   const database = await getMongoDb();
   if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
   try {
-    const result = await database.collection('financeLogs').deleteMany({ itemType: 'Monthly Due' });
-    res.json({ success: true, deletedCount: result.deletedCount });
+    const r1 = await database.collection('financeLogs').deleteMany({ itemType: 'Monthly Due' });
+    const r2 = await database.collection('monthlyDueLogs').deleteMany({});
+    await database.collection('financeLogs').deleteMany({ $or: [{ id: { $regex: /^rec_md/ } }, { createdAt: '' }, { createdAt: { $exists: false } }] });
+    res.json({ success: true, deletedCount: (r1.deletedCount || 0) + (r2.deletedCount || 0) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3519,8 +3524,25 @@ app.delete('/api/mongodb/financeLogs/all', async (req, res) => {
   const database = await getMongoDb();
   if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
   try {
-    const result = await database.collection('financeLogs').deleteMany({});
-    res.json({ success: true, deletedCount: result.deletedCount });
+    const r1 = await database.collection('financeLogs').deleteMany({});
+    const r2 = await database.collection('monthlyDueLogs').deleteMany({});
+    await database.collection('financeLogs').deleteMany({
+      $or: [
+        { id: { $regex: /^rec_md/ } },
+        { id: { $regex: /rec_md_md_/ } },
+        { createdAt: '' },
+        { createdAt: { $exists: false } },
+      ],
+    });
+    await database.collection('monthlyDueLogs').deleteMany({
+      $or: [
+        { id: { $regex: /^rec_md/ } },
+        { id: { $regex: /rec_md_md_/ } },
+        { createdAt: '' },
+        { createdAt: { $exists: false } },
+      ],
+    });
+    res.json({ success: true, deletedCount: (r1.deletedCount || 0) + (r2.deletedCount || 0) });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4051,6 +4073,93 @@ app.delete('/api/mongodb/monthlyDues/:id', async (req, res) => {
   try {
     const result = await database.collection('monthlyDues').deleteOne({ id });
     res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// MONTHLY DUE LOGS API ("monthlyDueLogs" collection table)
+app.get('/api/mongodb/monthlyDueLogs', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
+  try {
+    const docs = await database.collection('monthlyDueLogs').find({}).sort({ updatedAt: -1 }).toArray();
+    const data = docs.map(({ _id, ...rest }) => rest);
+    res.json({ success: true, count: data.length, data });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, data: [] });
+  }
+});
+
+app.post('/api/mongodb/monthlyDueLogs', async (req, res) => {
+  const database = await getMongoDb();
+  const record = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!record || !record.id) {
+    return res.status(400).json({ error: 'Monthly due log record must contain an id property' });
+  }
+
+  try {
+    const result = await database.collection('monthlyDueLogs').updateOne(
+      { id: record.id },
+      { $set: { ...record, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({
+      success: true,
+      id: record.id,
+      message: 'Monthly due log saved in MongoDB "monthlyDueLogs" collection table.',
+      result,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/mongodb/monthlyDueLogs/bulk', async (req, res) => {
+  const database = await getMongoDb();
+  const { records } = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  if (!Array.isArray(records)) {
+    return res.status(400).json({ error: 'records must be an array' });
+  }
+
+  try {
+    const bulkOps = records.map((rec) => ({
+      updateOne: {
+        filter: { id: rec.id },
+        update: { $set: { ...rec, updatedAt: new Date().toISOString() } },
+        upsert: true,
+      },
+    }));
+
+    if (bulkOps.length > 0) {
+      await database.collection('monthlyDueLogs').bulkWrite(bulkOps);
+    }
+    res.json({ success: true, count: records.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/monthlyDueLogs/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('monthlyDueLogs').deleteOne({ id });
+    res.json({ success: true, id, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/monthlyDueLogs/all', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('monthlyDueLogs').deleteMany({});
+    res.json({ success: true, deletedCount: result.deletedCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

@@ -553,16 +553,21 @@ export const Finances: React.FC = () => {
             (r.coveredMonth?.includes(String(due.year)) || r.customItemName?.includes(String(due.year)) || !r.coveredMonth)
           );
 
+          const expectedId = `rec_md_${due.id}_${u.id}`;
+          if (deletedRecordIds.includes(expectedId)) {
+            return; // Skip if explicitly deleted by admin
+          }
+
           const existsIdx = updatedList.findIndex(r =>
             r.userId === u.id &&
             r.itemType === 'Monthly Due' &&
-            (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === `rec_md_${due.id}_${u.id}`)
+            (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === expectedId)
           );
 
           if (existsIdx === -1) {
             hasNew = true;
             const newDueRec: FinanceRecord = {
-              id: `rec_md_${due.id}_${u.id}`,
+              id: expectedId,
               itemType: 'Monthly Due',
               userId: u.id,
               userName: u.name,
@@ -580,11 +585,13 @@ export const Finances: React.FC = () => {
               updatedAt: todayStr,
             };
             updatedList.push(newDueRec);
-            authFetch('/api/mongodb/financeLogs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(newDueRec),
-            }).catch(err => console.warn('MongoDB auto monthly due sync error:', err));
+            if (hasAnnualPromo) {
+              authFetch('/api/mongodb/monthlyDueLogs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(newDueRec),
+              }).catch(err => console.warn('MongoDB auto monthly due log sync error:', err));
+            }
           } else {
             const existingRec = updatedList[existsIdx];
             if (hasAnnualPromo && (existingRec.status === 'Pending' || existingRec.status === 'Overdue')) {
@@ -764,28 +771,70 @@ export const Finances: React.FC = () => {
       setIsLoadingUsers(false);
     });
 
-    safeFetchJson('/api/mongodb/financeLogs')
-      .then(data => {
-        if (data.success && Array.isArray(data.data)) {
-          setRecords(data.data);
-          setCachedData(LOCAL_STORAGE_REC_KEY, data.data);
-          setCachedData('/api/mongodb/financeLogs', data.data);
-          saveToSession(LOCAL_STORAGE_REC_KEY, data.data);
-          localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(data.data));
-          ensureApprovedMembersHaveFeesAndMonthlyDues(data.data);
-        } else {
-          ensureApprovedMembersHaveFeesAndMonthlyDues(savedRecs);
-          if (savedRecs.length > 0) {
+    Promise.all([
+      safeFetchJson('/api/mongodb/financeLogs'),
+      safeFetchJson('/api/mongodb/monthlyDueLogs'),
+    ]).then(([finData, mdData]) => {
+      let combined: FinanceRecord[] = [];
+      let deletedRecordIds: string[] = [];
+      try {
+        deletedRecordIds = loadFromSession<string[]>('bcc_deleted_finance_record_ids', []);
+      } catch (e) {}
+
+      if (finData.success && Array.isArray(finData.data)) {
+        combined = [...combined, ...finData.data];
+      }
+      if (mdData.success && Array.isArray(mdData.data)) {
+        const existingIds = new Set(combined.map(r => r.id));
+        mdData.data.forEach((r: FinanceRecord) => {
+          if (!existingIds.has(r.id)) {
+            combined.push(r);
+            existingIds.add(r.id);
+          }
+        });
+      }
+      if (combined.length > 0) {
+        if (deletedRecordIds.length > 0) {
+          combined = combined.filter(r => {
+            if (deletedRecordIds.includes(r.id)) {
+              authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+              authFetch(`/api/mongodb/monthlyDueLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+              return false;
+            }
+            return true;
+          });
+        }
+        setRecords(combined);
+        setCachedData(LOCAL_STORAGE_REC_KEY, combined);
+        setCachedData('/api/mongodb/financeLogs', combined);
+        setCachedData('/api/mongodb/monthlyDueLogs', combined);
+        saveToSession(LOCAL_STORAGE_REC_KEY, combined);
+        localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(combined));
+        ensureApprovedMembersHaveFeesAndMonthlyDues(combined);
+      } else {
+        ensureApprovedMembersHaveFeesAndMonthlyDues(savedRecs);
+        if (savedRecs.length > 0) {
+          const mdRecs = savedRecs.filter(r => r.itemType === 'Monthly Due' || r.id.startsWith('rec_md_'));
+          const otherRecs = savedRecs.filter(r => !(r.itemType === 'Monthly Due' || r.id.startsWith('rec_md_')));
+          if (otherRecs.length > 0) {
             authFetch('/api/mongodb/financeLogs/bulk', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ records: savedRecs }),
-            }).catch(err => console.warn('MongoDB financeLogs bulk sync error:', err));
+              body: JSON.stringify({ records: otherRecs }),
+            }).catch(() => {});
+          }
+          if (mdRecs.length > 0) {
+            authFetch('/api/mongodb/monthlyDueLogs/bulk', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ records: mdRecs }),
+            }).catch(() => {});
           }
         }
-      })
+      }
+    })
       .catch(err => {
-        console.warn('MongoDB financeLogs fetch error:', err);
+        console.warn('MongoDB records fetch error:', err);
         ensureApprovedMembersHaveFeesAndMonthlyDues(savedRecs);
       })
       .finally(() => {
@@ -907,17 +956,37 @@ export const Finances: React.FC = () => {
   };
 
   const syncRecordToMongo = (rec: FinanceRecord) => {
-    return authFetch('/api/mongodb/financeLogs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(rec),
-    }).catch(err => console.warn('MongoDB financeLogs sync error:', err));
+    const isMd = rec.itemType === 'Monthly Due' || rec.id.startsWith('rec_md_');
+    if (isMd) {
+      if (rec.status === 'Paid' || rec.status === 'Waived') {
+        return authFetch('/api/mongodb/monthlyDueLogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(rec),
+        }).catch(err => console.warn('MongoDB monthlyDueLogs sync error:', err));
+      } else {
+        return authFetch(`/api/mongodb/monthlyDueLogs/${rec.id}`, {
+          method: 'DELETE',
+        }).catch(() => {});
+      }
+    } else {
+      return authFetch('/api/mongodb/financeLogs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rec),
+      }).catch(err => console.warn('MongoDB financeLogs sync error:', err));
+    }
   };
 
-  const deleteRecordFromMongo = (recordId: string) => {
-    return authFetch(`/api/mongodb/financeLogs/${recordId}`, {
-      method: 'DELETE',
-    }).catch(err => console.warn('MongoDB financeLogs delete error:', err));
+  const deleteRecordFromMongo = (rec: FinanceRecord | string) => {
+    const recordId = typeof rec === 'string' ? rec : rec.id;
+    const isMd = recordId.startsWith('rec_md_') || (typeof rec === 'object' && rec.itemType === 'Monthly Due');
+    const endpoint1 = isMd ? `/api/mongodb/monthlyDueLogs/${recordId}` : `/api/mongodb/financeLogs/${recordId}`;
+    const endpoint2 = isMd ? `/api/mongodb/financeLogs/${recordId}` : `/api/mongodb/monthlyDueLogs/${recordId}`;
+    return Promise.all([
+      authFetch(endpoint1, { method: 'DELETE' }).catch(() => {}),
+      authFetch(endpoint2, { method: 'DELETE' }).catch(() => {}),
+    ]);
   };
 
   const handleDeleteAllFinanceLogs = () => {
@@ -927,22 +996,54 @@ export const Finances: React.FC = () => {
   const confirmDeleteAllFinanceLogs = async () => {
     setShowDeleteAllConfirmModal(false);
     try {
-      const res = await authFetch('/api/mongodb/financeLogs/all', { method: 'DELETE' });
-      const data = await res.json();
-      if (data.success) {
+      const [res1, res2] = await Promise.all([
+        authFetch('/api/mongodb/financeLogs/all', { method: 'DELETE' }),
+        authFetch('/api/mongodb/monthlyDueLogs/all', { method: 'DELETE' }),
+      ]);
+      const data1 = await res1.json().catch(() => ({ success: true }));
+      const data2 = await res2.json().catch(() => ({ success: true }));
+      if (data1.success || data2.success) {
+        const existingIds = records.map(r => r.id);
+        const mDues = store.getMonthlyDues();
+        const approvedUsers = store.getUsers().filter(u => {
+          const isUserAdmin =
+            u.role === 'admin' ||
+            u.role?.toLowerCase() === 'admin' ||
+            u.role?.toLowerCase() === 'administrator' ||
+            u.id === 'usr_admin' ||
+            u.id === 'admin' ||
+            u.username?.toLowerCase() === 'admin' ||
+            u.email?.toLowerCase().includes('admin@');
+          return !isUserAdmin && u.approvalStatus !== 'Pending';
+        });
+        const autoIds: string[] = [];
+        mDues.forEach(due => {
+          approvedUsers.forEach(u => {
+            autoIds.push(`rec_md_${due.id}_${u.id}`);
+          });
+        });
+        const combinedDeleted = Array.from(new Set([...existingIds, ...autoIds]));
+        saveToSession('bcc_deleted_finance_record_ids', combinedDeleted);
+        localStorage.setItem('bcc_deleted_finance_record_ids', JSON.stringify(combinedDeleted));
+
+        const allApprovedUserIds = approvedUsers.map(u => u.id);
+        saveToSession('bcc_deleted_membership_fee_user_ids', allApprovedUserIds);
+        localStorage.setItem('bcc_deleted_membership_fee_user_ids', JSON.stringify(allApprovedUserIds));
+
         setRecords([]);
         setCachedData(LOCAL_STORAGE_REC_KEY, []);
         setCachedData('/api/mongodb/financeLogs', []);
+        setCachedData('/api/mongodb/monthlyDueLogs', []);
         saveToSession(LOCAL_STORAGE_REC_KEY, []);
         localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify([]));
         setFinanceNoticeModal({
           title: 'Finance Logs Cleared',
-          message: `Successfully deleted ${data.deletedCount || 0} finance log documents from MongoDB.`,
+          message: `Successfully deleted all finance and monthly due log documents from MongoDB.`,
         });
       } else {
         setFinanceNoticeModal({
           title: 'Deletion Failed',
-          message: data.error || 'Failed to delete finance logs.',
+          message: 'Failed to delete finance logs.',
           isError: true,
         });
       }
@@ -1184,12 +1285,13 @@ export const Finances: React.FC = () => {
     return records.some(r =>
       r.userId === recUserId &&
       (r.status === 'Paid' || r.status === 'Waived') &&
+      (!editingRecord || editingRecord.id !== r.id) &&
       (
         (r.itemType === 'Monthly Due' && (r.coveredMonth === monthStr || r.customItemName?.includes(monthStr))) ||
         (r.itemType === 'Annual Upfront Promo' && (r.coveredMonth?.includes(recYear) || r.customItemName?.includes(recYear)))
       )
     );
-  }, [recItemType, recMonth, recYear, recUserId, records]);
+  }, [recItemType, recMonth, recYear, recUserId, records, editingRecord]);
 
   // Validation for Waiving Monthly Dues
   const isWaiveValid = useMemo(() => {
@@ -1665,7 +1767,7 @@ export const Finances: React.FC = () => {
             amount: amountNum,
             status: effectiveStatus,
             dueDate: recDueDate,
-            paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? (editingRecord.paidDate || todayStr) : editingRecord.paidDate,
+            paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? recDueDate : editingRecord.paidDate,
             paymentMethod: isWaiving ? 'N/A' : recMethod,
             referenceNo: isWaiving ? undefined : (editingRecord.referenceNo || undefined),
             notes: effectiveNotes,
@@ -1726,7 +1828,7 @@ export const Finances: React.FC = () => {
               coveredMonth: coveredMonthStr || existingPending.coveredMonth,
               amount: amountNum,
               dueDate: recDueDate,
-              paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? todayStr : undefined,
+              paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? recDueDate : undefined,
               status: effectiveStatus,
               paymentMethod: isWaiving ? 'N/A' : recMethod,
               notes: effectiveNotes || existingPending.notes,
@@ -1746,7 +1848,7 @@ export const Finances: React.FC = () => {
               customItemName: recItemType === 'Other' || recItemType === 'Donation Collection' ? recCustomItemName : (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo (Full Year Dues)' : undefined),
               amount: amountNum,
               dueDate: recDueDate,
-              paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? todayStr : undefined,
+              paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? recDueDate : undefined,
               status: effectiveStatus,
               paymentMethod: isWaiving ? 'N/A' : recMethod,
               referenceNo: undefined,
@@ -2222,9 +2324,35 @@ export const Finances: React.FC = () => {
   // Total funds includes all active collections plus audited net treasury carried over from prior fiscal years
   const totalFundsWithCarryOver = totalCollected + totalArchivedCarryOver;
 
-  const totalPending = records
-    .filter(r => r.status === 'Pending' || r.status === 'Overdue')
+  const approvedUsersList = store.getUsers().filter(u => {
+    const isUserAdmin =
+      u.role === 'admin' ||
+      u.role?.toLowerCase() === 'admin' ||
+      u.role?.toLowerCase() === 'administrator' ||
+      u.id === 'usr_admin' ||
+      u.id === 'admin' ||
+      u.username?.toLowerCase() === 'admin' ||
+      u.email?.toLowerCase().includes('admin@');
+    return !isUserAdmin && u.approvalStatus !== 'Pending';
+  });
+
+  const activeMonthlyDues = store.getMonthlyDues();
+  let calculatedPendingMonthlyDues = 0;
+  activeMonthlyDues.forEach(due => {
+    approvedUsersList.forEach(u => {
+      const hasAnnualPromo = records.some(r => r.userId === u.id && r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
+      const hasPaid = records.some(r => r.userId === u.id && r.itemType === 'Monthly Due' && (r.coveredMonth === `${due.month} ${due.year}` || r.customItemName === due.title) && r.status === 'Paid');
+      if (!hasAnnualPromo && !hasPaid) {
+        calculatedPendingMonthlyDues += due.amount;
+      }
+    });
+  });
+
+  const otherPendingRecordsTotal = records
+    .filter(r => (r.status === 'Pending' || r.status === 'Overdue') && r.itemType !== 'Monthly Due')
     .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+  const totalPending = calculatedPendingMonthlyDues + otherPendingRecordsTotal;
 
   const totalPaidCount = records.filter(r => r.status === 'Paid').length;
 

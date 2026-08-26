@@ -1539,15 +1539,18 @@ export const Settings: React.FC = () => {
           (r.coveredMonth?.includes(String(due.year)) || r.customItemName?.includes(String(due.year)) || !r.coveredMonth)
         );
 
+        const cleanDueId = due.id.replace(/^md_/, '');
+        const targetRecId = `rec_md_${cleanDueId}_${u.id}`;
+
         const existingIdx = recs.findIndex(r =>
           r.userId === u.id &&
           r.itemType === 'Monthly Due' &&
-          (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === `rec_md_${due.id}_${u.id}`)
+          (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === targetRecId || r.id === `rec_md_${due.id}_${u.id}`)
         );
 
         if (existingIdx === -1) {
           const newRec = {
-            id: `rec_md_${due.id}_${u.id}`,
+            id: targetRecId,
             itemType: 'Monthly Due',
             userId: u.id,
             userName: u.name,
@@ -1566,11 +1569,11 @@ export const Settings: React.FC = () => {
           };
           recs.push(newRec);
           updated = true;
-          authFetch('/api/mongodb/financeLogs', {
+          authFetch('/api/mongodb/monthlyDueLogs', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newRec),
-          }).catch(err => console.warn('MongoDB auto monthly due sync error:', err));
+          }).catch(err => console.warn('MongoDB auto monthly due log sync error:', err));
         } else if (hasAnnualPromo && (recs[existingIdx].status === 'Pending' || recs[existingIdx].status === 'Overdue')) {
           recs[existingIdx].status = 'Paid';
           recs[existingIdx].paidDate = recs[existingIdx].paidDate || todayStr;
