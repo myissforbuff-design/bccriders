@@ -6,7 +6,23 @@ import { MongoClient, Db, ChangeStream } from 'mongodb';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 import { Resend } from 'resend';
-import webpush from 'web-push';
+
+// Safe dynamic loader for web-push to prevent deploy/startup crashes on platforms like Render
+let webpush: any = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  webpush = require('web-push');
+} catch {
+  try {
+    const resolvedPath = require.resolve('web-push', {
+      paths: [process.cwd(), path.join(process.cwd(), 'node_modules')],
+    });
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    webpush = require(resolvedPath);
+  } catch {
+    console.warn('[WebPush] Optional web-push package not loaded in this environment. In-app and Socket.io push broadcasts will operate as primary delivery.');
+  }
+}
 
 const app = express();
 const PORT = 3000;
@@ -1210,11 +1226,13 @@ const VAPID_PRIVATE_KEY =
 
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@bccriders.cc';
 
-try {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-  console.log('[WebPush] VAPID details configured successfully');
-} catch (err) {
-  console.warn('[WebPush] VAPID initialization warning:', err);
+if (webpush && typeof webpush.setVapidDetails === 'function') {
+  try {
+    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+    console.log('[WebPush] VAPID details configured successfully');
+  } catch (err) {
+    console.warn('[WebPush] VAPID initialization warning:', err);
+  }
 }
 
 export interface PushNotificationBroadcastPayload {
@@ -1260,7 +1278,7 @@ async function broadcastPushNotification(
   if (database) {
     try {
       const subscriptions = await database.collection('push_subscriptions').find({}).toArray();
-      if (subscriptions.length > 0) {
+      if (webpush && typeof webpush.sendNotification === 'function' && subscriptions.length > 0) {
         const payloadString = JSON.stringify({
           title: payload.title,
           body: payload.body,

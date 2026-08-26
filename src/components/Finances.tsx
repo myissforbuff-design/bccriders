@@ -632,7 +632,8 @@ export const Finances: React.FC = () => {
                 updatedAt: todayStr,
               };
               updatedList[existsIdx] = updatedRec;
-              authFetch('/api/mongodb/financeLogs', {
+              authFetch(`/api/mongodb/financeLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
+              authFetch('/api/mongodb/monthlyDueLogs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedRec),
@@ -640,17 +641,13 @@ export const Finances: React.FC = () => {
             } else if (!hasAnnualPromo && existingRec.notes?.includes('Satisfied by Annual Upfront Promo Package')) {
               // Promo was deleted or is not present; remove this auto-generated satisfied record completely
               hasNew = true;
+              authFetch(`/api/mongodb/monthlyDueLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
               authFetch(`/api/mongodb/financeLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
               updatedList.splice(existsIdx, 1);
             } else if (!hasAnnualPromo && existingRec.status === 'Pending' && existingRec.amount !== due.amount) {
               hasNew = true;
               const updatedRec = { ...existingRec, amount: due.amount };
               updatedList[existsIdx] = updatedRec;
-              authFetch('/api/mongodb/financeLogs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatedRec),
-              }).catch(err => console.warn('MongoDB sync notice:', err));
             }
           }
         });
@@ -998,17 +995,13 @@ export const Finances: React.FC = () => {
     const isMd = rec.itemType === 'Monthly Due' || rec.id.startsWith('rec_md_');
     if (isMd) {
       if (rec.status === 'Paid' || rec.status === 'Waived') {
-        const p1 = authFetch('/api/mongodb/monthlyDueLogs', {
+        // Ensure not duplicated in financeLogs; record strictly in monthlyDueLogs
+        authFetch(`/api/mongodb/financeLogs/${rec.id}`, { method: 'DELETE' }).catch(() => {});
+        return authFetch('/api/mongodb/monthlyDueLogs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(rec),
         }).catch(err => console.warn('MongoDB monthlyDueLogs sync error:', err));
-        const p2 = authFetch('/api/mongodb/financeLogs', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(rec),
-        }).catch(err => console.warn('MongoDB financeLogs sync error:', err));
-        return Promise.all([p1, p2]);
       } else {
         const p1 = authFetch(`/api/mongodb/monthlyDueLogs/${rec.id}`, {
           method: 'DELETE',
