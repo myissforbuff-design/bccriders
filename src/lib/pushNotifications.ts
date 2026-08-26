@@ -218,127 +218,9 @@ export interface PushNotificationPayload {
   customData?: Record<string, any>;
 }
 
-// Motorcycle Engine Start Audio Synthesizer (Realistic Starter Crank + Ignition Roar + Rev)
-export function playMotorcycleStartSound(): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioContextClass) return;
-    const ctx = new AudioContextClass();
-    if (ctx.state === 'suspended') {
-      ctx.resume().catch(() => {});
-    }
-
-    const t = ctx.currentTime;
-    const masterGain = ctx.createGain();
-    masterGain.gain.setValueAtTime(0.38, t);
-    masterGain.connect(ctx.destination);
-
-    // Distortion/Waveshaper node for authentic engine grit
-    const distortion = ctx.createWaveShaper();
-    const curve = new Float32Array(256);
-    for (let i = 0; i < 256; i++) {
-      const x = (i * 2) / 256 - 1;
-      curve[i] = ((3 + 2) * x * 20 * (Math.PI / 180)) / (Math.PI + 2 * Math.abs(x));
-    }
-    distortion.curve = curve;
-    distortion.oversample = '2x';
-
-    // Exhaust Filter
-    const filter = ctx.createBiquadFilter();
-    filter.type = 'lowpass';
-    filter.Q.setValueAtTime(3.2, t);
-    filter.frequency.setValueAtTime(220, t);
-    filter.frequency.exponentialRampToValueAtTime(180, t + 0.2);
-    filter.frequency.exponentialRampToValueAtTime(1150, t + 0.48);
-    filter.frequency.exponentialRampToValueAtTime(350, t + 0.95);
-
-    distortion.connect(filter);
-    filter.connect(masterGain);
-
-    // 1. Starter Cranking & Compression Pulses (crank-crank)
-    const starterOsc = ctx.createOscillator();
-    const starterGain = ctx.createGain();
-    starterOsc.type = 'sawtooth';
-    starterOsc.frequency.setValueAtTime(85, t);
-    starterOsc.frequency.exponentialRampToValueAtTime(65, t + 0.1);
-    starterOsc.frequency.exponentialRampToValueAtTime(95, t + 0.2);
-    starterGain.gain.setValueAtTime(0.25, t);
-    starterGain.gain.setValueAtTime(0.08, t + 0.09);
-    starterGain.gain.setValueAtTime(0.3, t + 0.18);
-    starterGain.gain.exponentialRampToValueAtTime(0.001, t + 0.28);
-    starterOsc.connect(starterGain);
-    starterGain.connect(distortion);
-    starterOsc.start(t);
-    starterOsc.stop(t + 0.28);
-
-    // 2. Starter Mechanical Churn Noise
-    const bufferSize = Math.floor(ctx.sampleRate * 0.28);
-    const noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-    const output = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      output[i] = Math.random() * 2 - 1;
-    }
-    const noise = ctx.createBufferSource();
-    noise.buffer = noiseBuffer;
-    const noiseFilter = ctx.createBiquadFilter();
-    noiseFilter.type = 'bandpass';
-    noiseFilter.frequency.setValueAtTime(480, t);
-    noiseFilter.Q.setValueAtTime(2.2, t);
-    const noiseGain = ctx.createGain();
-    noiseGain.gain.setValueAtTime(0.14, t);
-    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
-    noise.connect(noiseFilter);
-    noiseFilter.connect(noiseGain);
-    noiseGain.connect(masterGain);
-    noise.start(t);
-    noise.stop(t + 0.26);
-
-    // 3. Engine Ignition & Throttle Rev
-    const engineOsc = ctx.createOscillator();
-    const engineGain = ctx.createGain();
-    engineOsc.type = 'sawtooth';
-    engineOsc.frequency.setValueAtTime(52, t + 0.18);
-    engineOsc.frequency.exponentialRampToValueAtTime(160, t + 0.46);
-    engineOsc.frequency.exponentialRampToValueAtTime(95, t + 0.72);
-    engineOsc.frequency.exponentialRampToValueAtTime(50, t + 0.98);
-
-    engineGain.gain.setValueAtTime(0.001, t);
-    engineGain.gain.setValueAtTime(0.001, t + 0.18);
-    engineGain.gain.linearRampToValueAtTime(0.55, t + 0.25);
-    engineGain.gain.linearRampToValueAtTime(0.48, t + 0.5);
-    engineGain.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
-
-    engineOsc.connect(engineGain);
-    engineGain.connect(distortion);
-    engineOsc.start(t + 0.18);
-    engineOsc.stop(t + 1.0);
-
-    // 4. Low-End Exhaust Thump & Rumble
-    const subOsc = ctx.createOscillator();
-    const subGain = ctx.createGain();
-    subOsc.type = 'triangle';
-    subOsc.frequency.setValueAtTime(45, t + 0.2);
-    subOsc.frequency.exponentialRampToValueAtTime(80, t + 0.46);
-    subOsc.frequency.exponentialRampToValueAtTime(40, t + 0.98);
-
-    subGain.gain.setValueAtTime(0.001, t);
-    subGain.gain.setValueAtTime(0.001, t + 0.2);
-    subGain.gain.linearRampToValueAtTime(0.35, t + 0.28);
-    subGain.gain.exponentialRampToValueAtTime(0.001, t + 1.0);
-
-    subOsc.connect(subGain);
-    subGain.connect(masterGain);
-    subOsc.start(t + 0.2);
-    subOsc.stop(t + 1.0);
-  } catch {
-    // ignore audio policy errors
-  }
-}
-
 /**
  * Sends a push notification:
- * 1. Triggers local in-app alert card and motorcycle sound on current screen
+ * 1. Triggers local in-app alert card and audio chime on current screen
  * 2. If `broadcast = true` (default), broadcasts to ALL connected mobile and desktop users via:
  *    - Real-time Socket.io channel (instant active screen delivery across devices)
  *    - Web Push standard background push notifications (OS-level delivery to registered phones)
@@ -368,9 +250,24 @@ export async function sendPushNotification(
     );
   }
 
-  // Play motorcycle engine start sound if audio is enabled
-  if (config.sound) {
-    playMotorcycleStartSound();
+  // Play audio chime if enabled
+  if (config.sound && typeof window !== 'undefined' && typeof Audio !== 'undefined') {
+    try {
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, audioCtx.currentTime); // D5
+      osc.frequency.setValueAtTime(880, audioCtx.currentTime + 0.1); // A5
+      gain.gain.setValueAtTime(0.15, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.35);
+      osc.start(audioCtx.currentTime);
+      osc.stop(audioCtx.currentTime + 0.35);
+    } catch {
+      // ignore audio context policy errors
+    }
   }
 
   // If Notification permission is granted, display OS notification
@@ -381,8 +278,8 @@ export async function sendPushNotification(
         if (reg && reg.showNotification) {
           await reg.showNotification(payload.title, {
             body: payload.body,
-            icon: payload.icon || '/logo.png',
-            badge: payload.badge || '/logo.png',
+            icon: payload.icon || '/bcc_logo.png',
+            badge: payload.badge || '/bcc_logo.png',
             tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
             vibrate: config.vibration ? [200, 100, 200] : undefined,
             data: {
@@ -397,7 +294,7 @@ export async function sendPushNotification(
         // Fallback to standard Notification constructor
         new Notification(payload.title, {
           body: payload.body,
-          icon: payload.icon || '/logo.png',
+          icon: payload.icon || '/bcc_logo.png',
           tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
         });
       }
@@ -411,25 +308,21 @@ export async function sendPushNotification(
     fetch('/api/push/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...payload,
-        icon: payload.icon || '/logo.png',
-        badge: payload.badge || '/logo.png',
-      }),
+      body: JSON.stringify(payload),
     }).catch((err) => console.warn('[Push] Broadcast request error:', err));
   }
 
   return true;
 }
 
-// 1. Finance Transactions Push Alert Trigger (No Emojis, Clean Branding)
+// 1. Finance Transactions Push Alert Trigger
 export async function triggerFinancePushNotification(
   type: 'collection' | 'expense' | 'income' | 'payment' | string,
   amount: number,
   description: string
 ): Promise<boolean> {
   const formattedAmount = `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
-  const title = `Treasury: New ${type.charAt(0).toUpperCase() + type.slice(1)}`;
+  const title = `💰 Treasury: New ${type.charAt(0).toUpperCase() + type.slice(1)}`;
   const body = `${formattedAmount} — ${description}`;
 
   return sendPushNotification({
@@ -437,19 +330,17 @@ export async function triggerFinancePushNotification(
     body,
     category: 'finance',
     tab: 'finances',
-    icon: '/logo.png',
-    badge: '/logo.png',
     tag: `finance-${Date.now()}`,
     customData: { amount, type, description },
   });
 }
 
-// 2. Member Approvals Push Alert Trigger (No Emojis)
+// 2. Member Approvals Push Alert Trigger
 export async function triggerMemberApprovalPushNotification(
   memberName: string,
   approved: boolean
 ): Promise<boolean> {
-  const title = approved ? 'Member Approved' : 'Membership Status Updated';
+  const title = approved ? '👤 Member Approved!' : '👤 Membership Status Updated';
   const body = approved
     ? `Welcome to BCC Riders! ${memberName} has been officially approved into the club.`
     : `Membership application for ${memberName} was updated.`;
@@ -459,20 +350,18 @@ export async function triggerMemberApprovalPushNotification(
     body,
     category: 'memberApprovals',
     tab: 'members',
-    icon: '/logo.png',
-    badge: '/logo.png',
     tag: `member-${Date.now()}`,
     customData: { memberName, approved },
   });
 }
 
-// 3. Activities & Rides Created Push Alert Trigger (No Emojis)
+// 3. Activities & Rides Created Push Alert Trigger
 export async function triggerActivityCreatedPushNotification(
   title: string,
   date: string,
   location?: string
 ): Promise<boolean> {
-  const heading = `New Club Ride: ${title}`;
+  const heading = `🏍️ New Club Ride: ${title}`;
   const body = location
     ? `Scheduled for ${date} at ${location}. Tap to view itinerary & RSVP!`
     : `Scheduled for ${date}. Tap to view details and join the pack!`;
@@ -482,19 +371,17 @@ export async function triggerActivityCreatedPushNotification(
     body,
     category: 'activities',
     tab: 'rides',
-    icon: '/logo.png',
-    badge: '/logo.png',
     tag: `activity-${Date.now()}`,
     customData: { title, date, location },
   });
 }
 
-// 4. Announcements & Updates Push Alert Trigger (No Emojis)
+// 4. Announcements & Updates Push Alert Trigger
 export async function triggerAnnouncementPushNotification(
   title: string,
   content: string
 ): Promise<boolean> {
-  const heading = `Club Announcement: ${title}`;
+  const heading = `📢 Club Announcement: ${title}`;
   const truncated = content.length > 120 ? `${content.slice(0, 117)}...` : content;
 
   return sendPushNotification({
@@ -502,20 +389,18 @@ export async function triggerAnnouncementPushNotification(
     body: truncated,
     category: 'announcements',
     tab: 'announcements',
-    icon: '/logo.png',
-    badge: '/logo.png',
     tag: `announcement-${Date.now()}`,
     customData: { title, content },
   });
 }
 
-// 5. Emergency SOS Broadcast Push Alert Trigger (No Emojis)
+// 5. Emergency SOS Broadcast Push Alert Trigger
 export async function triggerSosPushNotification(
   riderName: string,
   location?: string,
   message?: string
 ): Promise<boolean> {
-  const heading = `EMERGENCY SOS: ${riderName} needs assistance!`;
+  const heading = `🚨 EMERGENCY SOS: ${riderName} needs assistance!`;
   const body = location
     ? `Location: ${location}. ${message || 'Immediate assistance requested by rider.'}`
     : `${message || 'Emergency broadcast signal triggered. Tap to view live telemetry and contact rider.'}`;
@@ -525,8 +410,6 @@ export async function triggerSosPushNotification(
     body,
     category: 'sos',
     tab: 'dashboard',
-    icon: '/logo.png',
-    badge: '/logo.png',
     tag: `sos-${Date.now()}`,
     requireInteraction: true,
     customData: { riderName, location, message },

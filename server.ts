@@ -6,23 +6,7 @@ import { MongoClient, Db, ChangeStream } from 'mongodb';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 import { Resend } from 'resend';
-
-// Safe dynamic loader for web-push to prevent deploy/startup crashes on platforms like Render
-let webpush: any = null;
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  webpush = require('web-push');
-} catch {
-  try {
-    const resolvedPath = require.resolve('web-push', {
-      paths: [process.cwd(), path.join(process.cwd(), 'node_modules')],
-    });
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    webpush = require(resolvedPath);
-  } catch {
-    console.warn('[WebPush] Optional web-push package not loaded in this environment. In-app and Socket.io push broadcasts will operate as primary delivery.');
-  }
-}
+import webpush from 'web-push';
 
 const app = express();
 const PORT = 3000;
@@ -293,6 +277,7 @@ async function initMongoIndexes() {
     await database.collection('monthlyDues').createIndex({ id: 1 }, { unique: true });
     await database.collection('monthlyDueLogs').createIndex({ id: 1 }, { unique: true });
     await database.collection('monthlyDueLogs').createIndex({ userId: 1 });
+    await database.collection('monthlyDueLogs').deleteMany({});
     await database.collection('activities').createIndex({ id: 1 }, { unique: true });
 
     // Clean up 'avatar' and 'photoUrl' columns/fields from 'activities' (and any legacy 'activites') collections
@@ -1226,13 +1211,11 @@ const VAPID_PRIVATE_KEY =
 
 const VAPID_SUBJECT = process.env.VAPID_SUBJECT || 'mailto:admin@bccriders.cc';
 
-if (webpush && typeof webpush.setVapidDetails === 'function') {
-  try {
-    webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-    console.log('[WebPush] VAPID details configured successfully');
-  } catch (err) {
-    console.warn('[WebPush] VAPID initialization warning:', err);
-  }
+try {
+  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+  console.log('[WebPush] VAPID details configured successfully');
+} catch (err) {
+  console.warn('[WebPush] VAPID initialization warning:', err);
 }
 
 export interface PushNotificationBroadcastPayload {
@@ -1278,12 +1261,12 @@ async function broadcastPushNotification(
   if (database) {
     try {
       const subscriptions = await database.collection('push_subscriptions').find({}).toArray();
-      if (webpush && typeof webpush.sendNotification === 'function' && subscriptions.length > 0) {
+      if (subscriptions.length > 0) {
         const payloadString = JSON.stringify({
           title: payload.title,
           body: payload.body,
-          icon: payload.icon || '/logo.png',
-          badge: payload.badge || '/logo.png',
+          icon: payload.icon || '/bcc-logo.png',
+          badge: payload.badge || '/bcc-logo.png',
           category: payload.category,
           tab: payload.tab || 'finances',
           url: payload.url || '/',

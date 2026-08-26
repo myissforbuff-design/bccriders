@@ -154,16 +154,9 @@ export const Finances: React.FC = () => {
   });
 
   const [records, setRecords] = useState<FinanceRecord[]>(() => {
-    let fromLocal: FinanceRecord[] = [];
-    try {
-      const item = localStorage.getItem(LOCAL_STORAGE_REC_KEY);
-      if (item) fromLocal = JSON.parse(item);
-    } catch {}
     return (
       getCachedData<FinanceRecord[]>('/api/mongodb/financeLogs', null as any) ||
-      getCachedData<FinanceRecord[]>('/api/mongodb/monthlyDueLogs', null as any) ||
       getCachedData<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, null as any) ||
-      (Array.isArray(fromLocal) && fromLocal.length > 0 ? fromLocal : null) ||
       loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, [])
     );
   });
@@ -377,16 +370,7 @@ export const Finances: React.FC = () => {
     setUsers(initialUsers);
 
     // 1. Load Funds Records
-    let savedRecs: FinanceRecord[] = [];
-    try {
-      const localItem = localStorage.getItem(LOCAL_STORAGE_REC_KEY);
-      if (localItem) savedRecs = JSON.parse(localItem);
-    } catch (e) {
-      console.error(e);
-    }
-    if (!savedRecs || !Array.isArray(savedRecs) || savedRecs.length === 0) {
-      savedRecs = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, []);
-    }
+    let savedRecs: FinanceRecord[] = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, []);
 
     const ensureApprovedMembersHaveFeesAndMonthlyDues = (currentRecs: FinanceRecord[]) => {
       let updatedList = [...currentRecs];
@@ -632,8 +616,7 @@ export const Finances: React.FC = () => {
                 updatedAt: todayStr,
               };
               updatedList[existsIdx] = updatedRec;
-              authFetch(`/api/mongodb/financeLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
-              authFetch('/api/mongodb/monthlyDueLogs', {
+              authFetch('/api/mongodb/financeLogs', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updatedRec),
@@ -641,13 +624,17 @@ export const Finances: React.FC = () => {
             } else if (!hasAnnualPromo && existingRec.notes?.includes('Satisfied by Annual Upfront Promo Package')) {
               // Promo was deleted or is not present; remove this auto-generated satisfied record completely
               hasNew = true;
-              authFetch(`/api/mongodb/monthlyDueLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
               authFetch(`/api/mongodb/financeLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
               updatedList.splice(existsIdx, 1);
             } else if (!hasAnnualPromo && existingRec.status === 'Pending' && existingRec.amount !== due.amount) {
               hasNew = true;
               const updatedRec = { ...existingRec, amount: due.amount };
               updatedList[existsIdx] = updatedRec;
+              authFetch('/api/mongodb/financeLogs', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(updatedRec),
+              }).catch(err => console.warn('MongoDB sync notice:', err));
             }
           }
         });
@@ -977,39 +964,22 @@ export const Finances: React.FC = () => {
   // Save Funds Records
   const saveRecordsToStorage = (updatedRecs: FinanceRecord[]) => {
     setRecords(updatedRecs);
-    setCachedData(LOCAL_STORAGE_REC_KEY, updatedRecs);
-    setCachedData('/api/mongodb/financeLogs', updatedRecs);
-    setCachedData('/api/mongodb/monthlyDueLogs', updatedRecs);
     saveToSession(LOCAL_STORAGE_REC_KEY, updatedRecs);
-    try {
-      localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(updatedRecs));
-    } catch (e) {
-      console.error('Failed to save finance records to localStorage:', e);
-    }
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('bcc_finance_updated', { detail: updatedRecs }));
-    }
   };
 
   const syncRecordToMongo = (rec: FinanceRecord) => {
     const isMd = rec.itemType === 'Monthly Due' || rec.id.startsWith('rec_md_');
     if (isMd) {
       if (rec.status === 'Paid' || rec.status === 'Waived') {
-        // Ensure not duplicated in financeLogs; record strictly in monthlyDueLogs
-        authFetch(`/api/mongodb/financeLogs/${rec.id}`, { method: 'DELETE' }).catch(() => {});
         return authFetch('/api/mongodb/monthlyDueLogs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(rec),
         }).catch(err => console.warn('MongoDB monthlyDueLogs sync error:', err));
       } else {
-        const p1 = authFetch(`/api/mongodb/monthlyDueLogs/${rec.id}`, {
+        return authFetch(`/api/mongodb/monthlyDueLogs/${rec.id}`, {
           method: 'DELETE',
         }).catch(() => {});
-        const p2 = authFetch(`/api/mongodb/financeLogs/${rec.id}`, {
-          method: 'DELETE',
-        }).catch(() => {});
-        return Promise.all([p1, p2]);
       }
     } else {
       return authFetch('/api/mongodb/financeLogs', {

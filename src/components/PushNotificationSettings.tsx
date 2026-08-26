@@ -459,13 +459,13 @@ export const PushNotificationSettings: React.FC = () => {
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-[#52605d]">
           <div className="p-3.5 rounded-xl bg-white border border-[#e2ece2] space-y-1.5">
-            <p className="font-bold text-[#1b4332]">Android (Chrome, Edge, Brave)</p>
+            <p className="font-bold text-[#1b4332]">🤖 Android (Chrome, Edge, Brave)</p>
             <p>1. Tap the <strong>Enable Push Alerts</strong> button above.</p>
             <p>2. Tap <strong>Allow</strong> on the browser prompt to receive system notifications even when the browser is closed.</p>
           </div>
 
           <div className="p-3.5 rounded-xl bg-white border border-[#e2ece2] space-y-1.5">
-            <p className="font-bold text-[#1b4332]">iOS (iPhone & iPad - iOS 16.4+)</p>
+            <p className="font-bold text-[#1b4332]">🍎 iOS (iPhone & iPad - iOS 16.4+)</p>
             <p>1. Open Safari and tap the <strong>Share icon (square with arrow)</strong>.</p>
             <p>2. Tap <strong>"Add to Home Screen"</strong> and open the app from your home screen icon.</p>
             <p>3. Tap <strong>Enable Push Alerts</strong> in Settings to receive lock-screen notifications.</p>
