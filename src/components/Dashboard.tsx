@@ -96,8 +96,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   });
 
-  const [isLoadingFinances, setIsLoadingFinances] = useState<boolean>(() => financeRecords.length === 0);
-  const [isLoadingExpenses, setIsLoadingExpenses] = useState<boolean>(() => expenseRecords.length === 0);
+  const [isLoadingFinances, setIsLoadingFinances] = useState<boolean>(true);
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState<boolean>(true);
 
   useEffect(() => {
     if (!currentUser) return;

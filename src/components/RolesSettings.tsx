@@ -256,22 +256,22 @@ export const RolesSettings: React.FC = () => {
       </AnimatePresence>
 
       {/* Main Section Header Card */}
-      <div className="p-6 rounded-2xl bg-white border border-[#1b4332]/10 shadow-xs space-y-4">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="flex items-start space-x-3.5">
-            <div className="p-3 bg-[#1b4332]/10 text-[#1b4332] rounded-xl shrink-0">
-              <Award className="w-6 h-6" />
+      <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#1b4332] text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5 sm:mt-0">
+              <Award className="w-5 h-5 text-[#74c69d]" />
             </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h3 className="text-lg font-heading font-extrabold text-[#1b4332]">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-heading font-black text-xs sm:text-sm md:text-base text-[#1b4332] leading-snug">
                   Club Roles & Permissions
                 </h3>
-                <span className="px-2.5 py-0.5 text-[11px] font-bold bg-[#1b4332]/10 text-[#1b4332] rounded-full">
+                <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-stone-200 text-stone-700 border border-stone-300 flex items-center gap-1 shrink-0">
                   {roles.length} Total
                 </span>
               </div>
-              <p className="text-sm text-[#52605d] mt-1 max-w-2xl">
+              <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
                 Define and customize motorcycle club roles, officer hierarchy, badge initials, and assigned duties. All configured roles will automatically appear in member edit dropdowns and roster profile badges.
               </p>
             </div>
@@ -280,51 +280,51 @@ export const RolesSettings: React.FC = () => {
           <button
             id="btn-add-club-role"
             onClick={handleOpenAdd}
-            className="flex items-center justify-center space-x-2 px-5 py-2.5 bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-bold rounded-xl transition-all shadow-xs hover:shadow-md cursor-pointer shrink-0"
+            className="w-full sm:w-auto px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-3.5 h-3.5" />
             <span>Add New Role</span>
           </button>
         </div>
 
-        {/* Stats Pill Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-[#1b4332]/10">
-          <div className="p-3 bg-[#fbfbfa] rounded-xl border border-[#1b4332]/5">
-            <div className="text-[11px] font-bold text-[#52605d] uppercase tracking-wider">Total Roles</div>
-            <div className="text-xl font-heading font-black text-[#1b4332] mt-0.5">{stats.total}</div>
+        {/* Stats Row */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-[#e2ece2]">
+          <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
+            <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-[#52605d] tracking-wider truncate">Total Roles</div>
+            <div className="text-sm sm:text-base font-black text-[#1b4332]">{stats.total}</div>
           </div>
-          <div className="p-3 bg-[#fbfbfa] rounded-xl border border-[#1b4332]/5">
-            <div className="text-[11px] font-bold text-[#52605d] uppercase tracking-wider">Executive & Officers</div>
-            <div className="text-xl font-heading font-black text-amber-600 mt-0.5">{stats.officers}</div>
+          <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
+            <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-amber-700 tracking-wider truncate">Executive & Officers</div>
+            <div className="text-sm sm:text-base font-black text-amber-700">{stats.officers}</div>
           </div>
-          <div className="p-3 bg-[#fbfbfa] rounded-xl border border-[#1b4332]/5">
-            <div className="text-[11px] font-bold text-[#52605d] uppercase tracking-wider">Staff & Marshals</div>
-            <div className="text-xl font-heading font-black text-teal-600 mt-0.5">{stats.staff}</div>
+          <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
+            <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-teal-700 tracking-wider truncate">Staff & Marshals</div>
+            <div className="text-sm sm:text-base font-black text-teal-700">{stats.staff}</div>
           </div>
-          <div className="p-3 bg-[#fbfbfa] rounded-xl border border-[#1b4332]/5">
-            <div className="text-[11px] font-bold text-[#52605d] uppercase tracking-wider">Custom Defined</div>
-            <div className="text-xl font-heading font-black text-emerald-600 mt-0.5">{stats.custom}</div>
+          <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
+            <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider truncate">Custom Defined</div>
+            <div className="text-sm sm:text-base font-black text-emerald-700">{stats.custom}</div>
           </div>
         </div>
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
         <div className="relative flex-1 max-w-md">
-          <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-[#52605d]" />
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[#52605d]" />
           <input
             type="text"
             placeholder="Search roles by title, initials, or duty..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-10 pr-4 py-2 bg-white border border-[#1b4332]/20 rounded-xl text-sm font-medium text-[#1b4332] placeholder-[#52605d]/60 focus:outline-none focus:ring-2 focus:ring-[#1b4332]/30"
+            className="w-full pl-8 pr-4 py-1.5 bg-white border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs font-medium text-[#1b4332] placeholder-[#52605d]/60 focus:outline-none focus:ring-2 focus:ring-[#1b4332]/20"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#52605d] hover:text-[#1b4332]"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#52605d] hover:text-[#1b4332]"
             >
-              <X className="w-3.5 h-3.5" />
+              <X className="w-3 h-3" />
             </button>
           )}
         </div>
@@ -335,10 +335,10 @@ export const RolesSettings: React.FC = () => {
             <button
               key={cat}
               onClick={() => setCategoryFilter(cat)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all cursor-pointer ${
+              className={`px-2.5 py-1 rounded-lg text-[10px] sm:text-[11px] font-bold whitespace-nowrap transition-all cursor-pointer ${
                 categoryFilter === cat
                   ? 'bg-[#1b4332] text-white shadow-xs'
-                  : 'bg-white text-[#52605d] border border-[#1b4332]/10 hover:bg-[#1b4332]/5'
+                  : 'bg-white text-[#52605d] border border-[#e2ece2] hover:bg-[#1b4332]/5'
               }`}
             >
               {cat === 'All' ? 'All Roles' : cat}
@@ -349,10 +349,10 @@ export const RolesSettings: React.FC = () => {
 
       {/* Roles Grid */}
       {filteredRoles.length === 0 ? (
-        <div className="p-12 text-center bg-white rounded-2xl border border-[#1b4332]/10 space-y-3">
-          <Briefcase className="w-12 h-12 text-[#52605d]/40 mx-auto" />
-          <h4 className="font-heading font-bold text-base text-[#1b4332]">No roles matched your search</h4>
-          <p className="text-xs text-[#52605d] max-w-sm mx-auto">
+        <div className="p-8 sm:p-10 text-center bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] space-y-2.5">
+          <Briefcase className="w-10 h-10 text-[#52605d]/40 mx-auto" />
+          <h4 className="font-heading font-bold text-xs sm:text-sm text-[#1b4332]">No roles matched your search</h4>
+          <p className="text-[11px] sm:text-xs text-[#52605d] max-w-sm mx-auto">
             Try adjusting your search query or category filters, or click &quot;Add New Role&quot; above to create a custom designation.
           </p>
           <button
@@ -360,13 +360,13 @@ export const RolesSettings: React.FC = () => {
               setSearchQuery('');
               setCategoryFilter('All');
             }}
-            className="text-xs font-bold text-[#1b4332] underline hover:text-[#2d6a4f]"
+            className="text-[11px] sm:text-xs font-bold text-[#1b4332] underline hover:text-[#2d6a4f]"
           >
             Clear all filters
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {filteredRoles.map((role) => {
             const roleData = roleMemberCounts[role.name.toLowerCase()] || { count: 0, members: [] };
             const memberCount = roleData.count;
@@ -374,31 +374,31 @@ export const RolesSettings: React.FC = () => {
             return (
               <div
                 key={role.id}
-                className="p-5 rounded-2xl bg-white border border-[#1b4332]/10 hover:border-[#1b4332]/30 transition-all shadow-xs flex flex-col justify-between space-y-4"
+                className="p-3.5 sm:p-4 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] hover:border-[#1b4332]/30 transition-all shadow-xs flex flex-col justify-between space-y-3"
               >
                 {/* Header info */}
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-center space-x-3.5">
+                <div className="flex items-start justify-between gap-2.5">
+                  <div className="flex items-start space-x-2.5 min-w-0">
                     {/* Badge Preview */}
                     <div
                       style={{
                         backgroundColor: role.badgeBgColor || '#059669',
                         color: role.badgeTextColor || '#ffffff',
                       }}
-                      className="w-11 h-11 rounded-xl shadow-xs flex items-center justify-center font-heading font-black text-sm shrink-0 border border-white/20"
+                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl shadow-xs flex items-center justify-center font-heading font-black text-xs shrink-0 border border-white/20 mt-0.5"
                     >
                       {role.badgeAbbr || role.name.slice(0, 2).toUpperCase()}
                     </div>
 
-                    <div>
-                      <div className="flex items-center space-x-2">
-                        <h4 className="font-heading font-extrabold text-base text-[#1b4332]">
+                    <div className="min-w-0">
+                      <div className="flex items-center space-x-1.5 flex-wrap">
+                        <h4 className="font-heading font-black text-xs sm:text-sm text-[#1b4332] truncate">
                           {role.name}
                         </h4>
                         {role.isSystemDefault ? (
                           <span
                             title="System Default Role"
-                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200"
+                            className="inline-flex items-center px-1.5 py-0.5 text-[9px] sm:text-[10px] font-black bg-stone-200 text-stone-700 border border-stone-300 rounded"
                           >
                             <Lock className="w-2.5 h-2.5 mr-0.5" />
                             Core
@@ -406,7 +406,7 @@ export const RolesSettings: React.FC = () => {
                         ) : (
                           <span
                             title="Custom Defined Role"
-                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200"
+                            className="inline-flex items-center px-1.5 py-0.5 text-[9px] sm:text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 rounded"
                           >
                             <Sparkles className="w-2.5 h-2.5 mr-0.5" />
                             Custom
@@ -414,9 +414,9 @@ export const RolesSettings: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="flex items-center space-x-2 mt-0.5">
+                      <div className="flex items-center space-x-2 mt-0.5 flex-wrap">
                         <span
-                          className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${
+                          className={`text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full ${
                             role.category === 'Officer'
                               ? 'bg-amber-50 text-amber-700 border border-amber-200/60'
                               : role.category === 'Staff'
@@ -428,7 +428,7 @@ export const RolesSettings: React.FC = () => {
                         >
                           {role.category || 'Custom'}
                         </span>
-                        <span className="text-[11px] text-[#52605d] font-medium">
+                        <span className="text-[10px] sm:text-[11px] text-[#52605d] font-medium truncate">
                           Badge: <span className="font-bold text-[#1b4332]">{role.badgeAbbr || role.name.slice(0, 2).toUpperCase()}</span>
                         </span>
                       </div>
@@ -436,33 +436,33 @@ export const RolesSettings: React.FC = () => {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center space-x-1 shrink-0">
+                  <div className="flex items-center space-x-0.5 shrink-0">
                     <button
                       onClick={() => handleOpenEdit(role)}
                       title="Edit role details & badge appearance"
-                      className="p-2 text-[#52605d] hover:text-[#1b4332] hover:bg-[#1b4332]/5 rounded-lg transition-colors cursor-pointer"
+                      className="p-1.5 text-[#52605d] hover:text-[#1b4332] hover:bg-white rounded-lg transition-colors cursor-pointer"
                     >
-                      <Edit2 className="w-4 h-4" />
+                      <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     {!role.isSystemDefault && (
                       <button
                         onClick={() => handleDeleteRole(role)}
                         title="Delete custom role"
-                        className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                        className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                       >
-                        <Trash2 className="w-4 h-4" />
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     )}
                   </div>
                 </div>
 
                 {/* Description */}
-                <p className="text-xs text-[#52605d] leading-relaxed line-clamp-2">
+                <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed line-clamp-2">
                   {role.description || 'Official club designation and authorized operational role within the organization.'}
                 </p>
 
                 {/* Footer: Member count & preview */}
-                <div className="pt-3 border-t border-[#1b4332]/10 flex items-center justify-between text-xs">
+                <div className="pt-2 border-t border-[#e2ece2] flex items-center justify-between text-[10px] sm:text-[11px]">
                   <div className="flex items-center space-x-1.5 text-[#52605d]">
                     <Users className="w-3.5 h-3.5 text-[#1b4332]" />
                     <span className="font-bold text-[#1b4332]">{memberCount}</span>
@@ -470,7 +470,7 @@ export const RolesSettings: React.FC = () => {
                   </div>
 
                   {/* Member mini-avatars */}
-                  {roleData.members.length > 0 && (
+                  {roleData.members.length > 0 ? (
                     <div className="flex items-center -space-x-1.5 overflow-hidden">
                       {roleData.members.slice(0, 4).map((m) => (
                         <img
@@ -488,6 +488,8 @@ export const RolesSettings: React.FC = () => {
                         </span>
                       )}
                     </div>
+                  ) : (
+                    <span className="text-[9.5px] font-medium text-[#52605d]/60">None</span>
                   )}
                 </div>
               </div>
@@ -508,32 +510,32 @@ export const RolesSettings: React.FC = () => {
               className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-[#1b4332]/10"
             >
               {/* Header */}
-              <div className="p-6 border-b border-[#1b4332]/10 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-10">
-                <div className="flex items-center space-x-3">
-                  <div className="p-2.5 bg-[#1b4332]/10 text-[#1b4332] rounded-xl">
-                    <Award className="w-5 h-5" />
+              <div className="p-4 sm:p-6 border-b border-[#1b4332]/10 flex items-center justify-between sticky top-0 bg-white/95 backdrop-blur-md z-10">
+                <div className="flex items-center space-x-2.5 sm:space-x-3">
+                  <div className="p-2 sm:p-2.5 bg-[#1b4332]/10 text-[#1b4332] rounded-xl shrink-0">
+                    <Award className="w-4 h-4 sm:w-5 sm:h-5" />
                   </div>
                   <div>
-                    <h3 className="font-heading font-extrabold text-lg text-[#1b4332]">
+                    <h3 className="font-heading font-extrabold text-[12pt] sm:text-base md:text-lg text-[#1b4332]">
                       {editingRole ? `Edit Role: ${editingRole.name}` : 'Create New Club Role'}
                     </h3>
-                    <p className="text-xs text-[#52605d]">
+                    <p className="text-[11pt] sm:text-xs text-[#52605d]">
                       {editingRole ? 'Update role hierarchy, badge aesthetics, and description.' : 'Define a new operational or leadership role for members.'}
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={() => setIsModalOpen(false)}
-                  className="p-2 text-[#52605d] hover:text-[#1b4332] hover:bg-[#1b4332]/5 rounded-xl transition-colors cursor-pointer"
+                  className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] hover:bg-[#1b4332]/5 rounded-xl transition-colors cursor-pointer"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4 sm:w-5 sm:h-5" />
                 </button>
               </div>
 
               {/* Form Body */}
-              <form onSubmit={handleSaveRole} className="p-6 space-y-5">
+              <form onSubmit={handleSaveRole} className="p-4 sm:p-6 space-y-4 sm:space-y-5">
                 {formError && (
-                  <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center space-x-2">
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-semibold flex items-center space-x-2">
                     <AlertCircle className="w-4 h-4 shrink-0" />
                     <span>{formError}</span>
                   </div>
@@ -541,7 +543,7 @@ export const RolesSettings: React.FC = () => {
 
                 {/* Role Title */}
                 <div>
-                  <label className="block text-xs font-bold text-[#1b4332] uppercase tracking-wider mb-1.5">
+                  <label className="block text-[10px] sm:text-xs font-bold text-[#1b4332] uppercase tracking-wider mb-1">
                     Role Title / Name <span className="text-rose-500">*</span>
                   </label>
                   <input
@@ -551,10 +553,10 @@ export const RolesSettings: React.FC = () => {
                     value={name}
                     onChange={(e) => handleNameChange(e.target.value)}
                     disabled={editingRole?.isSystemDefault}
-                    className="w-full px-4 py-2.5 bg-white border border-[#1b4332]/20 rounded-xl text-sm font-semibold text-[#1b4332] placeholder-[#52605d]/50 focus:outline-none focus:ring-2 focus:ring-[#1b4332]/30 disabled:bg-slate-100 disabled:text-slate-500"
+                    className="w-full px-3.5 py-2 sm:px-4 sm:py-2.5 bg-white border border-[#1b4332]/20 rounded-xl text-xs sm:text-sm font-semibold text-[#1b4332] placeholder-[#52605d]/50 focus:outline-none focus:ring-2 focus:ring-[#1b4332]/30 disabled:bg-slate-100 disabled:text-slate-500"
                   />
                   {editingRole?.isSystemDefault && (
-                    <p className="text-[11px] text-[#52605d] mt-1 flex items-center">
+                    <p className="text-[10px] sm:text-[11px] text-[#52605d] mt-1 flex items-center">
                       <Lock className="w-3 h-3 mr-1 text-slate-400" /> Core system role names are protected to preserve operational records.
                     </p>
                   )}
@@ -562,16 +564,16 @@ export const RolesSettings: React.FC = () => {
 
                 {/* Category & Hierarchy */}
                 <div>
-                  <label className="block text-xs font-bold text-[#1b4332] uppercase tracking-wider mb-1.5">
+                  <label className="block text-[10px] sm:text-xs font-bold text-[#1b4332] uppercase tracking-wider mb-1">
                     Hierarchy Category
                   </label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2">
                     {(['Officer', 'Staff', 'Member', 'Custom'] as const).map((cat) => (
                       <button
                         type="button"
                         key={cat}
                         onClick={() => setCategory(cat)}
-                        className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                        className={`py-1.5 sm:py-2 px-2.5 sm:px-3 rounded-xl text-[10px] sm:text-xs font-bold transition-all border cursor-pointer ${
                           category === cat
                             ? 'bg-[#1b4332] text-white border-[#1b4332] shadow-xs'
                             : 'bg-white text-[#52605d] border-[#1b4332]/10 hover:bg-[#1b4332]/5'
@@ -584,9 +586,9 @@ export const RolesSettings: React.FC = () => {
                 </div>
 
                 {/* Badge Initials & Appearance */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 p-4 rounded-2xl bg-[#fbfbfa] border border-[#1b4332]/10">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 p-3.5 sm:p-4 rounded-2xl bg-[#fbfbfa] border border-[#1b4332]/10">
                   <div>
-                    <label className="block text-xs font-bold text-[#1b4332] uppercase tracking-wider mb-1">
+                    <label className="block text-[10px] sm:text-xs font-bold text-[#1b4332] uppercase tracking-wider mb-1">
                       Badge Abbr / Initials <span className="text-rose-500">*</span>
                     </label>
                     <input
@@ -595,18 +597,18 @@ export const RolesSettings: React.FC = () => {
                       placeholder="e.g. RM, QM, MED"
                       value={badgeAbbr}
                       onChange={(e) => setBadgeAbbr(e.target.value.toUpperCase())}
-                      className="w-full px-3 py-2 bg-white border border-[#1b4332]/20 rounded-xl text-sm font-black text-[#1b4332] focus:outline-none focus:ring-2 focus:ring-[#1b4332]/30"
+                      className="w-full px-3 py-1.5 sm:py-2 bg-white border border-[#1b4332]/20 rounded-xl text-xs sm:text-sm font-black text-[#1b4332] focus:outline-none focus:ring-2 focus:ring-[#1b4332]/30"
                     />
-                    <p className="text-[10px] text-[#52605d] mt-1">
+                    <p className="text-[9.5px] sm:text-[10px] text-[#52605d] mt-1">
                       Max 4 uppercase characters displayed in member avatar badges.
                     </p>
                   </div>
 
                   {/* Live Avatar Preview */}
-                  <div className="flex flex-col items-center justify-center p-3 bg-white rounded-xl border border-[#1b4332]/10">
-                    <span className="text-[10px] font-bold text-[#52605d] uppercase mb-1.5">Live Badge Preview</span>
+                  <div className="flex flex-col items-center justify-center p-2.5 sm:p-3 bg-white rounded-xl border border-[#1b4332]/10">
+                    <span className="text-[9.5px] sm:text-[10px] font-bold text-[#52605d] uppercase mb-1">Live Badge Preview</span>
                     <div className="relative inline-block">
-                      <div className="w-12 h-12 rounded-full bg-slate-200 border-2 border-[#1b4332]/20 flex items-center justify-center text-slate-400 font-bold text-xs">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-slate-200 border-2 border-[#1b4332]/20 flex items-center justify-center text-slate-400 font-bold text-xs">
                         AV
                       </div>
                       <span
@@ -614,7 +616,7 @@ export const RolesSettings: React.FC = () => {
                           backgroundColor: badgeBgColor,
                           color: badgeTextColor,
                         }}
-                        className="absolute w-5 h-5 -bottom-0.5 -right-0.5 text-[9px] font-black rounded-full flex items-center justify-center ring-2 ring-white shadow-xs"
+                        className="absolute w-4.5 h-4.5 sm:w-5 sm:h-5 -bottom-0.5 -right-0.5 text-[8.5px] sm:text-[9px] font-black rounded-full flex items-center justify-center ring-2 ring-white shadow-xs"
                       >
                         {badgeAbbr || name.slice(0, 2).toUpperCase() || 'RO'}
                       </span>
@@ -624,15 +626,15 @@ export const RolesSettings: React.FC = () => {
 
                 {/* Color Palette Selector */}
                 <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-xs font-bold text-[#1b4332] uppercase tracking-wider">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[10px] sm:text-xs font-bold text-[#1b4332] uppercase tracking-wider">
                       Badge Background Color
                     </label>
-                    <span className="text-xs font-mono font-bold text-[#52605d]">{badgeBgColor}</span>
+                    <span className="text-[10px] sm:text-xs font-mono font-bold text-[#52605d]">{badgeBgColor}</span>
                   </div>
 
                   {/* Palette Grid */}
-                  <div className="grid grid-cols-6 gap-2.5 mb-3">
+                  <div className="grid grid-cols-6 gap-2 sm:gap-2.5 mb-2.5">
                     {PRESET_COLORS.map((p) => (
                       <button
                         type="button"
@@ -640,11 +642,11 @@ export const RolesSettings: React.FC = () => {
                         onClick={() => setBadgeBgColor(p.color)}
                         title={p.name}
                         style={{ backgroundColor: p.color }}
-                        className={`h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
+                        className={`h-7 sm:h-8 rounded-xl flex items-center justify-center transition-all cursor-pointer ${
                           badgeBgColor === p.color ? 'ring-2 ring-offset-2 ring-[#1b4332] scale-105 shadow-sm' : 'hover:opacity-90'
                         }`}
                       >
-                        {badgeBgColor === p.color && <Check className="w-4 h-4 text-white drop-shadow-xs" />}
+                        {badgeBgColor === p.color && <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-white drop-shadow-xs" />}
                       </button>
                     ))}
                   </div>
@@ -655,21 +657,21 @@ export const RolesSettings: React.FC = () => {
                       type="color"
                       value={badgeBgColor}
                       onChange={(e) => setBadgeBgColor(e.target.value)}
-                      className="w-9 h-9 rounded-lg border border-[#1b4332]/20 cursor-pointer p-0.5"
+                      className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg border border-[#1b4332]/20 cursor-pointer p-0.5"
                     />
                     <input
                       type="text"
                       value={badgeBgColor}
                       onChange={(e) => setBadgeBgColor(e.target.value)}
                       placeholder="#059669"
-                      className="flex-1 px-3 py-2 text-xs font-mono font-bold bg-white border border-[#1b4332]/20 rounded-xl text-[#1b4332]"
+                      className="flex-1 px-3 py-1.5 sm:py-2 text-[11px] sm:text-xs font-mono font-bold bg-white border border-[#1b4332]/20 rounded-xl text-[#1b4332]"
                     />
                   </div>
                 </div>
 
                 {/* Description */}
                 <div>
-                  <label className="block text-xs font-bold text-[#1b4332] uppercase tracking-wider mb-1.5">
+                  <label className="block text-[10px] sm:text-xs font-bold text-[#1b4332] uppercase tracking-wider mb-1">
                     Role Description & Responsibilities
                   </label>
                   <textarea
@@ -677,7 +679,7 @@ export const RolesSettings: React.FC = () => {
                     placeholder="Describe the duties, authority, and obligations associated with this role..."
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-white border border-[#1b4332]/20 rounded-xl text-xs font-medium text-[#1b4332] placeholder-[#52605d]/50 focus:outline-none focus:ring-2 focus:ring-[#1b4332]/30 resize-none"
+                    className="w-full px-3.5 py-2 sm:px-4 sm:py-2.5 bg-white border border-[#1b4332]/20 rounded-xl text-[11pt] sm:text-xs font-medium text-[#1b4332] placeholder-[#52605d]/50 focus:outline-none focus:ring-2 focus:ring-[#1b4332]/30 resize-none"
                   />
                 </div>
 
