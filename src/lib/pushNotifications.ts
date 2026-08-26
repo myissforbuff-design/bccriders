@@ -82,97 +82,6 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
   }
 }
 
-// Converts base64 URL safe string to Uint8Array for VAPID applicationServerKey
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
-
-export async function syncPushSubscriptionWithServer(): Promise<boolean> {
-  if (!isPushSupported()) return false;
-  try {
-    const registration = await registerServiceWorker();
-    if (!registration) return false;
-
-    // Fetch VAPID Public Key from server
-    const keyRes = await fetch('/api/push/vapid-public-key');
-    if (!keyRes.ok) return false;
-    const { publicKey } = await keyRes.json();
-    if (!publicKey) return false;
-
-    let subscription = await registration.pushManager.getSubscription();
-    if (!subscription) {
-      subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(publicKey),
-      });
-    }
-
-    if (subscription) {
-      // Get current logged-in user from storage
-      let currentUser: any = null;
-      try {
-        const stored = sessionStorage.getItem('bcc_session_user') || localStorage.getItem('bcc_user');
-        if (stored) currentUser = JSON.parse(stored);
-      } catch {}
-
-      await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subscription,
-          userId: currentUser?.id || 'usr_guest',
-          userName: currentUser?.name || 'Club Rider',
-          userAgent: navigator.userAgent,
-        }),
-      });
-      return true;
-    }
-  } catch (err) {
-    console.warn('[Push] Error syncing push subscription with backend:', err);
-  }
-  return false;
-}
-
-export async function unsubscribePushFromServer(): Promise<boolean> {
-  if (!isPushSupported()) return false;
-  try {
-    const registration = await navigator.serviceWorker.ready;
-    if (!registration) return false;
-    const subscription = await registration.pushManager.getSubscription();
-    if (subscription) {
-      const endpoint = subscription.endpoint;
-      await subscription.unsubscribe();
-      await fetch('/api/push/unsubscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ endpoint }),
-      }).catch(() => {});
-      return true;
-    }
-  } catch (err) {
-    console.warn('[Push] Unsubscribe error:', err);
-  }
-  return false;
-}
-
-export async function getRegisteredPushDevicesCount(): Promise<{ count: number; activeSockets: number }> {
-  try {
-    const res = await fetch('/api/push/subscriptions/count');
-    if (res.ok) {
-      const data = await res.json();
-      return { count: data.count || 0, activeSockets: data.activeSockets || 0 };
-    }
-  } catch {}
-  return { count: 0, activeSockets: 0 };
-}
-
 export async function requestPushPermission(): Promise<boolean> {
   if (!isPushSupported()) {
     return false;
@@ -186,22 +95,12 @@ export async function requestPushPermission(): Promise<boolean> {
     if (granted) {
       const current = getPushNotificationConfig();
       savePushNotificationConfig({ ...current, enabled: true });
-      // Register device subscription with backend for background OS push delivery
-      await syncPushSubscriptionWithServer();
     }
 
     return granted;
   } catch (err) {
     console.error('Failed requesting push permission:', err);
     return false;
-  }
-}
-
-// Auto-sync push registration if already granted
-export async function initPushNotifications(): Promise<void> {
-  if (typeof window === 'undefined') return;
-  if (isPushSupported() && Notification.permission === 'granted') {
-    void syncPushSubscriptionWithServer();
   }
 }
 
@@ -218,17 +117,7 @@ export interface PushNotificationPayload {
   customData?: Record<string, any>;
 }
 
-/**
- * Sends a push notification:
- * 1. Triggers local in-app alert card and audio chime on current screen
- * 2. If `broadcast = true` (default), broadcasts to ALL connected mobile and desktop users via:
- *    - Real-time Socket.io channel (instant active screen delivery across devices)
- *    - Web Push standard background push notifications (OS-level delivery to registered phones)
- */
-export async function sendPushNotification(
-  payload: PushNotificationPayload,
-  broadcast: boolean = true
-): Promise<boolean> {
+export async function sendPushNotification(payload: PushNotificationPayload): Promise<boolean> {
   const config = getPushNotificationConfig();
 
   // Check master switch
@@ -289,30 +178,23 @@ export async function sendPushNotification(
               customData: payload.customData,
             },
           } as any);
+          return true;
         }
-      } else {
-        // Fallback to standard Notification constructor
-        new Notification(payload.title, {
-          body: payload.body,
-          icon: payload.icon || '/bcc_logo.png',
-          tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
-        });
       }
+
+      // Fallback to standard Notification constructor
+      new Notification(payload.title, {
+        body: payload.body,
+        icon: payload.icon || '/bcc_logo.png',
+        tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
+      });
+      return true;
     } catch (e) {
       console.warn('Native notification dispatch error:', e);
     }
   }
 
-  // Cross-Device Broadcast to other mobile riders & dashboard users
-  if (broadcast && typeof window !== 'undefined') {
-    fetch('/api/push/broadcast', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).catch((err) => console.warn('[Push] Broadcast request error:', err));
-  }
-
-  return true;
+  return false;
 }
 
 // 1. Finance Transactions Push Alert Trigger

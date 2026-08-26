@@ -6,7 +6,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useFormAutoSave } from '../hooks/useFormAutoSave';
 import { LTO_RESTRICTION_CODES_2026, LTO_CONDITIONS_2026 } from './RegistrationPageFlow';
 import { BirthdateDropdownPicker } from './BirthdateDropdownPicker';
-import { InteractiveDatePicker } from './InteractiveDatePicker';
 import { cleanBarangayCityAddress } from './EditMemberModal';
 import { OfficialLoader } from './OfficialLoader';
 import {
@@ -1397,12 +1396,15 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
               />
             </div>
             <div>
-              <InteractiveDatePicker
-                label="License Expiry Date"
+              <label className="font-bold text-[#1b4332] block mb-1">
+                License Expiry Date {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+              </label>
+              <input
+                type="date"
                 disabled={isReadOnly}
                 value={licenseExpiryDate}
-                onChange={(val) => setLicenseExpiryDate(val)}
-                required={!isReadOnly}
+                onChange={(e) => setLicenseExpiryDate(e.target.value)}
+                className={inputStyle}
               />
             </div>
           </div>
@@ -1669,12 +1671,15 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
             />
           </div>
           <div>
-            <InteractiveDatePicker
-              label="OR Expiry Date"
+            <label className="font-bold text-[#1b4332] block mb-1">
+              OR Expiry Date {!isReadOnly && <span className="text-rose-600 font-extrabold">*</span>}
+            </label>
+            <input
+              type="date"
               disabled={isReadOnly}
               value={orExpiryDate}
-              onChange={(val) => setOrExpiryDate(val)}
-              required={!isReadOnly}
+              onChange={(e) => setOrExpiryDate(e.target.value)}
+              className={inputStyle}
             />
           </div>
         </div>

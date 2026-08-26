@@ -6,7 +6,6 @@ import { store } from '../lib/db';
 import { Event, EventType, PaceLevel } from '../types';
 import { PaymentModal } from './PaymentModal';
 import { CustomSelect } from './CustomSelect';
-import { InteractiveDatePicker } from './InteractiveDatePicker';
 import { ModalPortal } from './ModalPortal';
 import {
   Calendar,
@@ -469,11 +468,13 @@ export const EventScheduler: React.FC<EventSchedulerProps> = ({ onOpenMapRoute }
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <InteractiveDatePicker
-                      label="Date"
+                    <label className="text-[#2d3a3a] font-semibold mb-1 block">Date</label>
+                    <input
+                      type="date"
                       value={newDate}
-                      onChange={(val) => setNewDate(val)}
+                      onChange={(e) => setNewDate(e.target.value)}
                       required
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-[#2d3a3a] focus:outline-none focus:border-[#2d6a4f]"
                     />
                   </div>
                   <div>

@@ -14,7 +14,6 @@ import {
 import { OfficialDotSpinner } from './OfficialLoader';
 import { AttendanceTracker } from './AttendanceTracker';
 import { ModalPortal } from './ModalPortal';
-import { InteractiveDatePicker } from './InteractiveDatePicker';
 import {
   Calendar,
   CheckCircle,
@@ -1603,11 +1602,14 @@ export const ActivityLog: React.FC = () => {
                 </div>
 
                 <div>
-                  <InteractiveDatePicker
-                    label="Activity Date"
+                  <label className="block text-[9px] sm:text-[10px] font-extrabold text-[#52605d] uppercase mb-1 tracking-wider">
+                    Activity Date
+                  </label>
+                  <input
+                    type="date"
                     value={newActivityDate}
-                    onChange={(val) => setNewActivityDate(val)}
-                    required
+                    onChange={(e) => setNewActivityDate(e.target.value)}
+                    className="w-full p-2 sm:p-2.5 border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
                   />
                 </div>
 
@@ -1758,11 +1760,14 @@ export const ActivityLog: React.FC = () => {
                 </div>
 
                 <div>
-                  <InteractiveDatePicker
-                    label="Activity Date"
+                  <label className="block text-[9px] sm:text-[10px] font-extrabold text-[#52605d] uppercase mb-1 tracking-wider">
+                    Activity Date
+                  </label>
+                  <input
+                    type="date"
                     value={editActivityDate}
-                    onChange={(val) => setEditActivityDate(val)}
-                    required
+                    onChange={(e) => setEditActivityDate(e.target.value)}
+                    className="w-full p-2 sm:p-2.5 border border-[#e2ece2] rounded-xl text-[11px] sm:text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
                   />
                 </div>
 

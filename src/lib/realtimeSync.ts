@@ -23,7 +23,6 @@
 import { io, Socket } from 'socket.io-client';
 import { safeFetchJson, store } from './db';
 import { getAuthToken } from './storageSecurity';
-import { sendPushNotification } from './pushNotifications';
 
 // ==========================================
 // Types
@@ -428,23 +427,12 @@ function wireEvents(instance: Socket): void {
     scheduleFullResync(payload?.reason || 'server requested resync');
   };
 
-  // Push notifications distributed across devices
-  const onPushNotification = (payload: any) => {
-    if (!payload || !payload.title) return;
-    try {
-      void sendPushNotification(payload, false);
-    } catch (e) {
-      console.warn('[Realtime] Push notification reception error:', e);
-    }
-  };
-
   instance.on('connect', onConnect);
   instance.on('connect_error', onConnectError);
   instance.on('disconnect', onDisconnect);
   instance.on('db:ready', onReady);
   instance.on('db:change', onChange);
   instance.on('db:resync', onResync);
-  instance.on('push:notification', onPushNotification);
   instance.io.on('reconnect_attempt', onReconnectAttempt);
   instance.io.on('reconnect_error', onReconnectError);
   instance.io.on('reconnect_failed', onReconnectFailed);
@@ -458,7 +446,6 @@ function wireEvents(instance: Socket): void {
     instance.off('db:ready', onReady);
     instance.off('db:change', onChange);
     instance.off('db:resync', onResync);
-    instance.off('push:notification', onPushNotification);
     instance.io.off('reconnect_attempt', onReconnectAttempt);
     instance.io.off('reconnect_error', onReconnectError);
     instance.io.off('reconnect_failed', onReconnectFailed);

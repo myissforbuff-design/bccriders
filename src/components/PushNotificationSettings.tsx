@@ -29,7 +29,6 @@ import {
   triggerMemberApprovalPushNotification,
   triggerActivityCreatedPushNotification,
   triggerAnnouncementPushNotification,
-  getRegisteredPushDevicesCount,
   PushNotificationConfig,
 } from '../lib/pushNotifications';
 import { OfficialDotSpinner } from './OfficialLoader';
@@ -41,14 +40,12 @@ export const PushNotificationSettings: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(false);
   const [testSuccess, setTestSuccess] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
-  const [deviceStats, setDeviceStats] = useState<{ count: number; activeSockets: number }>({ count: 0, activeSockets: 0 });
 
   useEffect(() => {
     setSupported(isPushSupported());
     if (typeof window !== 'undefined' && 'Notification' in window) {
       setPermission(Notification.permission);
     }
-    void getRegisteredPushDevicesCount().then(setDeviceStats);
   }, []);
 
   const handleToggleAll = (enabled: boolean) => {
@@ -166,11 +163,7 @@ export const PushNotificationSettings: React.FC = () => {
             </div>
           </div>
 
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
-            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#f0f9f1] text-[#1b4332] font-bold text-[11px] border border-[#a7d7b5]">
-              <Radio className="w-3.5 h-3.5 text-[#2d6a4f] animate-pulse" />
-              <span>{deviceStats.count > 0 ? `${deviceStats.count} device${deviceStats.count === 1 ? '' : 's'} registered` : 'Cross-Device Broadcast Ready'}</span>
-            </div>
+          <div>
             {permission === 'granted' ? (
               <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-[#d8f3dc] text-[#1b4332] font-extrabold text-xs border border-[#74c69d]">
                 <CheckCircle2 className="w-4 h-4 text-[#2d6a4f]" />
