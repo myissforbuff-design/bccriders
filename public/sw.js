@@ -22,8 +22,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'BCC Riders Club';
   const options = {
     body: data.body || data.message || 'You have a new update from BCC Riders Club.',
-    icon: data.icon || '/bcc_logo.png',
-    badge: data.badge || '/bcc_logo.png',
+    icon: data.icon || '/logo.png',
+    badge: data.badge || '/logo.png',
     image: data.image || undefined,
     tag: data.tag || `bcc-push-${Date.now()}`,
     renotify: true,

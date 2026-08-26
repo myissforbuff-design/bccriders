@@ -1761,7 +1761,7 @@ export class DataStoreService {
     // Create immediate notification for the Admin
     const actionLabel = newReq.actionType === 'edit' ? 'edit/modify' : 'permanently delete';
     this.addNotification({
-      title: '🛡️ Treasurer Authorization Request',
+      title: 'Treasurer Authorization Request',
       message: `${newReq.requesterName} (Treasurer) requested admin approval to ${actionLabel} "${newReq.targetTitle}". Reason: ${newReq.reason || 'Not specified'}`,
       type: 'system',
       read: false,
@@ -1797,7 +1797,7 @@ export class DataStoreService {
     // Notify the Treasurer of the Admin's decision
     const statusText = status === 'Granted' ? 'GRANTED access' : status === 'Denied' ? 'DENIED access' : status;
     this.addNotification({
-      title: status === 'Granted' ? '✅ Treasurer Access Granted' : '❌ Treasurer Access Denied',
+      title: status === 'Granted' ? 'Treasurer Access Granted' : 'Treasurer Access Denied',
       message: `Admin ${adminName} has ${statusText} for your request to ${req.actionType} "${req.targetTitle}".${adminNotes ? ` Note: "${adminNotes}"` : ''}`,
       type: 'system',
       read: false,

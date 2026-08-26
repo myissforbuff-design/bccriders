@@ -122,7 +122,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       try {
         new window.Notification(`BCC Riders Club: ${title}`, {
           body: message,
-          icon: '/favicon.ico',
+          icon: '/logo.png',
         });
       } catch (err) {
         console.warn('Native notification failed:', err);

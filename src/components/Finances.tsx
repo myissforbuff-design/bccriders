@@ -4,8 +4,10 @@ import { useLoader } from '../context/LoaderContext';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { store, safeFetchJson, authFetch, getCachedData, setCachedData } from '../lib/db';
 import { loadFromSession, saveToSession } from '../lib/storageSecurity';
+import { triggerFinancePushNotification } from '../lib/pushNotifications';
 import { User, FinanceYearArchive, ArchivePackageData, TreasurerActionRequest } from '../types';
 import { CustomSelect } from './CustomSelect';
+import { InteractiveDatePicker } from './InteractiveDatePicker';
 import { OfficialLoader, CardValueSkeleton, CardSubSkeleton, CardMiniSpinner } from './OfficialLoader';
 import { YearlyArchiveModal } from './YearlyArchiveModal';
 import { ArchiveExportModal } from './ArchiveExportModal';
@@ -152,9 +154,16 @@ export const Finances: React.FC = () => {
   });
 
   const [records, setRecords] = useState<FinanceRecord[]>(() => {
+    let fromLocal: FinanceRecord[] = [];
+    try {
+      const item = localStorage.getItem(LOCAL_STORAGE_REC_KEY);
+      if (item) fromLocal = JSON.parse(item);
+    } catch {}
     return (
       getCachedData<FinanceRecord[]>('/api/mongodb/financeLogs', null as any) ||
+      getCachedData<FinanceRecord[]>('/api/mongodb/monthlyDueLogs', null as any) ||
       getCachedData<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, null as any) ||
+      (Array.isArray(fromLocal) && fromLocal.length > 0 ? fromLocal : null) ||
       loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, [])
     );
   });
@@ -217,8 +226,18 @@ export const Finances: React.FC = () => {
   const [showConfirmRecordModal, setShowConfirmRecordModal] = useState(false);
   const [isWaiveAction, setIsWaiveAction] = useState(false);
   const [editingRecord, setEditingRecord] = useState<FinanceRecord | null>(null);
+  const [recordSuccessNotice, setRecordSuccessNotice] = useState<string | null>(null);
   const [financeNoticeModal, setFinanceNoticeModal] = useState<{ title: string; message: string; isError?: boolean } | null>(null);
   const [showDeleteAllConfirmModal, setShowDeleteAllConfirmModal] = useState(false);
+
+  useEffect(() => {
+    if (recordSuccessNotice) {
+      const timer = setTimeout(() => {
+        setRecordSuccessNotice(null);
+      }, 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [recordSuccessNotice]);
 
   // Form State for Payment Record
   const [recUserId, setRecUserId] = useState('');
@@ -358,7 +377,16 @@ export const Finances: React.FC = () => {
     setUsers(initialUsers);
 
     // 1. Load Funds Records
-    let savedRecs: FinanceRecord[] = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, []);
+    let savedRecs: FinanceRecord[] = [];
+    try {
+      const localItem = localStorage.getItem(LOCAL_STORAGE_REC_KEY);
+      if (localItem) savedRecs = JSON.parse(localItem);
+    } catch (e) {
+      console.error(e);
+    }
+    if (!savedRecs || !Array.isArray(savedRecs) || savedRecs.length === 0) {
+      savedRecs = loadFromSession<FinanceRecord[]>(LOCAL_STORAGE_REC_KEY, []);
+    }
 
     const ensureApprovedMembersHaveFeesAndMonthlyDues = (currentRecs: FinanceRecord[]) => {
       let updatedList = [...currentRecs];
@@ -952,22 +980,43 @@ export const Finances: React.FC = () => {
   // Save Funds Records
   const saveRecordsToStorage = (updatedRecs: FinanceRecord[]) => {
     setRecords(updatedRecs);
+    setCachedData(LOCAL_STORAGE_REC_KEY, updatedRecs);
+    setCachedData('/api/mongodb/financeLogs', updatedRecs);
+    setCachedData('/api/mongodb/monthlyDueLogs', updatedRecs);
     saveToSession(LOCAL_STORAGE_REC_KEY, updatedRecs);
+    try {
+      localStorage.setItem(LOCAL_STORAGE_REC_KEY, JSON.stringify(updatedRecs));
+    } catch (e) {
+      console.error('Failed to save finance records to localStorage:', e);
+    }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_finance_updated', { detail: updatedRecs }));
+    }
   };
 
   const syncRecordToMongo = (rec: FinanceRecord) => {
     const isMd = rec.itemType === 'Monthly Due' || rec.id.startsWith('rec_md_');
     if (isMd) {
       if (rec.status === 'Paid' || rec.status === 'Waived') {
-        return authFetch('/api/mongodb/monthlyDueLogs', {
+        const p1 = authFetch('/api/mongodb/monthlyDueLogs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(rec),
         }).catch(err => console.warn('MongoDB monthlyDueLogs sync error:', err));
+        const p2 = authFetch('/api/mongodb/financeLogs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(rec),
+        }).catch(err => console.warn('MongoDB financeLogs sync error:', err));
+        return Promise.all([p1, p2]);
       } else {
-        return authFetch(`/api/mongodb/monthlyDueLogs/${rec.id}`, {
+        const p1 = authFetch(`/api/mongodb/monthlyDueLogs/${rec.id}`, {
           method: 'DELETE',
         }).catch(() => {});
+        const p2 = authFetch(`/api/mongodb/financeLogs/${rec.id}`, {
+          method: 'DELETE',
+        }).catch(() => {});
+        return Promise.all([p1, p2]);
       }
     } else {
       return authFetch('/api/mongodb/financeLogs', {
@@ -1218,6 +1267,7 @@ export const Finances: React.FC = () => {
         ? `Donation Collection: ${col.name} (₱${(Number(col?.amount) || 0).toLocaleString()})`
         : `Custom Collection: ${col.name} (₱${(Number(col?.amount) || 0).toLocaleString()})`
     })),
+    { value: 'opt_other', label: 'Other / Custom Payment' },
   ];
 
   const paymentOptionsList = rawPaymentOptionsList.map(opt => ({
@@ -1471,6 +1521,10 @@ export const Finances: React.FC = () => {
       setRecCustomItemName('Annual Upfront Promo (Full Year Dues)');
       setRecAmount('1000');
       setRecStatus('Paid');
+    } else if (val === 'opt_other') {
+      setRecItemType('Other');
+      setRecCustomItemName('');
+      setRecAmount('0');
     } else if (val.startsWith('dc_')) {
       const colId = val.replace('dc_', '');
       const col = dynamicColsList.find(c => c.id === colId);
@@ -1494,6 +1548,7 @@ export const Finances: React.FC = () => {
     const settings = store.getFinanceSettings();
     const mDues = store.getMonthlyDues();
     const dCols = store.getDynamicCollections();
+    setRecordSuccessNotice(null);
 
     if (presetRecord) {
       setEditingRecord(presetRecord);
@@ -1515,7 +1570,8 @@ export const Finances: React.FC = () => {
       setRecMethod(presetRecord.paymentMethod || 'Cash');
       setRecRefNo(presetRecord.referenceNo || '');
       setRecNotes(presetRecord.notes || '');
-      setRecDueDate(presetRecord.dueDate);
+      const initialDate = presetRecord.paidDate || presetRecord.dueDate || new Date().toISOString().split('T')[0];
+      setRecDueDate(initialDate);
 
       // Derive dropdown option key
       if (presetRecord.itemType === 'Membership Fee') {
@@ -1526,12 +1582,12 @@ export const Finances: React.FC = () => {
         setRecOptionKey('opt_annual_promo');
       } else if (presetRecord.itemType === 'Donation Collection') {
         const matchedCol = dCols.find(c => c.name === presetRecord.customItemName);
-        setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_monthly_due');
+        setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_other');
       } else if (presetRecord.customItemName) {
         const matchedCol = dCols.find(c => c.name === presetRecord.customItemName);
-        setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_monthly_due');
+        setRecOptionKey(matchedCol ? `dc_${matchedCol.id}` : 'opt_other');
       } else {
-        setRecOptionKey('opt_monthly_due');
+        setRecOptionKey(presetRecord.itemType === 'Other' ? 'opt_other' : 'opt_monthly_due');
       }
     } else {
       setEditingRecord(null);
@@ -1881,9 +1937,27 @@ export const Finances: React.FC = () => {
 
         if (editingRecord) {
           store.completeTreasurerRequest(editingRecord.id, 'edit');
+          setShowAddRecordModal(false);
+          setEditingRecord(null);
+        } else {
+          if (effectiveStatus === 'Paid') {
+            // Broadcast Push Notification to all mobile users and devices
+            const itemDescription = recItemType === 'Other' && recCustomItemName ? recCustomItemName : (recItemType === 'Monthly Due' ? `Monthly Due: ${coveredMonthStr}` : recItemType);
+            const memberLabel = selectedUser?.name || 'Club Member';
+            void triggerFinancePushNotification('collection', amountNum, `${itemDescription} (${memberLabel})`);
+          }
+          // In "Save & Add" mode: keep modal open to allow logging additional payments smoothly
+          setShowAddRecordModal(true);
+          setRecordSuccessNotice(`Payment for ${selectedUser?.name || 'Member'} successfully saved! You can record another payment below.`);
+          
+          // Reset fields for next entry
+          setRecNotes('');
+          setRecRefNo('');
+          if (recItemType === 'Other') {
+            setRecCustomItemName('');
+          }
         }
 
-        setShowAddRecordModal(false);
         await Promise.all(syncPromises);
       },
       {
@@ -2048,6 +2122,9 @@ export const Finances: React.FC = () => {
           };
           saveExpensesToStorage([newExpense, ...expenses]);
           await syncExpenseToMongo(newExpense);
+
+          // Broadcast Push Notification for expense disbursement
+          void triggerFinancePushNotification('expense', amountNum, `${expTitle.trim()} (${expCategory})`);
         }
 
         setShowExpenseModal(false);
@@ -3976,6 +4053,23 @@ export const Finances: React.FC = () => {
 
               <form onSubmit={handleInitiateSaveRecord} className="flex flex-col min-h-0 flex-1 overflow-hidden">
                 <div className="flex-1 overflow-y-auto p-2.5 sm:p-3 space-y-2 sm:space-y-2.5 pr-1.5 text-xs">
+                  {/* Success Notice Banner in Save & Add mode */}
+                  {recordSuccessNotice && (
+                    <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between gap-1.5 text-emerald-900 shadow-2xs animate-in fade-in slide-in-from-top-1">
+                      <div className="flex items-center gap-1.5 text-[9.5px] sm:text-[10px] font-bold">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <span>{recordSuccessNotice}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setRecordSuccessNotice(null)}
+                        className="text-emerald-700 hover:text-emerald-950 p-0.5 rounded-full hover:bg-emerald-100/50 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* No Members Warning Banner */}
                   {!hasMembers && (
                     <div className="p-2 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-1.5 text-amber-900 shadow-2xs">
@@ -4178,15 +4272,12 @@ export const Finances: React.FC = () => {
 
                   {/* Date Paid */}
                   <div>
-                    <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                      Date Paid
-                    </label>
-                    <input
-                      type="date"
+                    <InteractiveDatePicker
+                      label="Date Paid"
                       value={recDueDate}
-                      onChange={e => setRecDueDate(e.target.value)}
+                      onChange={val => setRecDueDate(val)}
                       disabled={!hasMembers}
-                      className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white"
+                      required
                     />
                   </div>
 
@@ -4241,7 +4332,7 @@ export const Finances: React.FC = () => {
                       className="px-3 py-1 bg-[#1b4332] hover:bg-[#2d6a4f] disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white rounded-lg text-[11px] font-extrabold transition-all cursor-pointer shadow-sm flex items-center gap-1 whitespace-nowrap"
                     >
                       <Check className="w-3 h-3 text-[#74c69d]" />
-                      <span>{editingRecord ? 'Save' : 'Record'}</span>
+                      <span>{editingRecord ? 'Save' : 'Save & Add'}</span>
                     </button>
                   </div>
                 </div>
@@ -4422,14 +4513,10 @@ export const Finances: React.FC = () => {
                   {/* Date & Receipt Reference */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                     <div>
-                      <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
-                        Disbursement Date
-                      </label>
-                      <input
-                        type="date"
+                      <InteractiveDatePicker
+                        label="Disbursement Date"
                         value={expDate}
-                        onChange={e => setExpDate(e.target.value)}
-                        className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] border border-[#e2ece2] rounded-lg text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        onChange={val => setExpDate(val)}
                         required
                       />
                     </div>

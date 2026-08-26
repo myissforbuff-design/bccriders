@@ -17,6 +17,7 @@ import {
   subscribeRealtimeStatus,
   type RealtimeSnapshot,
 } from '../lib/realtimeSync';
+import { initPushNotifications } from '../lib/pushNotifications';
 
 export interface UseRealtimeSyncResult extends RealtimeSnapshot {
   /** True while the push channel is live — i.e. no refresh needed to see other devices' writes. */
@@ -37,6 +38,7 @@ export function useRealtimeSync(sessionKey?: string | null): UseRealtimeSyncResu
   useEffect(() => {
     installRealtimeBackstops();
     connectRealtime();
+    initPushNotifications();
     const unsubscribe = subscribeRealtimeStatus(setSnapshot);
 
     return () => {
