@@ -9,6 +9,14 @@ import { User, MembershipType } from '../types';
 import { MemberRegistrationForm } from './MemberRegistrationForm';
 import { EditMemberModal, cleanBarangayCityAddress } from './EditMemberModal';
 import { RoleAvatarBadge } from './RoleAvatarBadge';
+import { PushNotificationSettings } from './PushNotificationSettings';
+import {
+  triggerFinancePushNotification,
+  triggerMemberApprovalPushNotification,
+  triggerActivityCreatedPushNotification,
+  triggerAnnouncementPushNotification,
+  getPushNotificationConfig,
+} from '../lib/pushNotifications';
 import {
   Users,
   User as UserIcon,
@@ -38,6 +46,11 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronDown,
+  Bell,
+  BellRing,
+  Send,
+  Radio,
+  DollarSign,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -219,6 +232,8 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
   const [dropdownPos, setDropdownPos] = useState<{ top: number; right: number } | null>(null);
   const [reviewingPendingUser, setReviewingPendingUser] = useState<User | null>(null);
   const [syncStatusMsg, setSyncStatusMsg] = useState<{ type: 'success' | 'warning'; text: string } | null>(null);
+  const [pushModalOpen, setPushModalOpen] = useState<boolean>(false);
+  const [memberAlertStatus, setMemberAlertStatus] = useState<{ id: string; msg: string } | null>(null);
   const [confirmModal, setConfirmModal] = useState<{
     type: 'approve' | 'reject' | 'delete';
     member: User;
@@ -228,6 +243,29 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
   useModalDismiss(!!reviewingPendingUser, () => setReviewingPendingUser(null));
   useModalDismiss(addModalOpen, () => setAddModalOpen(false));
   useModalDismiss(!!selectedMember, () => setSelectedMember(null));
+  useModalDismiss(pushModalOpen, () => setPushModalOpen(false));
+
+  const handleSendMemberDirectAlert = async (
+    targetUser: User,
+    type: 'dues' | 'ride' | 'welcome'
+  ) => {
+    try {
+      if (type === 'dues') {
+        await triggerFinancePushNotification('collection', 1500, `Monthly Club Dues & Ride Fund for ${targetUser.name}`);
+        setMemberAlertStatus({ id: targetUser.id, msg: `Dues alert push notification dispatched for ${targetUser.name}!` });
+      } else if (type === 'ride') {
+        await triggerActivityCreatedPushNotification(`Official BCC Chapter Ride Invite`, 'Next Scheduled Ride', `Special dispatch to ${targetUser.name}`);
+        setMemberAlertStatus({ id: targetUser.id, msg: `Ride event invite push dispatched for ${targetUser.name}!` });
+      } else {
+        await triggerMemberApprovalPushNotification(targetUser.name, true);
+        setMemberAlertStatus({ id: targetUser.id, msg: `Membership status notification dispatched for ${targetUser.name}!` });
+      }
+      setTimeout(() => setMemberAlertStatus(null), 3500);
+    } catch {
+      setMemberAlertStatus({ id: targetUser.id, msg: 'Failed to dispatch push notification.' });
+      setTimeout(() => setMemberAlertStatus(null), 3500);
+    }
+  };
 
   const activeDropdownMember = openDropdownId ? members.find((m) => m.id === openDropdownId) : null;
 
@@ -433,6 +471,17 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
           <Search className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#52605d] absolute left-2.5 sm:left-3 top-2.5 sm:top-3" />
         </div>
 
+        {/* Quick Push Notification Settings Button */}
+        <button
+          type="button"
+          onClick={() => setPushModalOpen(true)}
+          className="py-2 sm:py-2.5 px-3 sm:px-3.5 rounded-xl bg-[#f7f9f7] hover:bg-[#d8f3dc] text-[#1b4332] border border-[#e2ece2] hover:border-[#74c69d] font-bold text-xs shadow-2xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+          title="Push Notification Settings"
+        >
+          <Bell className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#2d6a4f]" />
+          <span className="hidden sm:inline">Push Settings</span>
+        </button>
+
         {rosterTab === 'active' && (
           <div className="relative shrink-0">
             <button
@@ -461,7 +510,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     animate={{ opacity: 1, scale: 1, y: 0 }}
                     exit={{ opacity: 0, scale: 0.95, y: -4 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute right-0 mt-2 w-44 sm:w-48 bg-white rounded-2xl shadow-xl border border-[#e2ece2] py-1.5 z-50 text-xs font-semibold overflow-hidden"
+                    className="absolute right-0 mt-2 w-48 sm:w-56 bg-white rounded-2xl shadow-xl border border-[#e2ece2] py-1.5 z-50 text-xs font-semibold overflow-hidden"
                   >
                     {isAdmin && (
                       <button
@@ -476,6 +525,17 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         <span>Add Member</span>
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPushModalOpen(true);
+                        setActionDropdownOpen(false);
+                      }}
+                      className="w-full px-3.5 py-2.5 text-left text-[#1b4332] hover:bg-[#f7f9f7] flex items-center gap-2.5 cursor-pointer font-bold border-b border-[#e2ece2]/60 transition-colors"
+                    >
+                      <Bell className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                      <span>Push Notification Settings</span>
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
@@ -929,6 +989,82 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         </div>
                       </div>
                     )}
+                  </div>
+
+                  {/* Push Notifications & Member Alerts Dispatch Card */}
+                  <div className="p-3 sm:p-3.5 rounded-xl sm:rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-[#1b4332] flex items-center gap-2">
+                        <Bell className="w-4 h-4 text-[#2d6a4f]" />
+                        Push Notifications & Member Alerts
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedMember(null);
+                          setPushModalOpen(true);
+                        }}
+                        className="text-[11px] font-extrabold text-[#2d6a4f] hover:underline cursor-pointer flex items-center gap-1"
+                      >
+                        <Radio className="w-3 h-3 text-[#2d6a4f] animate-pulse" />
+                        <span>Push Settings</span>
+                      </button>
+                    </div>
+
+                    {memberAlertStatus && memberAlertStatus.id === selectedMember.id && (
+                      <div className="p-2.5 rounded-xl bg-[#d8f3dc] border border-[#74c69d] text-[11px] font-bold text-[#1b4332] flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                        <span>{memberAlertStatus.msg}</span>
+                      </div>
+                    )}
+
+                    <p className="text-[11px] text-[#52605d]">
+                      Dispatch instant push alerts or reminders to <strong>{selectedMember.name}</strong> across all connected devices:
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleSendMemberDirectAlert(selectedMember, 'dues')}
+                        className="p-2 sm:p-2.5 rounded-xl bg-white hover:bg-[#d8f3dc] border border-[#e2ece2] hover:border-[#74c69d] text-left transition-all cursor-pointer group flex items-center sm:flex-col sm:items-start gap-2"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+                          <DollarSign className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-[#1b4332]">Dues Reminder</div>
+                          <div className="text-[10px] text-[#52605d]">Send dues push alert</div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSendMemberDirectAlert(selectedMember, 'ride')}
+                        className="p-2 sm:p-2.5 rounded-xl bg-white hover:bg-[#d8f3dc] border border-[#e2ece2] hover:border-[#74c69d] text-left transition-all cursor-pointer group flex items-center sm:flex-col sm:items-start gap-2"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+                          <Calendar className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-[#1b4332]">Ride Invite</div>
+                          <div className="text-[10px] text-[#52605d]">Send ride event alert</div>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSendMemberDirectAlert(selectedMember, 'welcome')}
+                        className="p-2 sm:p-2.5 rounded-xl bg-white hover:bg-[#d8f3dc] border border-[#e2ece2] hover:border-[#74c69d] text-left transition-all cursor-pointer group flex items-center sm:flex-col sm:items-start gap-2"
+                      >
+                        <div className="w-6 h-6 rounded-lg bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+                          <UserCheck className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-[#1b4332]">Status Ping</div>
+                          <div className="text-[10px] text-[#52605d]">Send recognition alert</div>
+                        </div>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1425,6 +1561,54 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                       <span>Reject</span>
                     </button>
                   )}
+                </div>
+              </motion.div>
+            </div>
+          </ModalPortal>
+        )}
+      </AnimatePresence>
+      {/* Push Notification Settings Modal */}
+      <AnimatePresence>
+        {pushModalOpen && (
+          <ModalPortal>
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setPushModalOpen(false);
+              }}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                className="relative w-full max-w-3xl max-h-[88dvh] sm:max-h-[84dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden my-auto"
+              >
+                <div className="flex items-center justify-between p-3.5 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-[#d8f3dc] flex items-center justify-center text-[#1b4332] shrink-0">
+                      <Bell className="w-5 h-5 text-[#2d6a4f]" />
+                    </div>
+                    <div>
+                      <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base">
+                        Push Notification Settings
+                      </h3>
+                      <p className="text-[11px] text-[#52605d]">
+                        Manage device alerts, sound & vibration preferences, and channels for members
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPushModalOpen(false)}
+                    className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
+                  >
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 overscroll-contain pr-2 scroll-smooth bg-[#fafcfa]">
+                  <PushNotificationSettings onClose={() => setPushModalOpen(false)} isModal={true} />
                 </div>
               </motion.div>
             </div>

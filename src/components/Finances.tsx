@@ -711,40 +711,8 @@ export const Finances: React.FC = () => {
         });
       });
 
-      // 4. Membership Fee Auto-Creation & Normalization
+      // 4. Membership Fee Normalization for existing records
       const configuredMembershipFee = Number(store.getFinanceSettings()?.membershipFee) || 200;
-
-      // Ensure every approved member has their Membership Fee transaction recorded
-      approvedUsers.forEach(u => {
-        if (deletedFeeUserIds.includes(u.id) || (u.username && deletedFeeUserIds.includes(u.username))) return;
-        const exists = updatedList.some(r =>
-          r.itemType === 'Membership Fee' &&
-          (r.userId === u.id || (u.username && r.userId === u.username) || (r.userMemberNo && u.memberNumber && r.userMemberNo.trim().toUpperCase() === u.memberNumber.trim().toUpperCase()) || (r.userName && u.name && r.userName.trim().toLowerCase() === u.name.trim().toLowerCase()))
-        );
-        if (!exists) {
-          hasNew = true;
-          const feeRec: FinanceRecord = {
-            id: `rec_mf_${u.id}`,
-            itemType: 'Membership Fee',
-            userId: u.id,
-            userName: u.name,
-            userMemberNo: u.memberNumber || 'BRC-MEMBER',
-            amount: configuredMembershipFee,
-            dueDate: u.joinDate || todayStr,
-            paidDate: todayStr,
-            status: 'Paid',
-            paymentMethod: 'Cash',
-            notes: 'Payment recorded upon member approval',
-            updatedAt: todayStr,
-          };
-          updatedList.unshift(feeRec);
-          authFetch('/api/mongodb/financeLogs', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(feeRec),
-          }).catch(err => console.warn('MongoDB fee auto-sync notice:', err));
-        }
-      });
 
       updatedList.forEach((r, idx) => {
         if (r.itemType === 'Membership Fee' && (r.amount === undefined || r.amount === null || isNaN(Number(r.amount)))) {

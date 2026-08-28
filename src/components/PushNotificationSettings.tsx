@@ -18,6 +18,7 @@ import {
   Sliders,
   Check,
   Vibrate,
+  X,
 } from 'lucide-react';
 import {
   getPushNotificationConfig,
@@ -34,7 +35,15 @@ import {
 } from '../lib/pushNotifications';
 import { OfficialDotSpinner } from './OfficialLoader';
 
-export const PushNotificationSettings: React.FC = () => {
+export interface PushNotificationSettingsProps {
+  onClose?: () => void;
+  isModal?: boolean;
+}
+
+export const PushNotificationSettings: React.FC<PushNotificationSettingsProps> = ({
+  onClose,
+  isModal = false,
+}) => {
   const [config, setConfig] = useState<PushNotificationConfig>(() => getPushNotificationConfig());
   const [permission, setPermission] = useState<NotificationPermission>('default');
   const [supported, setSupported] = useState<boolean>(true);

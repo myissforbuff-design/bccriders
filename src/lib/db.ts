@@ -797,18 +797,6 @@ export class DataStoreService {
     }).catch((err) => console.warn('MongoDB updateUser sync error:', err));
 
     if (wasNotApproved && isNowApproved) {
-      // Clear from deleted tracking on fresh approval
-      try {
-        const delItem = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
-        if (delItem && Array.isArray(delItem)) {
-          const filtered = delItem.filter((id) => id !== sanitized.id);
-          saveToSession('bcc_deleted_membership_fee_user_ids', filtered);
-        }
-      } catch (e) {
-        console.error(e);
-      }
-      this.recordMembershipFeePayment(sanitized);
-
       // Trigger Web Push Alert for Member Approval
       triggerMemberApprovalPushNotification(sanitized.name, true).catch(() => {});
     }
@@ -866,96 +854,12 @@ export class DataStoreService {
       body: JSON.stringify(finalUser),
     }).catch((err) => console.warn('MongoDB addUser sync error:', err));
 
-    if (!isPending) {
-      this.recordMembershipFeePayment(finalUser);
-    }
-
     return finalUser;
   }
 
-  // Helper to automatically record Membership Fee payment upon member approval
-  recordMembershipFeePayment(approvedUser: User): void {
-    if (
-      !approvedUser ||
-      approvedUser.approvalStatus !== 'Approved' ||
-      approvedUser.role === 'admin' ||
-      approvedUser.id === 'usr_admin'
-    ) {
-      return;
-    }
-
-    const todayStr = new Date().toISOString().split('T')[0];
-    const recKey = 'bcc_finance_records_v3';
-    let savedRecs: any[] = loadFromSession<any[]>(recKey, []);
-
-    // Check if membership fee was permanently deleted by admin/treasurer
-    try {
-      const deletedUserIds = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
-      if (deletedUserIds && (deletedUserIds.includes(approvedUser.id) || (approvedUser.username && deletedUserIds.includes(approvedUser.username)))) {
-        return;
-      }
-    } catch (e) {
-      console.error(e);
-    }
-
-    // Check if membership fee payment already exists for this user
-    const exists = savedRecs.some((r: any) => {
-      if (r.itemType !== 'Membership Fee') return false;
-      if (r.userId === approvedUser.id || (approvedUser.username && r.userId === approvedUser.username)) return true;
-      if (
-        r.userMemberNo &&
-        approvedUser.memberNumber &&
-        r.userMemberNo.trim().toUpperCase() === approvedUser.memberNumber.trim().toUpperCase()
-      ) {
-        return true;
-      }
-      if (
-        r.userName &&
-        approvedUser.name &&
-        r.userName.trim().toLowerCase() === approvedUser.name.trim().toLowerCase()
-      ) {
-        return true;
-      }
-      return false;
-    });
-
-    if (!exists) {
-      const configuredFee = Number(this.getFinanceSettings()?.membershipFee);
-      const feeAmount = !isNaN(configuredFee) && configuredFee >= 0 ? configuredFee : 200;
-
-      const newRec = {
-        id: `rec_mf_${approvedUser.id}`,
-        itemType: 'Membership Fee',
-        userId: approvedUser.id,
-        userName: approvedUser.name,
-        userMemberNo: approvedUser.memberNumber || 'BRC-MEMBER',
-        amount: feeAmount,
-        dueDate: approvedUser.joinDate || todayStr,
-        paidDate: todayStr,
-        status: 'Paid',
-        paymentMethod: 'Cash',
-        referenceNo: undefined,
-        notes: 'Payment recorded upon member approval',
-        updatedAt: todayStr,
-      };
-
-      savedRecs.unshift(newRec);
-      try {
-        saveToSession(recKey, savedRecs);
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('bcc_finance_updated'));
-        }
-      } catch (e) {
-        console.error(e);
-      }
-
-      // Sync to MongoDB financeLogs collection
-      authFetch('/api/mongodb/financeLogs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newRec),
-      }).catch((err) => console.warn('MongoDB financeLogs auto-record error:', err));
-    }
+  // Helper placeholder kept for backward compatibility (no automated transactions on member approval)
+  recordMembershipFeePayment(_approvedUser: User): void {
+    // Automated membership fee creation on member approval disabled
   }
 
   // Approve a pending registration form, removing it from 'registration' table and transferring to 'members' table
@@ -964,17 +868,6 @@ export class DataStoreService {
       ...approvedUser,
       approvalStatus: 'Approved',
     });
-
-    // Clear from deleted tracking on approval
-    try {
-      const delItem = loadFromSession<string[]>('bcc_deleted_membership_fee_user_ids', []);
-      if (delItem && Array.isArray(delItem)) {
-        const filtered = delItem.filter((id) => id !== sanitized.id && id !== sanitized.username);
-        saveToSession('bcc_deleted_membership_fee_user_ids', filtered);
-      }
-    } catch (e) {
-      console.error(e);
-    }
 
     // Update in local memory list (or insert if not present)
     const existsInList = this.users.some((u) => u.id === sanitized.id);
@@ -1013,8 +906,6 @@ export class DataStoreService {
           body: JSON.stringify(sanitized),
         }).catch((e) => console.warn('Approval email standalone error:', e));
       });
-
-    this.recordMembershipFeePayment(sanitized);
 
     return sanitized;
   }

@@ -21,11 +21,13 @@ import {
   ChevronUp,
   AlertTriangle,
   CheckCircle2,
+  Bell,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { ImageCropperModal } from './ImageCropperModal';
 import { OfficialLoader } from './OfficialLoader';
 import { ModalPortal } from './ModalPortal';
+import { PushNotificationSettings } from './PushNotificationSettings';
 
 interface RiderProfileProps {
   onOpenDuesModal?: () => void;
@@ -34,11 +36,13 @@ interface RiderProfileProps {
 export const RiderProfile: React.FC<RiderProfileProps> = () => {
   const { currentUser, updateUser } = useAuth();
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [pushModalOpen, setPushModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [showSaveConfirm, setShowSaveConfirm] = useState(false);
   const [fileErrorModalMessage, setFileErrorModalMessage] = useState<string | null>(null);
 
   useModalDismiss(editModalOpen, () => setEditModalOpen(false));
+  useModalDismiss(pushModalOpen, () => setPushModalOpen(false));
 
   // Filter out admin users so admin accounts are never included in rider profiles
   const riderMembers = store.getUsers().filter((u) => u.role !== 'admin');
@@ -273,17 +277,6 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
       })
       .catch((err) => console.warn('MongoDB financeLogs fetch in RiderProfile notice:', err));
 
-    // Ensure approved active rider has membership fee payment recorded if not deleted
-    if (
-      activeRider &&
-      activeRider.approvalStatus === 'Approved' &&
-      activeRider.role !== 'admin' &&
-      !activeRider.id?.startsWith('reg_')
-    ) {
-      store.recordMembershipFeePayment(activeRider);
-      setFinanceRecords(store.getFinanceRecords());
-    }
-
     const handleStorage = () => refreshRecords();
     const handleFinanceUpdated = () => refreshRecords();
 
@@ -442,8 +435,17 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
               </div>
             )}
 
-            {/* Quick Edit Profile & Cover Photo Buttons */}
+            {/* Quick Edit Profile, Push Notification Settings & Cover Photo Buttons */}
             <div className="absolute top-2 right-2 flex items-center gap-1.5 z-2">
+              <button
+                type="button"
+                onClick={() => setPushModalOpen(true)}
+                title="Push Notification Settings"
+                className="py-0.5 px-2 rounded-full bg-black/45 hover:bg-black/75 text-white text-[9.5px] font-bold backdrop-blur-xs flex items-center gap-1 border border-white/20 transition-all cursor-pointer shadow-xs"
+              >
+                <Bell className="w-2.5 h-2.5 text-[#74c69d]" />
+                <span>Push Alerts</span>
+              </button>
               <button
                 type="button"
                 onClick={() => quickBikePhotoInputRef.current?.click()}
@@ -1026,6 +1028,55 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                 >
                   Got It
                 </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+      </ModalPortal>
+
+      {/* Member Push Notification Settings Modal */}
+      <ModalPortal>
+        <AnimatePresence>
+          {pushModalOpen && (
+            <div
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-5 bg-black/70 backdrop-blur-md"
+              onClick={(e) => {
+                if (e.target === e.currentTarget) setPushModalOpen(false);
+              }}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                transition={{ duration: 0.2 }}
+                className="relative w-full max-w-3xl max-h-[88dvh] sm:max-h-[84dvh] flex flex-col rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] shadow-2xl text-[#2d3a3a] overflow-hidden my-auto"
+              >
+                <div className="flex items-center justify-between p-3.5 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] shrink-0">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-[#d8f3dc] flex items-center justify-center text-[#1b4332] shrink-0">
+                      <Bell className="w-5 h-5 text-[#2d6a4f]" />
+                    </div>
+                    <div>
+                      <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base">
+                        Push Notification Settings
+                      </h3>
+                      <p className="text-[11px] text-[#52605d]">
+                        Manage device alerts, sound & vibration preferences, and channels
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPushModalOpen(false)}
+                    className="p-1.5 sm:p-2 text-[#52605d] hover:text-[#1b4332] rounded-xl hover:bg-stone-200 cursor-pointer shrink-0 transition-colors"
+                  >
+                    <X className="w-4 h-4 sm:w-5 sm:h-5" />
+                  </button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 overscroll-contain pr-2 scroll-smooth bg-[#fafcfa]">
+                  <PushNotificationSettings onClose={() => setPushModalOpen(false)} isModal={true} />
+                </div>
               </motion.div>
             </div>
           )}

@@ -3260,36 +3260,7 @@ app.post('/api/mongodb/registration/accept/:id', async (req, res) => {
     // 3. Remove item from "registration" collection in MongoDB
     await database.collection('registration').deleteOne({ id });
 
-    // 4. Ensure Membership Fee record exists in MongoDB "financeLogs" collection
-    try {
-      const feeSettings = await database.collection('settings').findOne({ id: 'finance_settings' });
-      const feeAmount = Number(feeSettings?.membershipFee) || 200;
-      const todayStr = new Date().toISOString().split('T')[0];
-      const feeRecord = {
-        id: `rec_mf_${memberDoc.id}`,
-        itemType: 'Membership Fee',
-        userId: memberDoc.id,
-        userName: memberDoc.name || `${memberDoc.firstName || ''} ${memberDoc.lastName || ''}`.trim() || 'Club Member',
-        userMemberNo: memberDoc.memberNumber || 'BRC-MEMBER',
-        amount: feeAmount,
-        dueDate: memberDoc.joinDate || todayStr,
-        paidDate: todayStr,
-        status: 'Paid',
-        paymentMethod: 'Cash',
-        notes: 'Payment recorded upon member approval',
-        createdAt: todayStr,
-        updatedAt: todayStr,
-      };
-      await database.collection('financeLogs').updateOne(
-        { id: feeRecord.id },
-        { $set: feeRecord },
-        { upsert: true }
-      );
-    } catch (feeErr) {
-      console.warn('Could not auto-create finance log in MongoDB:', feeErr);
-    }
-
-    // 5. Send official approval email to the registered email address from info@bccriders.cc (No-Reply)
+    // 4. Send official approval email to the registered email address from info@bccriders.cc (No-Reply)
     sendMemberApprovalEmail(memberDoc).catch((e) =>
       console.error('[Approval Email Error] Could not send approval email:', e)
     );
