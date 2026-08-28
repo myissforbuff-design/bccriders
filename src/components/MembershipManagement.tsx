@@ -286,7 +286,6 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
             target.memberNumber = `BRC-${String(approvedCount + 1).padStart(4, '0')}`;
           }
           store.approveRegistration(target);
-          void triggerMemberApprovalPushNotification(target.name, true);
           if (selectedMember?.id === memberId) setSelectedMember(null);
           if (reviewingPendingUser?.id === memberId) setReviewingPendingUser(null);
           setConfirmModal(null);

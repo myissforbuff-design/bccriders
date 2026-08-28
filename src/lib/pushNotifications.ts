@@ -359,8 +359,8 @@ export async function sendPushNotification(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...payload,
-        icon: payload.icon || '/logo.png',
-        badge: payload.badge || '/logo.png',
+        icon: payload.icon || '/app-logo.png',
+        badge: payload.badge || undefined,
       }),
     }).catch((err) => console.warn('[Push] Broadcast request error:', err));
   }
@@ -398,8 +398,8 @@ export async function sendPushNotification(
         if (reg && reg.showNotification) {
           await reg.showNotification(payload.title, {
             body: payload.body,
-            icon: payload.icon || '/logo.png',
-            badge: payload.badge || '/logo.png',
+            icon: payload.icon || '/app-logo.png',
+            badge: payload.badge || undefined,
             tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
             vibrate: config.vibration ? [200, 100, 200] : undefined,
             data: {
@@ -414,7 +414,7 @@ export async function sendPushNotification(
         // Fallback to standard Notification constructor
         new Notification(payload.title, {
           body: payload.body,
-          icon: payload.icon || '/logo.png',
+          icon: payload.icon || '/app-logo.png',
           tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
         });
       }
@@ -441,8 +441,7 @@ export async function triggerFinancePushNotification(
     body,
     category: 'finance',
     tab: 'finances',
-    icon: '/logo.png',
-    badge: '/logo.png',
+    icon: '/app-logo.png',
     tag: `finance-${Date.now()}`,
     customData: { amount, type, description },
   });
@@ -463,8 +462,7 @@ export async function triggerMemberApprovalPushNotification(
     body,
     category: 'memberApprovals',
     tab: 'members',
-    icon: '/logo.png',
-    badge: '/logo.png',
+    icon: '/app-logo.png',
     tag: `member-${Date.now()}`,
     customData: { memberName, approved },
   });
@@ -486,8 +484,7 @@ export async function triggerActivityCreatedPushNotification(
     body,
     category: 'activities',
     tab: 'rides',
-    icon: '/logo.png',
-    badge: '/logo.png',
+    icon: '/app-logo.png',
     tag: `activity-${Date.now()}`,
     customData: { title, date, location },
   });
@@ -506,8 +503,7 @@ export async function triggerAnnouncementPushNotification(
     body: truncated,
     category: 'announcements',
     tab: 'announcements',
-    icon: '/logo.png',
-    badge: '/logo.png',
+    icon: '/app-logo.png',
     tag: `announcement-${Date.now()}`,
     customData: { title, content },
   });
@@ -529,8 +525,7 @@ export async function triggerSosPushNotification(
     body,
     category: 'sos',
     tab: 'dashboard',
-    icon: '/logo.png',
-    badge: '/logo.png',
+    icon: '/app-logo.png',
     tag: `sos-${Date.now()}`,
     requireInteraction: true,
     customData: { riderName, location, message },

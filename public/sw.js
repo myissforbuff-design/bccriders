@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bcc-riders-v2';
+const CACHE_NAME = 'bcc-riders-v3';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -22,8 +22,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'BCC Riders Club';
   const options = {
     body: data.body || data.message || 'You have a new update from BCC Riders Club.',
-    icon: data.icon || '/logo.png',
-    badge: data.badge || '/logo.png',
+    icon: data.icon || '/app-logo.png',
+    badge: data.badge || undefined,
     image: data.image || undefined,
     tag: data.tag || `bcc-push-${Date.now()}`,
     renotify: true,

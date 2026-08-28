@@ -531,7 +531,8 @@ export const Finances: React.FC = () => {
             authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           }
-          if (r.itemType === 'Membership Fee' && deletedFeeUserIds.includes(r.userId)) {
+          // Only purge placeholder unpaid/pending membership fees, NEVER delete Paid or Waived records!
+          if ((r.status === 'Pending' || r.status === 'Overdue') && r.itemType === 'Membership Fee' && deletedFeeUserIds.includes(r.userId)) {
             authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
             return false;
           }
@@ -542,16 +543,19 @@ export const Finances: React.FC = () => {
         }
       }
 
-      // 0.8. Clean up / purge any records belonging to Pending applicants or non-approved members
+      // 0.8. Clean up / purge only unpaid pending placeholder records belonging to non-approved applicants
       const pendingUsersList = allCurrentUsers.filter(u => u.approvalStatus === 'Pending');
       const pendingIdsSet = new Set(pendingUsersList.map(u => u.id));
       const approvedIdsSet = new Set(approvedUsers.map(u => u.id));
 
       const lenBeforePendingPurge = updatedList.length;
       updatedList = updatedList.filter(r => {
-        if (r.userId && pendingIdsSet.has(r.userId) && !approvedIdsSet.has(r.userId)) {
-          authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
-          return false;
+        // Never delete any recorded payment (Paid or Waived) even if the user is pending or in registration
+        if (r.status === 'Pending' || r.status === 'Overdue') {
+          if (r.userId && pendingIdsSet.has(r.userId) && !approvedIdsSet.has(r.userId)) {
+            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+            return false;
+          }
         }
         return true;
       });
@@ -1749,13 +1753,16 @@ export const Finances: React.FC = () => {
           });
         }
 
-        if (recItemType === 'Membership Fee' && recUserId) {
+        if (recUserId) {
           try {
             const dItem = localStorage.getItem('bcc_deleted_membership_fee_user_ids');
             if (dItem) {
               const current: string[] = JSON.parse(dItem);
               const filtered = current.filter(id => id !== recUserId);
               localStorage.setItem('bcc_deleted_membership_fee_user_ids', JSON.stringify(filtered));
+              saveToSession('bcc_deleted_membership_fee_user_ids', filtered);
+            } else {
+              saveToSession('bcc_deleted_membership_fee_user_ids', []);
             }
           } catch (e) {
             console.error(e);
@@ -1786,7 +1793,7 @@ export const Finances: React.FC = () => {
             dueDate: recDueDate,
             paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? recDueDate : editingRecord.paidDate,
             paymentMethod: isWaiving ? 'N/A' : recMethod,
-            referenceNo: isWaiving ? undefined : (editingRecord.referenceNo || undefined),
+            referenceNo: isWaiving ? undefined : (recRefNo.trim() || editingRecord.referenceNo || undefined),
             notes: effectiveNotes,
             updatedAt: todayStr,
           };
@@ -1848,6 +1855,7 @@ export const Finances: React.FC = () => {
               paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? recDueDate : undefined,
               status: effectiveStatus,
               paymentMethod: isWaiving ? 'N/A' : recMethod,
+              referenceNo: recRefNo.trim() || existingPending.referenceNo || undefined,
               notes: effectiveNotes || existingPending.notes,
               updatedAt: todayStr,
             };
@@ -1868,7 +1876,7 @@ export const Finances: React.FC = () => {
               paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? recDueDate : undefined,
               status: effectiveStatus,
               paymentMethod: isWaiving ? 'N/A' : recMethod,
-              referenceNo: undefined,
+              referenceNo: recRefNo.trim() || undefined,
               notes: effectiveNotes,
               updatedAt: todayStr,
             };

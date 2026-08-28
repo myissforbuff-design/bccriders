@@ -1282,8 +1282,8 @@ async function broadcastPushNotification(
         const payloadString = JSON.stringify({
           title: payload.title,
           body: payload.body,
-          icon: payload.icon || '/logo.png',
-          badge: payload.badge || '/logo.png',
+          icon: payload.icon || '/app-logo.png',
+          badge: payload.badge || undefined,
           category: payload.category,
           tab: payload.tab || 'finances',
           url: payload.url || '/',
@@ -3675,21 +3675,6 @@ app.post('/api/mongodb/financeLogs', async (req, res) => {
       { upsert: true }
     );
 
-    // If a payment or collection was recorded as Paid, broadcast push notification to all devices
-    if (record.status === 'Paid' && record.amount && !record.notes?.includes('Waived')) {
-      const amtStr = `₱${Number(record.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
-      const desc = record.customItemName || (record.itemType === 'Monthly Due' ? `Monthly Due ${record.coveredMonth || ''}` : (record.itemType || 'Payment'));
-      const member = record.userName ? ` for ${record.userName}` : '';
-      broadcastPushNotification({
-        title: `Treasury: Payment Recorded`,
-        body: `${amtStr} — ${desc.trim()}${member}`,
-        category: 'finance',
-        tab: 'finances',
-        tag: `finance-${record.id}`,
-        customData: { id: record.id, amount: record.amount, userId: record.userId },
-      }).catch((err) => console.warn('[WebPush] Server auto-broadcast error:', err));
-    }
-
     res.json({
       success: true,
       id: record.id,
@@ -4358,21 +4343,6 @@ app.post('/api/mongodb/monthlyDueLogs', async (req, res) => {
       { $set: { ...record, updatedAt: new Date().toISOString() } },
       { upsert: true }
     );
-
-    // If a monthly due was recorded as Paid, broadcast push notification
-    if (record.status === 'Paid' && record.amount && !record.notes?.includes('Waived')) {
-      const amtStr = `₱${Number(record.amount).toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
-      const desc = record.customItemName || (record.coveredMonth ? `Monthly Due ${record.coveredMonth}` : 'Monthly Club Due');
-      const member = record.userName ? ` for ${record.userName}` : '';
-      broadcastPushNotification({
-        title: `Treasury: Payment Recorded`,
-        body: `${amtStr} — ${desc.trim()}${member}`,
-        category: 'finance',
-        tab: 'finances',
-        tag: `finance-${record.id}`,
-        customData: { id: record.id, amount: record.amount, userId: record.userId },
-      }).catch((err) => console.warn('[WebPush] Server auto-broadcast error:', err));
-    }
 
     res.json({
       success: true,
