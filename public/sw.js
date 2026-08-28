@@ -1,4 +1,4 @@
-const CACHE_NAME = 'bcc-riders-v3';
+const CACHE_NAME = 'bcc-riders-v4';
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -7,6 +7,17 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
+
+// Helper to ensure icon and badge paths are always absolute URLs for OS notifications
+function resolveNotificationUrl(path) {
+  if (!path) return undefined;
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  try {
+    return new URL(path, self.location.origin).href;
+  } catch (e) {
+    return path;
+  }
+}
 
 // Listen for incoming Push Events
 self.addEventListener('push', (event) => {
@@ -20,11 +31,15 @@ self.addEventListener('push', (event) => {
   }
 
   const title = data.title || 'BCC Riders Club';
+  const logoUrl = resolveNotificationUrl('/app-logo.png');
+  const iconUrl = resolveNotificationUrl(data.icon || '/app-logo.png');
+  const badgeUrl = resolveNotificationUrl(data.badge || '/app-logo.png');
+
   const options = {
     body: data.body || data.message || 'You have a new update from BCC Riders Club.',
-    icon: data.icon || '/app-logo.png',
-    badge: data.badge || undefined,
-    image: data.image || undefined,
+    icon: iconUrl || logoUrl,
+    badge: badgeUrl || logoUrl,
+    image: data.image ? resolveNotificationUrl(data.image) : undefined,
     tag: data.tag || `bcc-push-${Date.now()}`,
     renotify: true,
     requireInteraction: data.requireInteraction || false,

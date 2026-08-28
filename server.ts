@@ -1283,7 +1283,7 @@ async function broadcastPushNotification(
           title: payload.title,
           body: payload.body,
           icon: payload.icon || '/app-logo.png',
-          badge: payload.badge || undefined,
+          badge: payload.badge || '/app-logo.png',
           category: payload.category,
           tab: payload.tab || 'finances',
           url: payload.url || '/',

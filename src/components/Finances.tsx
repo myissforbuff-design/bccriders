@@ -33,6 +33,7 @@ import {
   X,
   Check,
   Calendar,
+  CalendarCheck,
   Filter,
   Receipt,
   Tag,
@@ -543,179 +544,20 @@ export const Finances: React.FC = () => {
         }
       }
 
-      // 0.8. Clean up / purge only unpaid pending placeholder records belonging to non-approved applicants
-      const pendingUsersList = allCurrentUsers.filter(u => u.approvalStatus === 'Pending');
-      const pendingIdsSet = new Set(pendingUsersList.map(u => u.id));
-      const approvedIdsSet = new Set(approvedUsers.map(u => u.id));
-
-      const lenBeforePendingPurge = updatedList.length;
+      // 0.8. Clean up / purge legacy synthetic automated pending placeholder records
+      const lenBeforeAutoPurge = updatedList.length;
       updatedList = updatedList.filter(r => {
-        // Never delete any recorded payment (Paid or Waived) even if the user is pending or in registration
-        if (r.status === 'Pending' || r.status === 'Overdue') {
-          if (r.userId && pendingIdsSet.has(r.userId) && !approvedIdsSet.has(r.userId)) {
-            authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
-            return false;
-          }
+        if ((r.status === 'Pending' || r.status === 'Overdue') && r.notes?.startsWith('Automated pending')) {
+          authFetch(`/api/mongodb/financeLogs/${r.id}`, { method: 'DELETE' }).catch(() => {});
+          return false;
         }
         return true;
       });
-      if (updatedList.length !== lenBeforePendingPurge) {
+      if (updatedList.length !== lenBeforeAutoPurge) {
         hasNew = true;
       }
 
-      // If no approved registered members exist, mute pending generation
-      if (approvedUsers.length === 0) {
-        if (hasNew) {
-          setRecords(updatedList);
-          saveToSession(LOCAL_STORAGE_REC_KEY, updatedList);
-        }
-        return;
-      }
-
-      // 1. Monthly Dues
-      const mDues = store.getMonthlyDues();
-      mDues.forEach(due => {
-        const coveredMonthStr = `${due.month} ${due.year}`;
-        approvedUsers.forEach(u => {
-          // Check if this member has availed the Annual Upfront Promo for this year
-          const hasAnnualPromo = updatedList.some(r =>
-            r.userId === u.id &&
-            r.itemType === 'Annual Upfront Promo' &&
-            r.status === 'Paid' &&
-            (r.coveredMonth?.includes(String(due.year)) || r.customItemName?.includes(String(due.year)) || !r.coveredMonth)
-          );
-
-          const expectedId = `rec_md_${due.id}_${u.id}`;
-          if (deletedRecordIds.includes(expectedId)) {
-            return; // Skip if explicitly deleted by admin
-          }
-
-          const existsIdx = updatedList.findIndex(r =>
-            r.userId === u.id &&
-            r.itemType === 'Monthly Due' &&
-            (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === expectedId)
-          );
-
-          if (existsIdx === -1) {
-            hasNew = true;
-            const newDueRec: FinanceRecord = {
-              id: expectedId,
-              itemType: 'Monthly Due',
-              userId: u.id,
-              userName: u.name,
-              userMemberNo: u.memberNumber || 'BRC-MEMBER',
-              amount: due.amount,
-              coveredMonth: coveredMonthStr,
-              customItemName: due.title,
-              dueDate: todayStr,
-              paidDate: hasAnnualPromo ? todayStr : undefined,
-              status: hasAnnualPromo ? 'Paid' : 'Pending',
-              paymentMethod: 'GCash',
-              notes: hasAnnualPromo
-                ? 'Satisfied by Annual Upfront Promo Package'
-                : `Automated pending monthly due for ${coveredMonthStr}`,
-              updatedAt: todayStr,
-            };
-            updatedList.push(newDueRec);
-            if (hasAnnualPromo) {
-              authFetch('/api/mongodb/monthlyDueLogs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newDueRec),
-              }).catch(err => console.warn('MongoDB auto monthly due log sync error:', err));
-            }
-          } else {
-            const existingRec = updatedList[existsIdx];
-            if (hasAnnualPromo && (existingRec.status === 'Pending' || existingRec.status === 'Overdue')) {
-              hasNew = true;
-              const updatedRec: FinanceRecord = {
-                ...existingRec,
-                status: 'Paid',
-                paidDate: existingRec.paidDate || todayStr,
-                notes: 'Satisfied by Annual Upfront Promo Package',
-                updatedAt: todayStr,
-              };
-              updatedList[existsIdx] = updatedRec;
-              authFetch(`/api/mongodb/financeLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
-              authFetch('/api/mongodb/monthlyDueLogs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatedRec),
-              }).catch(err => console.warn('MongoDB sync notice:', err));
-            } else if (!hasAnnualPromo && existingRec.notes?.includes('Satisfied by Annual Upfront Promo Package')) {
-              // Promo was deleted or is not present; remove this auto-generated satisfied record completely
-              hasNew = true;
-              authFetch(`/api/mongodb/monthlyDueLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
-              authFetch(`/api/mongodb/financeLogs/${existingRec.id}`, { method: 'DELETE' }).catch(() => {});
-              updatedList.splice(existsIdx, 1);
-            } else if (!hasAnnualPromo && existingRec.status === 'Pending' && existingRec.amount !== due.amount) {
-              hasNew = true;
-              const updatedRec = { ...existingRec, amount: due.amount };
-              updatedList[existsIdx] = updatedRec;
-            }
-          }
-        });
-      });
-
-      // 3. Dynamic Custom Collections
-      const dynamicCols = store.getDynamicCollections();
-      const approvedCount = approvedUsers.length;
-      dynamicCols.forEach(col => {
-        if (col.status === 'Completed' || col.status === 'Archived' || col.collectionType === 'Donation' || col.name?.toLowerCase().includes('donation')) return;
-
-        const targetTotal =
-          col.targetAmount !== undefined && col.targetAmount !== null && !isNaN(Number(col.targetAmount)) && Number(col.targetAmount) > 0
-            ? Number(col.targetAmount)
-            : approvedCount * col.amount;
-
-        const perMemberAmount = col.amount > 0 ? col.amount : Math.ceil(targetTotal / (approvedCount || 1));
-
-        approvedUsers.forEach(u => {
-          const existsIdx = updatedList.findIndex(r =>
-            r.userId === u.id &&
-            (r.id === `rec_col_${col.id}_${u.id}` || (r.itemType === 'Other' && r.customItemName === col.name))
-          );
-
-          if (existsIdx === -1) {
-            hasNew = true;
-            const newColRec: FinanceRecord = {
-              id: `rec_col_${col.id}_${u.id}`,
-              itemType: 'Other',
-              userId: u.id,
-              userName: u.name,
-              userMemberNo: u.memberNumber || 'BRC-MEMBER',
-              amount: perMemberAmount,
-              coveredMonth: col.name,
-              customItemName: col.name,
-              dueDate: todayStr,
-              status: 'Pending',
-              paymentMethod: 'GCash',
-              notes: `Automated pending collection for ${col.name}`,
-              updatedAt: todayStr,
-            };
-            updatedList.push(newColRec);
-            authFetch('/api/mongodb/financeLogs', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(newColRec),
-            }).catch(err => console.warn('MongoDB auto collection sync error:', err));
-          } else {
-            const existingRec = updatedList[existsIdx];
-            if (existingRec.status === 'Pending' && existingRec.amount !== perMemberAmount) {
-              hasNew = true;
-              const updatedRec = { ...existingRec, amount: perMemberAmount };
-              updatedList[existsIdx] = updatedRec;
-              authFetch('/api/mongodb/financeLogs', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatedRec),
-              }).catch(err => console.warn('MongoDB sync notice:', err));
-            }
-          }
-        });
-      });
-
-      // 4. Membership Fee Normalization for existing records
+      // Membership Fee Normalization for existing records
       const configuredMembershipFee = Number(store.getFinanceSettings()?.membershipFee) || 200;
 
       updatedList.forEach((r, idx) => {
@@ -2371,35 +2213,13 @@ export const Finances: React.FC = () => {
   // Total funds includes all active collections plus audited net treasury carried over from prior fiscal years
   const totalFundsWithCarryOver = totalCollected + totalArchivedCarryOver;
 
-  const approvedUsersList = store.getUsers().filter(u => {
-    const isUserAdmin =
-      u.role === 'admin' ||
-      u.role?.toLowerCase() === 'admin' ||
-      u.role?.toLowerCase() === 'administrator' ||
-      u.id === 'usr_admin' ||
-      u.id === 'admin' ||
-      u.username?.toLowerCase() === 'admin' ||
-      u.email?.toLowerCase().includes('admin@');
-    return !isUserAdmin && u.approvalStatus !== 'Pending';
-  });
-
-  const activeMonthlyDues = store.getMonthlyDues();
-  let calculatedPendingMonthlyDues = 0;
-  activeMonthlyDues.forEach(due => {
-    approvedUsersList.forEach(u => {
-      const hasAnnualPromo = records.some(r => r.userId === u.id && r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
-      const hasPaid = records.some(r => r.userId === u.id && r.itemType === 'Monthly Due' && (r.coveredMonth === `${due.month} ${due.year}` || r.customItemName === due.title) && r.status === 'Paid');
-      if (!hasAnnualPromo && !hasPaid) {
-        calculatedPendingMonthlyDues += due.amount;
-      }
-    });
-  });
-
-  const otherPendingRecordsTotal = records
-    .filter(r => (r.status === 'Pending' || r.status === 'Overdue') && r.itemType !== 'Monthly Due')
+  const totalMonthlyDues = records
+    .filter(r => r.itemType === 'Monthly Due' && r.status === 'Paid')
     .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
-  const totalPending = calculatedPendingMonthlyDues + otherPendingRecordsTotal;
+  const totalMonthlyDuesCount = records
+    .filter(r => r.itemType === 'Monthly Due' && r.status === 'Paid')
+    .length;
 
   const totalPaidCount = records.filter(r => r.status === 'Paid').length;
 
@@ -2627,14 +2447,14 @@ export const Finances: React.FC = () => {
           </div>
         </div>
 
-        {/* Pending Collections */}
+        {/* Total Monthly Dues Card */}
         <div className="col-span-2 sm:col-span-1 p-2.5 sm:p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-xs flex items-center gap-2 sm:gap-3 min-w-0">
-          <div className="w-8 h-8 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-xl bg-amber-100 text-amber-800 flex items-center justify-center shrink-0">
-            <Clock className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
+          <div className="w-8 h-8 sm:w-10 sm:h-10 lg:w-11 lg:h-11 rounded-xl bg-emerald-100 text-[#1b4332] flex items-center justify-center shrink-0">
+            <CalendarCheck className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.2]" />
           </div>
           <div className="min-w-0 flex-1">
             <span className="text-[10px] sm:text-[11px] text-[#52605d] font-bold block uppercase tracking-wider leading-tight">
-              Pending<span className="hidden sm:inline"> Dues</span>
+              Total<span className="hidden sm:inline"> Mon.</span> Dues
             </span>
             {isLoadingFinances ? (
               <div className="py-0.5 space-y-1">
@@ -2643,11 +2463,11 @@ export const Finances: React.FC = () => {
               </div>
             ) : (
               <>
-                <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-amber-900 truncate">
-                  ₱{(Number(totalPending) || 0).toLocaleString()}.00
+                <p className="font-heading text-sm sm:text-base lg:text-lg font-black text-[#1b4332] truncate">
+                  ₱{(Number(totalMonthlyDues) || 0).toLocaleString()}.00
                 </p>
-                <span className="text-[9px] sm:text-[10px] text-amber-700 font-semibold block truncate">
-                  Uncollected balance
+                <span className="text-[9px] sm:text-[10px] text-[#2d6a4f] font-semibold block truncate">
+                  {totalMonthlyDuesCount} {totalMonthlyDuesCount === 1 ? 'collection' : 'collections'} paid
                 </span>
               </>
             )}
@@ -3457,9 +3277,20 @@ export const Finances: React.FC = () => {
                           const mf = uRecs.find(r => r.itemType === 'Membership Fee');
                           const mfStatus = mf?.status || 'Pending';
                           
+                          const activeMDues = store.getMonthlyDues();
+                          const unpaidMonthlyDues = hasAnnualPromo ? [] : activeMDues.filter(due => {
+                            const coveredMonthStr = `${due.month} ${due.year}`;
+                            const isPaid = uRecs.some(r =>
+                              r.itemType === 'Monthly Due' &&
+                              (r.status === 'Paid' || r.status === 'Waived') &&
+                              (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === `rec_md_${due.id}_${u.id}`)
+                            );
+                            return !isPaid;
+                          });
+
                           const mDues = uRecs.filter(r => r.itemType === 'Monthly Due');
                           const latestDue = mDues.slice().sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0];
-                          const latestDueStatus = hasAnnualPromo ? 'Paid' : (latestDue?.status || 'Pending');
+                          const latestDueStatus = hasAnnualPromo ? 'Paid' : (latestDue?.status || (unpaidMonthlyDues.length > 0 ? 'Pending' : 'Paid'));
                           
                           const totalPaid = uRecs
                             .filter(r => r.status === 'Paid')
@@ -3469,12 +3300,13 @@ export const Finances: React.FC = () => {
                               }
                               return sum + (Number(r.amount) || 0);
                             }, 0);
-                          const pendingCount = uRecs.filter(r => r.status === 'Pending' || r.status === 'Overdue').length;
+                          const otherPendingCount = uRecs.filter(r => (r.status === 'Pending' || r.status === 'Overdue') && r.itemType !== 'Monthly Due').length;
+                          const totalPendingCount = unpaidMonthlyDues.length + otherPendingCount;
 
                           return (
                             <div
                               key={u.id}
-                              className="bg-[#f7f9f7] border border-[#e2ece2] rounded-2xl p-4 space-y-3.5 hover:border-[#2d6a4f] hover:shadow-md transition-all flex flex-col justify-between"
+                              className="bg-[#f7f9f7] border border-[#e2ece2] rounded-2xl p-4 space-y-3 hover:border-[#2d6a4f] hover:shadow-md transition-all flex flex-col justify-between"
                             >
                               {/* Header: Avatar, Name, Member Number */}
                               <div className="flex items-center gap-3">
@@ -3522,10 +3354,49 @@ export const Finances: React.FC = () => {
 
                                 <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
                                   <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5">Pending Dues</span>
-                                  <span className={`font-black text-xs block ${pendingCount > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
-                                    {pendingCount > 0 ? `${pendingCount} item(s)` : 'All Paid'}
+                                  <span className={`font-black text-xs block ${totalPendingCount > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                                    {totalPendingCount > 0 ? `${totalPendingCount} item(s)` : 'All Paid'}
                                   </span>
                                 </div>
+                              </div>
+
+                              {/* Pending Monthly Due Tags */}
+                              <div className="pt-2 border-t border-[#e2ece2] space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] flex items-center gap-1">
+                                    <Clock className="w-3 h-3 text-[#2d6a4f]" />
+                                    Monthly Dues Status
+                                  </span>
+                                  {hasAnnualPromo ? (
+                                    <span className="text-[9px] font-black text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                                      Promo (All Paid)
+                                    </span>
+                                  ) : unpaidMonthlyDues.length === 0 ? (
+                                    <span className="text-[9px] font-black text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
+                                      ✓ All Paid
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
+                                      {unpaidMonthlyDues.length} Unpaid
+                                    </span>
+                                  )}
+                                </div>
+
+                                {unpaidMonthlyDues.length > 0 && !hasAnnualPromo && (
+                                  <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                                    {unpaidMonthlyDues.map(due => (
+                                      <span
+                                        key={due.id}
+                                        className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-[9.5px] font-bold inline-flex items-center gap-1 shadow-2xs"
+                                        title={`Pending monthly due: ${due.month} ${due.year} (₱${due.amount})`}
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                        <span>{due.month.slice(0, 3)} {due.year}</span>
+                                        <span className="text-amber-800 font-extrabold text-[9px]">₱{due.amount}</span>
+                                      </span>
+                                    ))}
+                                  </div>
+                                )}
                               </div>
 
                               {/* Action Button */}
@@ -3621,6 +3492,22 @@ export const Finances: React.FC = () => {
               // Totals & Category Breakdown
               const hasMemberPromo = uRecords.some(r => r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
               const memberPromoDiscount = hasMemberPromo ? 200 : 0;
+
+              const activeMDues = store.getMonthlyDues();
+              const unpaidMonthlyDues = hasMemberPromo ? [] : activeMDues.filter(due => {
+                const coveredMonthStr = `${due.month} ${due.year}`;
+                const isPaid = uRecords.some(r =>
+                  r.itemType === 'Monthly Due' &&
+                  (r.status === 'Paid' || r.status === 'Waived') &&
+                  (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === `rec_md_${due.id}_${targetMemberId}`)
+                );
+                return !isPaid;
+              });
+
+              const totalUnpaidDuesAmount = unpaidMonthlyDues.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+              const otherPendingAmount = uRecords.filter(r => (r.status === 'Pending' || r.status === 'Overdue') && r.itemType !== 'Monthly Due').reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+              const totalPending = totalUnpaidDuesAmount + otherPendingAmount;
+
               const totalPaid = uRecords
                 .filter(r => r.status === 'Paid')
                 .reduce((sum, r) => {
@@ -3633,7 +3520,6 @@ export const Finances: React.FC = () => {
               const duesPaid = uRecords.filter(r => r.status === 'Paid' && r.itemType === 'Monthly Due' && !r.notes?.includes('Satisfied by Annual Upfront Promo Package')).reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
               const promoPaid = uRecords.filter(r => r.status === 'Paid' && r.itemType === 'Annual Upfront Promo').reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
               const otherPaid = uRecords.filter(r => r.status === 'Paid' && r.itemType !== 'Membership Fee' && r.itemType !== 'Monthly Due' && r.itemType !== 'Annual Upfront Promo').reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
-              const totalPending = uRecords.filter(r => r.status === 'Pending' || r.status === 'Overdue').reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
               // Filter member records for transaction history
               const filteredMemberRecs = uRecords.filter(r => {
@@ -3769,6 +3655,84 @@ export const Finances: React.FC = () => {
                       </div>
                     </div>
                   </div>
+
+                  {/* CONFIGURED MONTHLY DUES BREAKDOWN CARD */}
+                  <div className="p-3.5 sm:p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-xs space-y-3">
+                    <div className="flex items-center justify-between gap-2 border-b border-[#e2ece2] pb-2.5">
+                      <div className="flex items-center gap-2">
+                        <div className="p-1.5 rounded-lg bg-[#d8f3dc] text-[#1b4332]">
+                          <CalendarCheck className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h4 className="font-heading text-xs sm:text-sm font-extrabold text-[#1b4332]">
+                            Monthly Dues Coverage & Status
+                          </h4>
+                          <p className="text-[10px] sm:text-xs text-[#52605d]">
+                            Active monthly dues configured for the club
+                          </p>
+                        </div>
+                      </div>
+                      {hasMemberPromo ? (
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-indigo-50 text-indigo-800 border border-indigo-200">
+                          Annual Upfront Promo
+                        </span>
+                      ) : unpaidMonthlyDues.length === 0 ? (
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3" />
+                          All Dues Paid
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black uppercase bg-amber-100 text-amber-900 border border-amber-300">
+                          {unpaidMonthlyDues.length} Month{unpaidMonthlyDues.length === 1 ? '' : 's'} Pending
+                        </span>
+                      )}
+                    </div>
+
+                    {activeMDues.length === 0 ? (
+                      <p className="text-xs text-[#52605d] italic py-1">No active monthly dues have been configured yet in Monthly Dues Settings.</p>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2">
+                        {activeMDues.map(due => {
+                          const coveredMonthStr = `${due.month} ${due.year}`;
+                          const paidRec = uRecords.find(r =>
+                            r.itemType === 'Monthly Due' &&
+                            (r.status === 'Paid' || r.status === 'Waived') &&
+                            (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === `rec_md_${due.id}_${targetMemberId}`)
+                          );
+                          const isPaid = hasMemberPromo || !!paidRec;
+
+                          return (
+                            <div
+                              key={due.id}
+                              className={`p-2.5 rounded-xl border transition-all ${
+                                isPaid
+                                  ? 'bg-emerald-50/60 border-emerald-200 text-[#1b4332]'
+                                  : 'bg-amber-50/70 border-amber-200 text-amber-900'
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-1 mb-1">
+                                <span className="font-extrabold text-xs">{due.month.slice(0, 3)} {due.year}</span>
+                                {isPaid ? (
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                ) : (
+                                  <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="font-mono font-bold">₱{due.amount}</span>
+                                <span className={`font-black uppercase text-[9px] px-1.5 py-0.5 rounded ${
+                                  isPaid ? 'bg-emerald-200/70 text-emerald-900' : 'bg-amber-200/80 text-amber-950'
+                                }`}>
+                                  {isPaid ? (hasMemberPromo ? 'Promo' : 'Paid') : 'Pending'}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+
                   {/* MEMBER TRANSACTIONS HISTORY HEADER & SEARCH */}
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 bg-[#f7f9f7] p-3.5 sm:p-4 rounded-2xl border border-[#e2ece2]">
                     <div className="flex items-center gap-2.5">

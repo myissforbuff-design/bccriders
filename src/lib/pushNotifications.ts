@@ -352,15 +352,24 @@ export async function sendPushNotification(
   const hasPermission = typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
 
   // 1. Cross-Device Broadcast to all mobile riders & dashboard users
+  // 1. Backend Web Push Broadcast: Send push notification to all devices
   // (Broadcast should NEVER be blocked by the local sender's personal audio/mute settings)
   if (broadcast && typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    const resolvedIcon = payload.icon
+      ? (payload.icon.startsWith('http') ? payload.icon : `${origin}${payload.icon}`)
+      : `${origin}/app-logo.png`;
+    const resolvedBadge = payload.badge
+      ? (payload.badge.startsWith('http') ? payload.badge : `${origin}${payload.badge}`)
+      : `${origin}/app-logo.png`;
+
     fetch('/api/push/broadcast', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...payload,
-        icon: payload.icon || '/app-logo.png',
-        badge: payload.badge || undefined,
+        icon: resolvedIcon,
+        badge: resolvedBadge,
       }),
     }).catch((err) => console.warn('[Push] Broadcast request error:', err));
   }
@@ -391,15 +400,23 @@ export async function sendPushNotification(
   }
 
   // If Notification permission is granted, display OS notification
-  if (hasPermission) {
+  if (hasPermission && typeof window !== 'undefined') {
     try {
+      const origin = window.location.origin;
+      const resolvedIcon = payload.icon
+        ? (payload.icon.startsWith('http') ? payload.icon : `${origin}${payload.icon}`)
+        : `${origin}/app-logo.png`;
+      const resolvedBadge = payload.badge
+        ? (payload.badge.startsWith('http') ? payload.badge : `${origin}${payload.badge}`)
+        : `${origin}/app-logo.png`;
+
       if ('serviceWorker' in navigator) {
         const reg = await navigator.serviceWorker.ready;
         if (reg && reg.showNotification) {
           await reg.showNotification(payload.title, {
             body: payload.body,
-            icon: payload.icon || '/app-logo.png',
-            badge: payload.badge || undefined,
+            icon: resolvedIcon,
+            badge: resolvedBadge,
             tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
             vibrate: config.vibration ? [200, 100, 200] : undefined,
             data: {
@@ -414,7 +431,7 @@ export async function sendPushNotification(
         // Fallback to standard Notification constructor
         new Notification(payload.title, {
           body: payload.body,
-          icon: payload.icon || '/app-logo.png',
+          icon: resolvedIcon,
           tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
         });
       }

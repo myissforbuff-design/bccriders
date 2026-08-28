@@ -21,6 +21,7 @@ import {
   Bike,
   ShieldCheck,
   Calendar,
+  CalendarCheck,
   Search,
 } from 'lucide-react';
 
@@ -169,35 +170,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const netBalance = totalCollected - totalExpenses;
   const totalPaidCount = validFinanceRecords.filter((r) => r.status === 'Paid').length;
 
-  const approvedUsersList = allUsers.filter(u => {
-    const isUserAdmin =
-      u.role === 'admin' ||
-      u.role?.toLowerCase() === 'admin' ||
-      u.role?.toLowerCase() === 'administrator' ||
-      u.id === 'usr_admin' ||
-      u.id === 'admin' ||
-      u.username?.toLowerCase() === 'admin' ||
-      u.email?.toLowerCase().includes('admin@');
-    return !isUserAdmin && u.approvalStatus !== 'Pending';
-  });
-
-  const activeMonthlyDues = store.getMonthlyDues();
-  let calculatedPendingMonthlyDues = 0;
-  activeMonthlyDues.forEach(due => {
-    approvedUsersList.forEach(u => {
-      const hasAnnualPromo = validFinanceRecords.some(r => r.userId === u.id && r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
-      const hasPaid = validFinanceRecords.some(r => r.userId === u.id && r.itemType === 'Monthly Due' && (r.coveredMonth === `${due.month} ${due.year}` || r.customItemName === due.title) && r.status === 'Paid');
-      if (!hasAnnualPromo && !hasPaid) {
-        calculatedPendingMonthlyDues += due.amount;
-      }
-    });
-  });
-
-  const otherPendingRecordsTotal = validFinanceRecords
-    .filter(r => (r.status === 'Pending' || r.status === 'Overdue') && r.itemType !== 'Monthly Due')
+  const totalMonthlyDuesAmount = validFinanceRecords
+    .filter((r) => r.itemType === 'Monthly Due' && r.status === 'Paid')
     .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
-  const totalPending = calculatedPendingMonthlyDues + otherPendingRecordsTotal;
+  const totalMonthlyDuesCount = validFinanceRecords
+    .filter((r) => r.itemType === 'Monthly Due' && r.status === 'Paid')
+    .length;
 
   const [dashboardPage, setDashboardPage] = useState(1);
   const itemsPerPage = 10;
@@ -418,13 +397,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {/* Pending Dues */}
+          {/* Total Mon. Dues */}
           <div
             onClick={() => setActiveTab('finances')}
             className="p-2.5 sm:p-5 rounded-xl sm:rounded-2xl bg-white border border-[#e2ece2] flex items-center justify-between shadow-xs cursor-pointer hover:border-[#74c69d] hover:-translate-y-0.5 active:translate-y-0 transition-all duration-150 select-none"
           >
             <div className="space-y-0.5 sm:space-y-1 min-w-0 flex-1">
-              <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Pending Dues</span>
+              <span className="text-[9px] sm:text-xs text-[#52605d] font-bold uppercase tracking-wider block">Total Mon. Dues</span>
               {isLoadingFinances ? (
                 <div className="py-1 space-y-1">
                   <CardValueSkeleton className="w-28 h-6 sm:h-8" />
@@ -432,17 +411,17 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 </div>
               ) : (
                 <>
-                  <p className="font-heading text-sm sm:text-2xl font-black text-amber-900 truncate">
-                    ₱{totalPending.toLocaleString()}.00
+                  <p className="font-heading text-sm sm:text-2xl font-black text-[#1b4332] truncate">
+                    ₱{totalMonthlyDuesAmount.toLocaleString()}.00
                   </p>
-                  <span className="text-[8.5px] sm:text-[11px] text-amber-700 font-semibold block truncate">
-                    Uncollected balance
+                  <span className="text-[8.5px] sm:text-[11px] text-[#2d6a4f] font-semibold block truncate">
+                    {totalMonthlyDuesCount} {totalMonthlyDuesCount === 1 ? 'collection' : 'collections'} paid
                   </span>
                 </>
               )}
             </div>
-            <div className="p-1.5 sm:p-3 rounded-lg sm:rounded-xl bg-amber-100 text-amber-800 shrink-0 ml-2">
-              <Clock className="w-4 h-4 sm:w-6 sm:h-6" />
+            <div className="p-1.5 sm:p-3 rounded-lg sm:rounded-xl bg-emerald-50 text-[#1b4332] shrink-0 ml-2">
+              <CalendarCheck className="w-4 h-4 sm:w-6 sm:h-6" />
             </div>
           </div>
         </div>
