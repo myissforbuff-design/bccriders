@@ -1896,17 +1896,18 @@ export const Finances: React.FC = () => {
           }
         }
 
+        if (effectiveStatus === 'Paid' && !isWaiving) {
+          // Broadcast Push Notification to all mobile users and devices
+          const itemDescription = recItemType === 'Other' && recCustomItemName ? recCustomItemName : (recItemType === 'Monthly Due' ? `Monthly Due: ${coveredMonthStr || 'Club Due'}` : (recItemType === 'Membership Fee' ? 'Membership Fee' : recItemType));
+          const memberLabel = selectedUser?.name || editingRecord?.userName || 'Club Member';
+          void triggerFinancePushNotification('collection', amountNum, `${itemDescription} (${memberLabel})`);
+        }
+
         if (editingRecord) {
           store.completeTreasurerRequest(editingRecord.id, 'edit');
           setShowAddRecordModal(false);
           setEditingRecord(null);
         } else {
-          if (effectiveStatus === 'Paid') {
-            // Broadcast Push Notification to all mobile users and devices
-            const itemDescription = recItemType === 'Other' && recCustomItemName ? recCustomItemName : (recItemType === 'Monthly Due' ? `Monthly Due: ${coveredMonthStr}` : recItemType);
-            const memberLabel = selectedUser?.name || 'Club Member';
-            void triggerFinancePushNotification('collection', amountNum, `${itemDescription} (${memberLabel})`);
-          }
           // In "Save & Add" mode: keep modal open to allow logging additional payments smoothly
           setShowAddRecordModal(true);
           setRecordSuccessNotice(`Payment for ${selectedUser?.name || 'Member'} successfully saved! You can record another payment below.`);

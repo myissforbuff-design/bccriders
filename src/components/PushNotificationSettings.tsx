@@ -34,6 +34,7 @@ import {
   PushNotificationConfig,
 } from '../lib/pushNotifications';
 import { OfficialDotSpinner } from './OfficialLoader';
+import { PushNotificationBanner } from './PushNotificationBanner';
 
 export interface PushNotificationSettingsProps {
   onClose?: () => void;
@@ -399,6 +400,40 @@ export const PushNotificationSettings: React.FC<PushNotificationSettingsProps> =
             </div>
             <span className="text-xs font-black">{config.vibration ? 'Enabled' : 'Disabled'}</span>
           </button>
+        </div>
+      </div>
+
+      {/* Live Push Notification Visual Preview (Reference Design) */}
+      <div className="bg-white rounded-2xl p-6 border border-[#e2ece2] shadow-xs space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-[#d8f3dc] flex items-center justify-center text-[#1b4332]">
+              <Bell className="w-5 h-5 text-[#2d6a4f]" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base text-[#1b4332]">
+                Push Notification Appearance
+              </h3>
+              <p className="text-xs text-[#52605d]">
+                Live preview of device lock-screen and heads-up banner notifications
+              </p>
+            </div>
+          </div>
+          <span className="text-[11px] font-bold text-[#2d6a4f] bg-[#d8f3dc] px-3 py-1 rounded-full border border-[#74c69d]">
+            Official Design
+          </span>
+        </div>
+
+        <div className="p-4 sm:p-6 rounded-2xl bg-stone-900 flex items-center justify-center border border-stone-800">
+          <PushNotificationBanner
+            isFloating={false}
+            title="Gran Ville Room"
+            message="Motion detection"
+            appName="BCC Riders"
+            timeAgo="Just now"
+            iconSrc="/logo.png"
+            onClick={() => handleSendTestNotification('activity')}
+          />
         </div>
       </div>
 

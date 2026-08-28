@@ -6,7 +6,19 @@ import {
   requestPushPermission as requestPushPermissionLib,
   getPushNotificationConfig,
   savePushNotificationConfig,
+  initPushNotifications,
+  syncPushSubscriptionWithServer,
 } from '../lib/pushNotifications';
+
+export interface ToastNotificationPayload {
+  title: string;
+  message: string;
+  type?: string;
+  tab?: string;
+  appName?: string;
+  icon?: string;
+  timeAgo?: string;
+}
 
 interface NotificationContextType {
   notifications: NotificationItem[];
@@ -16,8 +28,8 @@ interface NotificationContextType {
   togglePushNotifications: () => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
-  triggerPushAlert: (title: string, message: string, type?: NotificationItem['type']) => void;
-  toastMessage: { title: string; message: string; type?: string } | null;
+  triggerPushAlert: (title: string, message: string, type?: NotificationItem['type'], tab?: string) => void;
+  toastMessage: ToastNotificationPayload | null;
   clearToast: () => void;
 }
 
@@ -28,7 +40,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   const [pushEnabled, setPushEnabled] = useState<boolean>(() => {
     return getPushNotificationConfig().enabled;
   });
-  const [toastMessage, setToastMessage] = useState<{ title: string; message: string; type?: string } | null>(null);
+  const [toastMessage, setToastMessage] = useState<ToastNotificationPayload | null>(null);
 
   const refreshNotifs = () => {
     setNotifications([...store.getNotifications()]);
@@ -40,15 +52,30 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     // Register service worker on startup
     registerServiceWorker();
 
+    // If permission is already granted, ensure config is active and synced with server
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      setPushEnabled(true);
+      const conf = getPushNotificationConfig();
+      if (!conf.enabled) {
+        savePushNotificationConfig({ ...conf, enabled: true });
+      }
+      initPushNotifications();
+      syncPushSubscriptionWithServer();
+    }
+
     // Listen for push notifications triggered across tabs / components
     const handleInAppAlert = (e: Event) => {
       const customEvent = e as CustomEvent;
       const detail = customEvent.detail;
       if (detail) {
         setToastMessage({
-          title: detail.title || 'Notification',
+          title: detail.title || 'BCC Riders Club Update',
           message: detail.body || detail.message || '',
           type: detail.category || 'general',
+          tab: detail.tab,
+          appName: 'BCC Riders',
+          icon: detail.icon || '/logo.png',
+          timeAgo: 'Just now',
         });
         refreshNotifs();
       }
@@ -104,7 +131,12 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     }
   };
 
-  const triggerPushAlert = (title: string, message: string, type: NotificationItem['type'] = 'ride') => {
+  const triggerPushAlert = (
+    title: string,
+    message: string,
+    type: NotificationItem['type'] = 'ride',
+    tab?: string
+  ) => {
     // Add to store
     store.addNotification({
       title,
@@ -114,8 +146,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     });
     refreshNotifs();
 
-    // Trigger Toast
-    setToastMessage({ title, message, type });
+    // Trigger Toast banner matching reference image style
+    setToastMessage({
+      title,
+      message,
+      type,
+      tab,
+      appName: 'BCC Riders',
+      icon: '/logo.png',
+      timeAgo: 'Just now',
+    });
 
     // Trigger Native Browser Notification if enabled
     if (pushEnabled && 'Notification' in window && window.Notification.permission === 'granted') {

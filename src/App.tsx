@@ -16,6 +16,7 @@ import { QRScan } from './components/QRScan';
 import { Finances } from './components/Finances';
 import { AnnouncementsView } from './components/AnnouncementsView';
 import { RealtimeStatusPill } from './components/RealtimeStatusPill';
+import { PushNotificationBanner } from './components/PushNotificationBanner';
 import { useIsAnyModalOpen } from './hooks/useModalDismiss';
 import { useRealtimeSync } from './hooks/useRealtimeSync';
 import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer } from 'lucide-react';
@@ -229,29 +230,24 @@ function MainAppContent() {
         </main>
       </div>
 
-      {/* Toast Notification Popup Banner */}
+      {/* Heads-Up Push Notification Banner (OS / Reference Image Style) */}
       <AnimatePresence>
         {toastMessage && (
-          <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.9 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 50, scale: 0.9 }}
-            className="fixed bottom-6 right-6 z-50 p-4 rounded-2xl bg-[#1b4332] text-white border border-[#2d6a4f] shadow-2xl max-w-sm flex items-start gap-3 glow-forest"
-          >
-            <div className="p-2 rounded-xl bg-[#74c69d]/20 text-[#74c69d] shrink-0">
-              <CheckCircle2 className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0 text-xs">
-              <h4 className="font-bold text-white text-sm">{toastMessage.title}</h4>
-              <p className="text-[#d8f3dc] mt-0.5 line-clamp-2">{toastMessage.message}</p>
-            </div>
-            <button
-              onClick={clearToast}
-              className="p-1 text-[#74c69d] hover:text-white rounded-lg cursor-pointer"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </motion.div>
+          <PushNotificationBanner
+            isFloating={true}
+            title={toastMessage.title}
+            message={toastMessage.message}
+            appName={toastMessage.appName || 'BCC Riders'}
+            timeAgo={toastMessage.timeAgo || 'Just now'}
+            iconSrc={toastMessage.icon || '/logo.png'}
+            onDismiss={clearToast}
+            onClick={() => {
+              if (toastMessage.tab) {
+                setActiveTab(toastMessage.tab as TabType);
+              }
+              clearToast();
+            }}
+          />
         )}
       </AnimatePresence>
     </div>

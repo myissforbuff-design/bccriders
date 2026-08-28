@@ -338,28 +338,45 @@ export function playMotorcycleStartSound(): void {
 
 /**
  * Sends a push notification:
- * 1. Triggers local in-app alert card and motorcycle sound on current screen
- * 2. If `broadcast = true` (default), broadcasts to ALL connected mobile and desktop users via:
+ * 1. Broadcasts to ALL connected mobile and desktop users via:
+ *    - Server API (/api/push/broadcast)
  *    - Real-time Socket.io channel (instant active screen delivery across devices)
  *    - Web Push standard background push notifications (OS-level delivery to registered phones)
+ * 2. Triggers local in-app alert card and motorcycle sound on current screen if enabled
  */
 export async function sendPushNotification(
   payload: PushNotificationPayload,
   broadcast: boolean = true
 ): Promise<boolean> {
   const config = getPushNotificationConfig();
+  const hasPermission = typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
 
-  // Check master switch
-  if (!config.enabled) {
-    return false;
+  // 1. Cross-Device Broadcast to all mobile riders & dashboard users
+  // (Broadcast should NEVER be blocked by the local sender's personal audio/mute settings)
+  if (broadcast && typeof window !== 'undefined') {
+    fetch('/api/push/broadcast', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...payload,
+        icon: payload.icon || '/logo.png',
+        badge: payload.badge || '/logo.png',
+      }),
+    }).catch((err) => console.warn('[Push] Broadcast request error:', err));
   }
 
-  // Check category switch
-  if (payload.category && !config.categories[payload.category]) {
-    return false;
+  // 2. Local device delivery: check if category is muted locally
+  if (payload.category && config.categories && config.categories[payload.category] === false) {
+    return true;
   }
 
-  // Dispatch an in-app event so open views can show toasts/alerts
+  // Check master switch for local presentation (unless permission is granted and enabled)
+  const isLocallyEnabled = config.enabled !== false || hasPermission;
+  if (!isLocallyEnabled) {
+    return true;
+  }
+
+  // Dispatch an in-app event so open views can show heads-up banners & alerts
   if (typeof window !== 'undefined') {
     window.dispatchEvent(
       new CustomEvent('bcc_inapp_push_alert', {
@@ -374,7 +391,7 @@ export async function sendPushNotification(
   }
 
   // If Notification permission is granted, display OS notification
-  if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+  if (hasPermission) {
     try {
       if ('serviceWorker' in navigator) {
         const reg = await navigator.serviceWorker.ready;
@@ -404,19 +421,6 @@ export async function sendPushNotification(
     } catch (e) {
       console.warn('Native notification dispatch error:', e);
     }
-  }
-
-  // Cross-Device Broadcast to other mobile riders & dashboard users
-  if (broadcast && typeof window !== 'undefined') {
-    fetch('/api/push/broadcast', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ...payload,
-        icon: payload.icon || '/logo.png',
-        badge: payload.badge || '/logo.png',
-      }),
-    }).catch((err) => console.warn('[Push] Broadcast request error:', err));
   }
 
   return true;
