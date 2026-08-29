@@ -7,13 +7,13 @@
       "src": "/icon.svg",
       "type": "image/svg+xml",
       "sizes": "any",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "/app-logo.png",
+      "src": "/logo.png",
       "type": "image/png",
-      "sizes": "192x192",
-      "purpose": "any"
+      "sizes": "512x512",
+      "purpose": "maskable"
     },
     {
       "src": "/logo.png",
@@ -23,8 +23,8 @@
     }
   ],
   "start_url": "/",
-  "background_color": "#ffffff",
-  "theme_color": "#ffffff",
+  "background_color": "#1b4332",
+  "theme_color": "#1b4332",
   "display": "standalone",
   "orientation": "portrait",
   "scope": "/"
