@@ -422,10 +422,12 @@ export class DataStoreService {
     const status = await checkMongoDbStatus();
     if (status.status === 'connected') {
       try {
-        await this.refreshUsersFromServer({ seedIfEmpty: true });
-        await this.refreshAnnouncementsFromServer();
-        await this.refreshSettingsFromServer();
-        await this.refreshMonthlyDuesFromServer();
+        await Promise.allSettled([
+          this.refreshUsersFromServer({ seedIfEmpty: true }),
+          this.refreshAnnouncementsFromServer(),
+          this.refreshSettingsFromServer(),
+          this.refreshMonthlyDuesFromServer(),
+        ]);
       } catch (err) {
         console.warn('MongoDB sync fetch notice:', err);
       }
@@ -447,12 +449,12 @@ export class DataStoreService {
 
   /** Re-reads `members` + `registration` and republishes the merged user list. */
   async refreshUsersFromServer(options: { seedIfEmpty?: boolean } = {}): Promise<User[]> {
-    // Fetch active members from 'members' table
-    const dataMembers = await safeFetchJson('/api/mongodb/members');
+    // Fetch active members and pending registrations concurrently
+    const [dataMembers, dataRegistration] = await Promise.all([
+      safeFetchJson('/api/mongodb/members'),
+      safeFetchJson('/api/mongodb/registration'),
+    ]);
     const activeMembers = (dataMembers.success && Array.isArray(dataMembers.data)) ? dataMembers.data : [];
-
-    // Fetch pending registrations from 'registration' table
-    const dataRegistration = await safeFetchJson('/api/mongodb/registration');
     const pendingRegistrations = (dataRegistration.success && Array.isArray(dataRegistration.data)) ? dataRegistration.data : [];
 
     if (activeMembers.length > 0 || pendingRegistrations.length > 0) {
@@ -708,7 +710,7 @@ export class DataStoreService {
   }
 
   // Helper to ensure all required User fields are present and clean
-  private sanitizeUser(user: User): User {
+  public sanitizeUser(user: User): User {
     const emailStr = (user.email || '').trim();
     const fallbackUsername = emailStr ? emailStr.split('@')[0] : `rider_${String(user.id || Date.now()).slice(-4)}`;
     const rawUsername = (user.username || '').trim();

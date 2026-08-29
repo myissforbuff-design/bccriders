@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { store, safeFetchJson, getCachedData } from '../lib/db';
-import { loadFromSession } from '../lib/storageSecurity';
+import { store, safeFetchJson, getCachedData, setCachedData } from '../lib/db';
+import { loadFromSession, saveToSession } from '../lib/storageSecurity';
 import { TabType } from './Navigation';
 import { User } from '../types';
 import { RoleAvatarBadge } from './RoleAvatarBadge';
@@ -36,38 +36,65 @@ export const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const { currentUser, isAdmin } = useAuth();
 
-  const [allUsers, setAllUsers] = useState<User[]>(() => store.getUsers());
+  const [allUsers, setAllUsers] = useState<User[]>(() => {
+    const cachedMembers = getCachedData<User[]>('/api/mongodb/members', null);
+    if (cachedMembers && Array.isArray(cachedMembers) && cachedMembers.length > 0) {
+      return cachedMembers;
+    }
+    return store.getUsers();
+  });
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(() => allUsers.length === 0);
 
   // Fetch latest members and registrations from MongoDB database on mount and listen to updates
   useEffect(() => {
+    let isMounted = true;
+
     const fetchLatestUsers = async () => {
       try {
-        await store.initMongoDb();
-        const freshUsers = store.getUsers();
-        if (freshUsers && freshUsers.length > 0) {
-          setAllUsers([...freshUsers]);
+        const [membersRes, regRes] = await Promise.all([
+          safeFetchJson('/api/mongodb/members'),
+          safeFetchJson('/api/mongodb/registration'),
+        ]);
+
+        if (!isMounted) return;
+
+        const activeMembers = (membersRes.success && Array.isArray(membersRes.data)) ? membersRes.data : [];
+        const pendingRegs = (regRes.success && Array.isArray(regRes.data)) ? regRes.data : [];
+
+        if (activeMembers.length > 0 || pendingRegs.length > 0) {
+          const sanitizedList = [...activeMembers, ...pendingRegs].map((u) => store.sanitizeUser(u));
+          if (!sanitizedList.some((u) => u.id === 'usr_admin' || u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
+            const admin = store.getUsers().find((u) => u.id === 'usr_admin' || u.role === 'admin');
+            if (admin) sanitizedList.unshift(admin);
+          }
+          setAllUsers([...sanitizedList]);
         }
       } catch (err) {
         console.warn('Notice while loading dashboard members:', err);
       } finally {
-        setIsLoadingUsers(false);
+        if (isMounted) {
+          setIsLoadingUsers(false);
+        }
       }
     };
 
     fetchLatestUsers();
+    store.initMongoDb().catch(() => {});
 
     const handleUsersUpdated = (e: Event) => {
       const updated = (e as CustomEvent).detail || store.getUsers();
-      if (Array.isArray(updated)) {
+      if (Array.isArray(updated) && isMounted) {
         setAllUsers([...updated]);
         setIsLoadingUsers(false);
       }
     };
 
     window.addEventListener('bcc_users_updated', handleUsersUpdated);
-    return () => window.removeEventListener('bcc_users_updated', handleUsersUpdated);
+    return () => {
+      isMounted = false;
+      window.removeEventListener('bcc_users_updated', handleUsersUpdated);
+    };
   }, []);
 
   const members = allUsers.filter((m) => m.role !== 'admin' && m.id !== 'usr_admin');
@@ -81,11 +108,23 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
   // Treasury stats state with instant cache hydration
   const [financeRecords, setFinanceRecords] = useState<any[]>(() => {
-    return (
-      getCachedData('/api/mongodb/financeLogs', null) ||
-      getCachedData('bcc_finance_records_v3', null) ||
-      loadFromSession<any[]>('bcc_finance_records_v3', [])
-    );
+    const cachedCombined = getCachedData<any[]>('bcc_finance_records_v3', null);
+    if (Array.isArray(cachedCombined) && cachedCombined.length > 0) return cachedCombined;
+
+    const cachedFin = getCachedData<any[]>('/api/mongodb/financeLogs', null) || [];
+    const cachedMd = getCachedData<any[]>('/api/mongodb/monthlyDueLogs', null) || [];
+    let combined = [...(Array.isArray(cachedFin) ? cachedFin : [])];
+    if (Array.isArray(cachedMd) && cachedMd.length > 0) {
+      const existingIds = new Set(combined.map((r) => r.id));
+      cachedMd.forEach((r) => {
+        if (!existingIds.has(r.id)) {
+          combined.push(r);
+          existingIds.add(r.id);
+        }
+      });
+    }
+    if (combined.length > 0) return combined;
+    return loadFromSession<any[]>('bcc_finance_records_v3', []);
   });
 
   const [expenseRecords, setExpenseRecords] = useState<any[]>(() => {
@@ -97,17 +136,39 @@ export const Dashboard: React.FC<DashboardProps> = ({
     );
   });
 
-  const [isLoadingFinances, setIsLoadingFinances] = useState<boolean>(true);
-  const [isLoadingExpenses, setIsLoadingExpenses] = useState<boolean>(true);
+  const [isLoadingFinances, setIsLoadingFinances] = useState<boolean>(() => financeRecords.length === 0);
+  const [isLoadingExpenses, setIsLoadingExpenses] = useState<boolean>(() => expenseRecords.length === 0);
 
   useEffect(() => {
     if (!currentUser) return;
 
     const fetchFinances = () => {
-      safeFetchJson('/api/mongodb/financeLogs')
-        .then((data) => {
-          if (data.success && Array.isArray(data.data)) {
-            setFinanceRecords(data.data);
+      // Fetch BOTH financeLogs AND monthlyDueLogs concurrently so Total Mon. Dues and Total Funds arrive simultaneously
+      Promise.all([
+        safeFetchJson('/api/mongodb/financeLogs'),
+        safeFetchJson('/api/mongodb/monthlyDueLogs'),
+      ])
+        .then(([finData, mdData]) => {
+          let combined: any[] = [];
+          if (finData.success && Array.isArray(finData.data)) {
+            combined = [...combined, ...finData.data];
+          }
+          if (mdData.success && Array.isArray(mdData.data)) {
+            const existingIds = new Set(combined.map((r) => r.id));
+            mdData.data.forEach((r: any) => {
+              if (!existingIds.has(r.id)) {
+                combined.push(r);
+                existingIds.add(r.id);
+              }
+            });
+          }
+
+          if (combined.length > 0) {
+            setFinanceRecords(combined);
+            setCachedData('/api/mongodb/financeLogs', finData.data || []);
+            setCachedData('/api/mongodb/monthlyDueLogs', mdData.data || []);
+            setCachedData('bcc_finance_records_v3', combined);
+            saveToSession('bcc_finance_records_v3', combined);
           } else {
             setFinanceRecords(loadFromSession<any[]>('bcc_finance_records_v3', []));
           }
