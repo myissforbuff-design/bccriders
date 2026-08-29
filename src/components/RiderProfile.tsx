@@ -269,15 +269,31 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
 
     refreshRecords();
 
-    // Fetch latest finance logs from MongoDB
-    safeFetchJson('/api/mongodb/financeLogs')
-      .then((data) => {
-        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-          localStorage.setItem('bcc_finance_records_v3', JSON.stringify(data.data));
-          setFinanceRecords(data.data);
+    // Fetch latest finance logs AND monthly due logs concurrently from MongoDB
+    Promise.all([
+      safeFetchJson('/api/mongodb/financeLogs'),
+      safeFetchJson('/api/mongodb/monthlyDueLogs'),
+    ])
+      .then(([finData, mdData]) => {
+        let combined: any[] = [];
+        if (finData.success && Array.isArray(finData.data)) {
+          combined = [...combined, ...finData.data];
+        }
+        if (mdData.success && Array.isArray(mdData.data)) {
+          const existingIds = new Set(combined.map((r: any) => r.id));
+          mdData.data.forEach((r: any) => {
+            if (r && r.id && !existingIds.has(r.id)) {
+              combined.push(r);
+              existingIds.add(r.id);
+            }
+          });
+        }
+        if (combined.length > 0) {
+          localStorage.setItem('bcc_finance_records_v3', JSON.stringify(combined));
+          setFinanceRecords(combined);
         }
       })
-      .catch((err) => console.warn('MongoDB financeLogs fetch in RiderProfile notice:', err));
+      .catch((err) => console.warn('MongoDB finance logs fetch in RiderProfile notice:', err));
 
     const handleStorage = () => refreshRecords();
     const handleFinanceUpdated = () => refreshRecords();
@@ -305,11 +321,14 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
       return true;
     }
     // Full name match (case-insensitive & trimmed)
-    if (r.userName && activeRider.name) {
+    if (r.userName) {
       const rName = r.userName.trim().toLowerCase();
-      const aName = activeRider.name.trim().toLowerCase();
-      if (rName === aName) return true;
-      if (rName.length > 3 && (rName.includes(aName) || aName.includes(rName))) return true;
+      const aName = (activeRider.name || '').trim().toLowerCase();
+      const fullNameCombined = `${activeRider.firstName || ''} ${activeRider.lastName || ''}`.trim().toLowerCase();
+      const lastFirstCombined = `${activeRider.lastName || ''} ${activeRider.firstName || ''}`.trim().toLowerCase();
+      if (aName && (rName === aName || (rName.length > 3 && (rName.includes(aName) || aName.includes(rName))))) return true;
+      if (fullNameCombined && (rName === fullNameCombined || (rName.length > 3 && (rName.includes(fullNameCombined) || fullNameCombined.includes(rName))))) return true;
+      if (lastFirstCombined && (rName === lastFirstCombined || (rName.length > 3 && (rName.includes(lastFirstCombined) || lastFirstCombined.includes(rName))))) return true;
     }
     // Record ID containing user ID
     if (r.id && (r.id === `rec_mf_${activeRider.id}` || r.id.includes(activeRider.id))) return true;
@@ -318,19 +337,22 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
 
   const totalPaidFromJoining = riderRecords
     .filter((r) => r.status === 'Paid')
-    .reduce((sum, r) => sum + r.amount, 0);
+    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   const mfPaid = riderRecords
     .filter((r) => r.status === 'Paid' && r.itemType === 'Membership Fee')
-    .reduce((sum, r) => sum + r.amount, 0);
+    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   const duesPaid = riderRecords
-    .filter((r) => r.status === 'Paid' && r.itemType === 'Monthly Due')
-    .reduce((sum, r) => sum + r.amount, 0);
+    .filter((r) => r.status === 'Paid' && (r.itemType === 'Monthly Due' || r.itemType === 'Annual Upfront Promo'))
+    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   const otherPaid = riderRecords
-    .filter((r) => r.status === 'Paid' && r.itemType !== 'Membership Fee' && r.itemType !== 'Monthly Due')
-    .reduce((sum, r) => sum + r.amount, 0);
+    .filter((r) => r.status === 'Paid' && r.itemType !== 'Membership Fee' && r.itemType !== 'Monthly Due' && r.itemType !== 'Annual Upfront Promo')
+    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
   const pendingDuesAmount = riderRecords
     .filter((r) => r.status === 'Pending' || r.status === 'Overdue')
-    .reduce((sum, r) => sum + r.amount, 0);
+    .reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
+
+  const paidDuesMonths = riderRecords.filter((r) => (r.itemType === 'Monthly Due' || r.itemType === 'Annual Upfront Promo') && r.status === 'Paid').length;
+  const waivedDuesMonths = riderRecords.filter((r) => r.itemType === 'Monthly Due' && r.status === 'Waived').length;
 
   // Dynamic Bike Info text formatted exactly as shown in reference image:
   // White pill container with: HONDA - RS125 | 125cc | 123 - ABC
@@ -676,7 +698,13 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                   ₱{duesPaid.toLocaleString()}
                 </p>
                 <span className="text-[8px] sm:text-[9px] font-bold text-stone-500 block truncate">
-                  {riderRecords.filter((r) => r.itemType === 'Monthly Due' && r.status === 'Paid').length} mo paid
+                  {paidDuesMonths > 0 && waivedDuesMonths > 0
+                    ? `${paidDuesMonths} paid · ${waivedDuesMonths} waived`
+                    : paidDuesMonths > 0
+                    ? `${paidDuesMonths} mo paid`
+                    : waivedDuesMonths > 0
+                    ? `${waivedDuesMonths} mo waived`
+                    : '0 mo paid'}
                 </span>
               </div>
 

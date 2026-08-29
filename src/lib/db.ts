@@ -1391,9 +1391,31 @@ export class DataStoreService {
   // Finance Settings & Configs
   getFinanceRecords(): any[] {
     try {
-      const fromCache = getCachedData<any[]>('/api/mongodb/financeLogs', null as any);
-      if (fromCache && Array.isArray(fromCache) && fromCache.length > 0) {
-        return fromCache;
+      const fromFinCache = getCachedData<any[]>('/api/mongodb/financeLogs', null as any);
+      const fromMdCache = getCachedData<any[]>('/api/mongodb/monthlyDueLogs', null as any);
+      
+      if ((fromFinCache && Array.isArray(fromFinCache)) || (fromMdCache && Array.isArray(fromMdCache))) {
+        const combined: any[] = [];
+        const seenIds = new Set<string>();
+        if (Array.isArray(fromFinCache)) {
+          fromFinCache.forEach((r: any) => {
+            if (r && r.id && !seenIds.has(r.id)) {
+              combined.push(r);
+              seenIds.add(r.id);
+            }
+          });
+        }
+        if (Array.isArray(fromMdCache)) {
+          fromMdCache.forEach((r: any) => {
+            if (r && r.id && !seenIds.has(r.id)) {
+              combined.push(r);
+              seenIds.add(r.id);
+            }
+          });
+        }
+        if (combined.length > 0) {
+          return combined;
+        }
       }
       return loadFromSession<any[]>('bcc_finance_records_v3', []);
     } catch (e) {
