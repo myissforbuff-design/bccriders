@@ -26,6 +26,7 @@ import { InboundEmailViewer } from './InboundEmailViewer';
 import { EmailSender } from './EmailSender';
 import { PushNotificationSettings } from './PushNotificationSettings';
 import { RolesSettings } from './RolesSettings';
+import { DriveStorageSettings } from './DriveStorageSettings';
 import {
   Coins,
   Wallet,
@@ -41,6 +42,7 @@ import {
   Lock,
   Mail,
   Bell,
+  HardDrive,
   Settings as SettingsIcon,
   Save,
   X,
@@ -100,6 +102,7 @@ const YEAR_OPTIONS = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 
 const SUB_TAB_OPTIONS = [
   { id: 'push_notifications', label: 'Push Notifications', icon: Bell, description: 'Web push alerts & customizable triggers' },
+  { id: 'storage', label: 'Google Shared Drive & Storage', icon: HardDrive, description: 'Google Drive photo sync & MongoDB zero-base64' },
   { id: 'finance', label: 'Finances & Fees', icon: Wallet, description: 'Fees, monthly dues & drives' },
   { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet, description: 'Export member & financial ledgers' },
   { id: 'security', label: 'System Security & Biometrics', icon: Shield, description: 'Fingerprint, Face ID & Admin 2FA' },
@@ -111,9 +114,9 @@ export const Settings: React.FC = () => {
   const { runWithLoader, refreshTick } = useLoader();
 
   // Settings Sub-Navigation Dropdown & Tabs
-  const [activeSubTab, setActiveSubTab] = useState<'push_notifications' | 'finance' | 'reports' | 'security' | 'inbound'>(() => {
+  const [activeSubTab, setActiveSubTab] = useState<'push_notifications' | 'storage' | 'finance' | 'reports' | 'security' | 'inbound'>(() => {
     const saved = localStorage.getItem('bcc_settings_subtab');
-    return (saved === 'push_notifications' || saved === 'finance' || saved === 'reports' || saved === 'security' || saved === 'inbound') ? saved : 'push_notifications';
+    return (saved === 'push_notifications' || saved === 'storage' || saved === 'finance' || saved === 'reports' || saved === 'security' || saved === 'inbound') ? saved : 'push_notifications';
   });
 
   useEffect(() => {
@@ -2094,6 +2097,7 @@ export const Settings: React.FC = () => {
           <div className="flex items-center gap-3 min-w-0">
             <div className="p-2 rounded-xl bg-[#1b4332] text-white shrink-0 shadow-xs">
               {activeSubTab === 'push_notifications' && <Bell className="w-4 h-4 text-[#74c69d]" />}
+              {activeSubTab === 'storage' && <HardDrive className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'finance' && <Wallet className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'reports' && <FileSpreadsheet className="w-4 h-4 text-[#74c69d]" />}
               {activeSubTab === 'security' && <Shield className="w-4 h-4 text-[#74c69d]" />}
@@ -3840,6 +3844,11 @@ export const Settings: React.FC = () => {
       {/* SUB TAB 5: WEB PUSH NOTIFICATIONS & CHANNEL CUSTOMIZATION */}
       {activeSubTab === 'push_notifications' && (
         <PushNotificationSettings />
+      )}
+
+      {/* SUB TAB 6: GOOGLE SHARED DRIVE & STORAGE CONFIGURATION */}
+      {activeSubTab === 'storage' && (
+        <DriveStorageSettings />
       )}
 
       {/* MODAL: CREATE / EDIT MONTHLY DUE */}

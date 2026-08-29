@@ -151,26 +151,64 @@ function cleanGooglePrivateKey(raw: string): string {
   if (!raw) return '';
   let k = raw.trim();
   if (k.endsWith(',')) k = k.slice(0, -1).trim();
-  if (k.startsWith('"') && k.endsWith('"')) k = k.slice(1, -1);
-  if (k.startsWith("'") && k.endsWith("'")) k = k.slice(1, -1);
+  if ((k.startsWith('"') && k.endsWith('"')) || (k.startsWith("'") && k.endsWith("'"))) {
+    k = k.slice(1, -1);
+  }
   k = k.replace(/\\n/g, '\n');
   return k.trim();
 }
 
+function cleanDriveFolderId(raw: string): string {
+  if (!raw) return '';
+  let id = raw.trim();
+  if ((id.startsWith('"') && id.endsWith('"')) || (id.startsWith("'") && id.endsWith("'"))) {
+    id = id.slice(1, -1).trim();
+  }
+  const folderMatch = id.match(/folders\/([a-zA-Z0-9_-]+)/);
+  if (folderMatch && folderMatch[1]) {
+    return folderMatch[1];
+  }
+  const idParamMatch = id.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (idParamMatch && idParamMatch[1]) {
+    return idParamMatch[1];
+  }
+  return id.replace(/[^a-zA-Z0-9_-]/g, '');
+}
+
 function getGoogleDriveClient() {
-  const folderId = (process.env.GOOGLE_DRIVE_FOLDER_ID || process.env.DRIVE_FOLDER_ID || '').trim();
+  const rawFolderId = (
+    process.env.GOOGLE_DRIVE_FOLDER_ID ||
+    process.env.DRIVE_FOLDER_ID ||
+    process.env.GOOGLE_FOLDER_ID ||
+    process.env.SHARED_DRIVE_FOLDER_ID ||
+    ''
+  ).trim();
+  const folderId = cleanDriveFolderId(rawFolderId);
 
   // Check for full JSON credentials string
-  const jsonCredentials = (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || '').trim();
+  const jsonCredentials = (
+    process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
+    process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON ||
+    process.env.GOOGLE_CREDENTIALS_JSON ||
+    process.env.GCP_SERVICE_ACCOUNT_JSON ||
+    ''
+  ).trim();
   let authClient: any = null;
 
   if (jsonCredentials) {
     try {
-      const parsed = JSON.parse(jsonCredentials);
+      let jsonString = jsonCredentials;
+      // Handle Base64-encoded JSON if passed
+      if (!jsonString.startsWith('{') && jsonString.length > 20) {
+        try {
+          jsonString = Buffer.from(jsonString, 'base64').toString('utf8');
+        } catch {}
+      }
+      const parsed = JSON.parse(jsonString);
       authClient = new google.auth.JWT({
         email: parsed.client_email,
         key: cleanGooglePrivateKey(parsed.private_key || ''),
-        scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive'],
+        scopes: ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/drive.file'],
       });
     } catch (e) {
       console.warn('[Google Drive] Failed to parse GOOGLE_SERVICE_ACCOUNT_JSON:', e);
@@ -178,15 +216,27 @@ function getGoogleDriveClient() {
   }
 
   if (!authClient) {
-    const clientEmail = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL || process.env.DRIVE_CLIENT_EMAIL || '').trim();
-    const rawKey = (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || process.env.GOOGLE_PRIVATE_KEY || process.env.DRIVE_PRIVATE_KEY || '').trim();
+    const clientEmail = (
+      process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
+      process.env.GOOGLE_CLIENT_EMAIL ||
+      process.env.DRIVE_CLIENT_EMAIL ||
+      process.env.CLIENT_EMAIL ||
+      ''
+    ).trim();
+    const rawKey = (
+      process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY ||
+      process.env.GOOGLE_PRIVATE_KEY ||
+      process.env.DRIVE_PRIVATE_KEY ||
+      process.env.PRIVATE_KEY ||
+      ''
+    ).trim();
 
     if (clientEmail && rawKey) {
       const privateKey = cleanGooglePrivateKey(rawKey);
       authClient = new google.auth.JWT({
         email: clientEmail,
         key: privateKey,
-        scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive'],
+        scopes: ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/drive.file'],
       });
     }
   }
@@ -2948,14 +2998,123 @@ app.get('/api/mongodb/members', async (req, res) => {
 // GOOGLE DRIVE DIRECT UPLOAD & STATUS APIS
 app.get('/api/drive/status', (req, res) => {
   const configured = isGoogleDriveConfigured();
-  const folderId = (process.env.GOOGLE_DRIVE_FOLDER_ID || process.env.DRIVE_FOLDER_ID || '').trim();
-  const email = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL || '').trim();
+  const rawFolderId = (
+    process.env.GOOGLE_DRIVE_FOLDER_ID ||
+    process.env.DRIVE_FOLDER_ID ||
+    process.env.GOOGLE_FOLDER_ID ||
+    process.env.SHARED_DRIVE_FOLDER_ID ||
+    ''
+  ).trim();
+  const folderId = cleanDriveFolderId(rawFolderId);
+  const email = (
+    process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ||
+    process.env.GOOGLE_CLIENT_EMAIL ||
+    process.env.DRIVE_CLIENT_EMAIL ||
+    process.env.CLIENT_EMAIL ||
+    ''
+  ).trim();
   res.json({
     success: true,
     configured,
     folderId: folderId ? `${folderId.slice(0, 6)}...${folderId.slice(-4)}` : null,
+    rawFolderConfigured: !!rawFolderId,
     serviceAccount: email || (process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? 'Configured via JSON' : null),
   });
+});
+
+// Test Connection & Permissions to Google Shared Drive
+app.post('/api/drive/test-connection', async (req, res) => {
+  const driveInfo = getGoogleDriveClient();
+  if (!driveInfo) {
+    return res.status(400).json({
+      success: false,
+      configured: false,
+      message: 'Google Drive credentials not found in environment variables (GOOGLE_DRIVE_FOLDER_ID, GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY or GOOGLE_SERVICE_ACCOUNT_JSON).',
+    });
+  }
+
+  const { drive, folderId } = driveInfo;
+  try {
+    // 1. Verify Folder Access
+    let folderName = 'Root/My Drive';
+    if (folderId) {
+      const folderRes = await drive.files.get({
+        fileId: folderId,
+        fields: 'id, name, mimeType, driveId',
+        supportsAllDrives: true,
+      });
+      folderName = folderRes.data.name || folderId;
+    }
+
+    // 2. Perform a non-destructive 1-byte write & delete test to ensure Content Manager write permissions
+    const testFileName = `_bcc_drive_test_${Date.now()}.txt`;
+    const stream = new Readable();
+    stream.push(Buffer.from('BCC Google Drive Integration OK'));
+    stream.push(null);
+
+    const testFile = await drive.files.create({
+      requestBody: {
+        name: testFileName,
+        ...(folderId ? { parents: [folderId] } : {}),
+      },
+      media: {
+        mimeType: 'text/plain',
+        body: stream,
+      },
+      fields: 'id, name',
+      supportsAllDrives: true,
+    });
+
+    if (testFile.data.id) {
+      // Clean up test file immediately
+      await drive.files.delete({
+        fileId: testFile.data.id,
+        supportsAllDrives: true,
+      }).catch(() => {});
+    }
+
+    res.json({
+      success: true,
+      configured: true,
+      folderName,
+      folderId,
+      message: `Successfully connected to Google Drive folder "${folderName}"! Write & read permissions verified.`,
+    });
+  } catch (err: any) {
+    console.error('[Google Drive] Test connection failed:', err);
+    res.status(500).json({
+      success: false,
+      configured: true,
+      error: err.message || 'Google Drive API error during test',
+      message: `Failed to access Google Drive folder: ${err.message}. Ensure the Service Account email is added as a 'Content Manager' or 'Contributor' to the Google Shared Drive.`,
+    });
+  }
+});
+
+// Proxy stream to serve Google Drive images even if external domain permissions are strict
+app.get('/api/drive/file/:fileId', async (req, res) => {
+  const { fileId } = req.params;
+  if (!fileId || typeof fileId !== 'string') {
+    return res.status(400).send('Invalid file ID');
+  }
+
+  const driveInfo = getGoogleDriveClient();
+  if (!driveInfo) {
+    return res.redirect(`https://lh3.googleusercontent.com/d/${fileId}`);
+  }
+
+  try {
+    const { drive } = driveInfo;
+    const fileRes = await drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'stream' }
+    );
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+    fileRes.data.pipe(res);
+  } catch (err: any) {
+    // Redirect to public CDN URL as fallback
+    res.redirect(`https://lh3.googleusercontent.com/d/${fileId}`);
+  }
 });
 
 app.post('/api/drive/upload', async (req, res) => {
