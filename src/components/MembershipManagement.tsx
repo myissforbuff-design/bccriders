@@ -1387,6 +1387,9 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                 async () => {
                   store.updateUser(updatedUser);
                   refreshList();
+                  if (selectedMember?.id === updatedUser.id) {
+                    setSelectedMember(updatedUser);
+                  }
                   setEditingMember(null);
                 },
                 {

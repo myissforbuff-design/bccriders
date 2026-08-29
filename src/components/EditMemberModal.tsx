@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { User, CLUB_ROLES, MembershipType, ClubRoleDefinition } from '../types';
-import { store } from '../lib/db';
+import { store, uploadStorageFile } from '../lib/db';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { OfficialLoader } from './OfficialLoader';
+import { ImageCropperModal } from './ImageCropperModal';
+import { RoleAvatarBadge } from './RoleAvatarBadge';
 import {
   X,
   User as UserIcon,
@@ -16,6 +18,13 @@ import {
   Compass,
   ChevronDown,
   Check,
+  Camera,
+  Upload,
+  Trash2,
+  Image as ImageIcon,
+  RefreshCw,
+  CheckCircle2,
+  Crop,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { BirthdateDropdownPicker } from './BirthdateDropdownPicker';
@@ -133,6 +142,100 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 }) => {
   useModalDismiss(true, onClose);
 
+  // Photos & Avatars
+  const [avatar, setAvatar] = useState(member.avatar || '');
+  const [avatarError, setAvatarError] = useState('');
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+
+  const [bikePhotoUrl, setBikePhotoUrl] = useState(member.bikeInfo?.photoUrl || '');
+  const [bikePhotoError, setBikePhotoError] = useState('');
+  const [isUploadingBikePhoto, setIsUploadingBikePhoto] = useState(false);
+
+  const [cropperOpen, setCropperOpen] = useState(false);
+  const [cropperSrc, setCropperSrc] = useState('');
+  const [cropperTarget, setCropperTarget] = useState<'avatar' | 'bike'>('avatar');
+  const [cropperTitle, setCropperTitle] = useState('Crop Member Avatar');
+
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const bikePhotoInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setAvatarError('');
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      setAvatarError('Avatar image file size exceeds 10MB limit. Please select a smaller file.');
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result) {
+        setCropperSrc(reader.result as string);
+        setCropperTarget('avatar');
+        setCropperTitle('Crop Member Avatar');
+        setCropperOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleBikePhotoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setBikePhotoError('');
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 10 * 1024 * 1024) {
+      setBikePhotoError('Motorcycle photo file size exceeds 10MB limit. Please select a smaller file.');
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (reader.result) {
+        setCropperSrc(reader.result as string);
+        setCropperTarget('bike');
+        setCropperTitle('Crop Motorcycle Photo');
+        setCropperOpen(true);
+      }
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  const handleCropComplete = async (croppedDataUrl: string) => {
+    setCropperOpen(false);
+    const lastNameVal = lastName.trim() || firstName.trim() || member.name || 'member';
+
+    if (cropperTarget === 'avatar') {
+      setIsUploadingAvatar(true);
+      try {
+        const compressed = await uploadStorageFile(croppedDataUrl, 'avatars', 800, 0.82, lastNameVal);
+        setAvatar(compressed || croppedDataUrl);
+      } catch (err) {
+        console.warn('Avatar upload notice:', err);
+        setAvatar(croppedDataUrl);
+      } finally {
+        setIsUploadingAvatar(false);
+      }
+    } else {
+      setIsUploadingBikePhoto(true);
+      try {
+        const compressed = await uploadStorageFile(croppedDataUrl, 'bike', 1200, 0.85, lastNameVal);
+        setBikePhotoUrl(compressed || croppedDataUrl);
+      } catch (err) {
+        console.warn('Bike photo upload notice:', err);
+        setBikePhotoUrl(croppedDataUrl);
+      } finally {
+        setIsUploadingBikePhoto(false);
+      }
+    }
+  };
+
   // Personal Info
   const [firstName, setFirstName] = useState(
     member.firstName || (member.name ? member.name.split(' ')[0] : '')
@@ -212,7 +315,6 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [yearsInService, setYearsInService] = useState(member.bikeInfo?.yearsInService || '');
   const [licenseRestrictionCode, setLicenseRestrictionCode] = useState(member.bikeInfo?.licenseRestrictionCode || 'A');
   const [conditionCode, setConditionCode] = useState(member.bikeInfo?.conditionCode || '');
-  const [bikePhotoUrl, setBikePhotoUrl] = useState(member.bikeInfo?.photoUrl || '');
 
   // Riding Details
   const [ridingExperience, setRidingExperience] = useState(member.ridingExperience || 'Regular');
@@ -291,6 +393,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
     const updatedUser: User = {
       ...member,
+      avatar: avatar.trim(),
       name: fullName,
       username: cleanUsername,
       firstName: firstName.trim(),
@@ -439,8 +542,100 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
             <div className="flex items-center gap-2 pb-2 border-b border-[#e2ece2] text-[#1b4332]">
               <ShieldCheck className="w-4 h-4 text-[#2d6a4f]" />
               <h4 className="font-heading font-extrabold text-xs uppercase tracking-wider">
-                1. Club Role & Membership Status
+                1. Club Role, Avatar & Membership Status
               </h4>
+            </div>
+
+            {/* Member Profile Avatar Card */}
+            <div className="p-3 sm:p-3.5 rounded-xl bg-white border border-[#e2ece2] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] sm:text-xs font-bold text-[#1b4332] flex items-center gap-1.5">
+                  <Camera className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                  Member Profile Avatar & Photo
+                </span>
+                {isUploadingAvatar && (
+                  <span className="text-[10px] font-bold text-[#2d6a4f] flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    Uploading to Google Drive...
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-col sm:flex-row items-center gap-3.5">
+                <div className="relative shrink-0 inline-block">
+                  <img
+                    src={avatar || '/avatar.svg'}
+                    alt="Member Avatar Preview"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
+                    }}
+                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-[#2d6a4f] shadow-md bg-stone-100"
+                  />
+                  <RoleAvatarBadge role={role} size="md" />
+                </div>
+
+                <div className="flex-1 space-y-1.5 text-center sm:text-left min-w-0 w-full">
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAvatarFileChange}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => avatarInputRef.current?.click()}
+                      disabled={isUploadingAvatar}
+                      className="px-3 py-1.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+                    >
+                      <Upload className="w-3.5 h-3.5 text-[#74c69d]" />
+                      <span>{avatar ? 'Change Avatar' : 'Upload Avatar'}</span>
+                    </button>
+
+                    {avatar && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCropperSrc(avatar);
+                            setCropperTarget('avatar');
+                            setCropperTitle('Crop Member Avatar');
+                            setCropperOpen(true);
+                          }}
+                          disabled={isUploadingAvatar}
+                          className="px-2.5 py-1.5 rounded-xl bg-[#f7f9f7] hover:bg-[#e2ece2] border border-[#e2ece2] text-[#1b4332] font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <Crop className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                          <span>Crop</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAvatar('');
+                            setAvatarError('');
+                          }}
+                          disabled={isUploadingAvatar}
+                          className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                          <span>Reset</span>
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-[#52605d]">
+                    Accepted: JPG, PNG, WEBP (Max 10MB). Image is automatically compressed and saved to your club Google Shared Drive.
+                  </p>
+                  {avatarError && (
+                    <p className="text-[10.5px] font-bold text-rose-600 flex items-center gap-1">
+                      <AlertCircle className="w-3 h-3 shrink-0" />
+                      <span>{avatarError}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1032,19 +1227,103 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               </div>
             </div>
 
-            <div>
-              <label className="font-bold text-[#1b4332] block mb-1">Motorcycle Photo Image URL</label>
-              <input
-                type="text"
-                value={bikePhotoUrl}
-                onChange={(e) => setBikePhotoUrl(e.target.value)}
-                placeholder="https://images.unsplash.com/photo-..."
-                className={inputStyle}
-              />
-              {bikePhotoUrl && (
-                <div className="mt-2 rounded-xl overflow-hidden border border-[#e2ece2] h-32 bg-stone-900">
-                  <img src={bikePhotoUrl} alt="Motorcycle Preview" className="w-full h-full object-cover" />
+            {/* Motorcycle Garage Photo Card */}
+            <div className="p-3 sm:p-3.5 rounded-xl bg-white border border-[#e2ece2] space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] sm:text-xs font-bold text-[#1b4332] flex items-center gap-1.5">
+                  <ImageIcon className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                  Motorcycle Garage Photo
+                </span>
+                {isUploadingBikePhoto && (
+                  <span className="text-[10px] font-bold text-[#2d6a4f] flex items-center gap-1">
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    Uploading to Google Drive...
+                  </span>
+                )}
+              </div>
+
+              {/* Photo Preview */}
+              <div className="relative rounded-xl overflow-hidden border border-[#e2ece2] bg-stone-900 h-36 sm:h-48 group shadow-xs">
+                <img
+                  src={
+                    bikePhotoUrl ||
+                    'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800'
+                  }
+                  alt={`${bikeMake || 'Motorcycle'} ${bikeModel || ''}`}
+                  className="w-full h-full object-cover object-center transition-transform duration-300 group-hover:scale-102"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src =
+                      'https://images.unsplash.com/photo-1558981806-ec527fa84c39?auto=format&fit=crop&q=80&w=800';
+                  }}
+                />
+                <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-lg bg-[#1b4332]/90 backdrop-blur-md text-white text-[10px] sm:text-[11px] font-extrabold tracking-wide flex items-center gap-1.5 shadow-md border border-white/20">
+                  <Bike className="w-3.5 h-3.5 text-[#74c69d]" />
+                  <span>{bikeMake || 'Motorcycle'} {bikeModel || ''}</span>
                 </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    ref={bikePhotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleBikePhotoFileChange}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => bikePhotoInputRef.current?.click()}
+                    disabled={isUploadingBikePhoto}
+                    className="px-3 py-1.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-bold text-xs flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    <Upload className="w-3.5 h-3.5 text-[#74c69d]" />
+                    <span>{bikePhotoUrl ? 'Change Bike Photo' : 'Upload Bike Photo'}</span>
+                  </button>
+
+                  {bikePhotoUrl && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCropperSrc(bikePhotoUrl);
+                          setCropperTarget('bike');
+                          setCropperTitle('Crop Motorcycle Photo');
+                          setCropperOpen(true);
+                        }}
+                        disabled={isUploadingBikePhoto}
+                        className="px-2.5 py-1.5 rounded-xl bg-[#f7f9f7] hover:bg-[#e2ece2] border border-[#e2ece2] text-[#1b4332] font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Crop className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                        <span>Crop</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setBikePhotoUrl('');
+                          setBikePhotoError('');
+                        }}
+                        disabled={isUploadingBikePhoto}
+                        className="px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Remove</span>
+                      </button>
+                    </>
+                  )}
+                </div>
+
+                <div className="text-[10px] text-[#52605d]">
+                  Linked to member QR profile & garage
+                </div>
+              </div>
+
+              {bikePhotoError && (
+                <p className="text-[10.5px] font-bold text-rose-600 flex items-center gap-1">
+                  <AlertCircle className="w-3 h-3 shrink-0" />
+                  <span>{bikePhotoError}</span>
+                </p>
               )}
             </div>
           </div>
@@ -1125,6 +1404,16 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           </button>
         </div>
       </motion.div>
+
+      {/* Avatar & Bike Photo Cropper Modal */}
+      <ImageCropperModal
+        isOpen={cropperOpen}
+        imageSrc={cropperSrc}
+        title={cropperTitle}
+        onClose={() => setCropperOpen(false)}
+        onCropComplete={handleCropComplete}
+      />
+
       <OfficialLoader isLoading={isSaving} message="Updating Member Profile..." />
     </div>
   );

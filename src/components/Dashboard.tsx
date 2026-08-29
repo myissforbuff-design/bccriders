@@ -41,10 +41,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
     if (cachedMembers && Array.isArray(cachedMembers) && cachedMembers.length > 0) {
       return cachedMembers;
     }
-    return store.getUsers();
+    return store.getUsers().filter((u) => u.role === 'admin' || u.id === 'usr_admin');
   });
   const [searchTerm, setSearchTerm] = useState('');
-  const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(() => allUsers.length === 0);
+  const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(() => {
+    const cachedMembers = getCachedData<User[]>('/api/mongodb/members', null);
+    return !(cachedMembers && Array.isArray(cachedMembers) && cachedMembers.length > 0);
+  });
 
   // Fetch latest members and registrations from MongoDB database on mount and listen to updates
   useEffect(() => {
@@ -62,14 +65,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
         const activeMembers = (membersRes.success && Array.isArray(membersRes.data)) ? membersRes.data : [];
         const pendingRegs = (regRes.success && Array.isArray(regRes.data)) ? regRes.data : [];
 
-        if (activeMembers.length > 0 || pendingRegs.length > 0) {
-          const sanitizedList = [...activeMembers, ...pendingRegs].map((u) => store.sanitizeUser(u));
-          if (!sanitizedList.some((u) => u.id === 'usr_admin' || u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
-            const admin = store.getUsers().find((u) => u.id === 'usr_admin' || u.role === 'admin');
-            if (admin) sanitizedList.unshift(admin);
-          }
-          setAllUsers([...sanitizedList]);
+        const sanitizedList = [...activeMembers, ...pendingRegs].map((u) => store.sanitizeUser(u));
+        if (!sanitizedList.some((u) => u.id === 'usr_admin' || u.username?.toLowerCase() === 'admin' || u.role === 'admin')) {
+          const admin = store.getUsers().find((u) => u.id === 'usr_admin' || u.role === 'admin');
+          if (admin) sanitizedList.unshift(admin);
         }
+        setAllUsers([...sanitizedList]);
+        setCachedData('/api/mongodb/members', sanitizedList);
       } catch (err) {
         console.warn('Notice while loading dashboard members:', err);
       } finally {
@@ -527,7 +529,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
             </div>
           </div>
 
-          {filteredMembersList.length === 0 ? (
+          {isLoadingUsers ? (
+            <div className="py-4 space-y-2">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] animate-pulse">
+                  <div className="flex items-center gap-2.5 flex-1">
+                    <div className="w-8 h-8 rounded-full bg-slate-200" />
+                    <div className="space-y-1.5 flex-1">
+                      <div className="w-32 h-3.5 bg-slate-200 rounded" />
+                      <div className="w-24 h-2.5 bg-slate-200 rounded" />
+                    </div>
+                  </div>
+                  <div className="w-16 h-5 bg-slate-200 rounded" />
+                </div>
+              ))}
+            </div>
+          ) : filteredMembersList.length === 0 ? (
             <div className="py-6 sm:py-10 text-center space-y-2 sm:space-y-3 bg-[#f7f9f7] rounded-xl sm:rounded-2xl border border-dashed border-[#e2ece2]">
               <div className="w-9 h-9 sm:w-12 sm:h-12 mx-auto rounded-full bg-white flex items-center justify-center text-[#52605d] shadow-2xs">
                 <Users className="w-4.5 h-4.5 sm:w-6 sm:h-6" />

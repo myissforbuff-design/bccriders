@@ -2901,14 +2901,13 @@ app.get('/api/mongodb/members', async (req, res) => {
     return res.status(503).json({ error: 'MongoDB connection not available', data: [] });
   }
   try {
-    const docs = await database.collection('members').find({}).toArray();
-    let userDocs: any[] = [];
-    try {
-      userDocs = await database.collection('users').find({}).toArray();
-    } catch {}
+    const [docs, userDocs] = await Promise.all([
+      database.collection('members').find({}).toArray(),
+      database.collection('users').find({}).toArray().catch(() => []),
+    ]);
 
     const allMemberDocs = [...docs];
-    for (const u of userDocs) {
+    for (const u of (userDocs || [])) {
       if (!allMemberDocs.some((m) => (m.id && m.id === u.id) || (m.username && m.username === u.username) || (m.email && m.email === u.email))) {
         allMemberDocs.push(u);
       }
@@ -3227,14 +3226,13 @@ app.get('/api/mongodb/registration', async (req, res) => {
     return res.status(503).json({ error: 'MongoDB connection not available', data: [] });
   }
   try {
-    const docs = await database.collection('registration').find({}).toArray();
-    let pluralDocs: any[] = [];
-    try {
-      pluralDocs = await database.collection('registrations').find({}).toArray();
-    } catch {}
+    const [docs, pluralDocs] = await Promise.all([
+      database.collection('registration').find({}).toArray(),
+      database.collection('registrations').find({}).toArray().catch(() => []),
+    ]);
 
     const allRegDocs = [...docs];
-    for (const p of pluralDocs) {
+    for (const p of (pluralDocs || [])) {
       if (!allRegDocs.some((r) => (r.id && r.id === p.id) || (r.username && r.username === p.username) || (r.email && r.email === p.email))) {
         allRegDocs.push(p);
       }
