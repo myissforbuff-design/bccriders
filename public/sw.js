@@ -31,16 +31,16 @@ self.addEventListener('push', (event) => {
   }
 
   const title = data.title || 'BCC Riders Club';
-  const logoUrl = resolveNotificationUrl('/app-logo.png');
-  const iconUrl = resolveNotificationUrl(data.icon || '/app-logo.png');
-  const badgeUrl = resolveNotificationUrl(data.badge || '/app-logo.png');
+  const logoUrl = resolveNotificationUrl('/logo.png');
+  const iconUrl = resolveNotificationUrl(data.icon || '/logo.png');
+  const badgeUrl = resolveNotificationUrl(data.badge || '/badge-b.svg');
 
   const options = {
     body: data.body || data.message || 'You have a new update from BCC Riders Club.',
     icon: iconUrl || logoUrl,
     badge: badgeUrl || logoUrl,
     image: data.image ? resolveNotificationUrl(data.image) : undefined,
-    tag: data.tag || `bcc-push-${Date.now()}`,
+    tag: data.tag || 'bcc-club-thread',
     renotify: true,
     requireInteraction: data.requireInteraction || false,
     vibrate: data.vibrate || [200, 100, 200],

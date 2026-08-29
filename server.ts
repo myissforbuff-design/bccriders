@@ -1522,8 +1522,8 @@ async function broadcastPushNotification(
         const payloadString = JSON.stringify({
           title: payload.title,
           body: payload.body,
-          icon: payload.icon || '/app-logo.png',
-          badge: payload.badge || '/app-logo.png',
+          icon: payload.icon || '/logo.png',
+          badge: payload.badge || '/badge-b.svg',
           category: payload.category,
           tab: payload.tab || 'finances',
           url: payload.url || '/',
