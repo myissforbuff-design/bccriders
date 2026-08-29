@@ -4,6 +4,12 @@
   "description": "BCC Riders Club Official Mobile & Web Application",
   "icons": [
     {
+      "src": "/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    },
+    {
       "src": "/app-logo.png",
       "type": "image/png",
       "sizes": "192x192",
@@ -14,23 +20,11 @@
       "type": "image/png",
       "sizes": "512x512",
       "purpose": "any"
-    },
-    {
-      "src": "/app-logo.png",
-      "type": "image/png",
-      "sizes": "192x192",
-      "purpose": "maskable"
-    },
-    {
-      "src": "/logo.png",
-      "type": "image/png",
-      "sizes": "512x512",
-      "purpose": "maskable"
     }
   ],
   "start_url": "/",
-  "background_color": "#1b4332",
-  "theme_color": "#1b4332",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "display": "standalone",
   "orientation": "portrait",
   "scope": "/"

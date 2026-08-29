@@ -2,6 +2,8 @@ import express from 'express';
 import http from 'http';
 import crypto from 'crypto';
 import path from 'path';
+import { Readable } from 'stream';
+import { google } from 'googleapis';
 import { MongoClient, Db, ChangeStream } from 'mongodb';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
@@ -46,7 +48,7 @@ app.use((req, res, next) => {
   res.setHeader(
     'Content-Security-Policy',
     "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; " +
-    "img-src 'self' https: data: blob: https://images.unsplash.com https://*.resend.com; " +
+    "img-src 'self' https: data: blob: https://images.unsplash.com https://*.resend.com https://*.googleusercontent.com https://drive.google.com https://*.google.com; " +
     "font-src 'self' https: data:; " +
     "connect-src 'self' https: wss: http: data: blob:; " +
     "frame-ancestors 'self' https://aistudio.google.com https://*.google.com;"
@@ -140,6 +142,244 @@ async function getInboundMongoDb(): Promise<Db | null> {
     console.error('[Resend Inbound] Dedicated MongoDB connection error, falling back to primary:', err);
     return getMongoDb();
   }
+}
+
+// ==========================================
+// GOOGLE DRIVE CLOUD STORAGE INTEGRATION
+// ==========================================
+function cleanGooglePrivateKey(raw: string): string {
+  if (!raw) return '';
+  let k = raw.trim();
+  if (k.endsWith(',')) k = k.slice(0, -1).trim();
+  if (k.startsWith('"') && k.endsWith('"')) k = k.slice(1, -1);
+  if (k.startsWith("'") && k.endsWith("'")) k = k.slice(1, -1);
+  k = k.replace(/\\n/g, '\n');
+  return k.trim();
+}
+
+function getGoogleDriveClient() {
+  const folderId = (process.env.GOOGLE_DRIVE_FOLDER_ID || process.env.DRIVE_FOLDER_ID || '').trim();
+
+  // Check for full JSON credentials string
+  const jsonCredentials = (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON || '').trim();
+  let authClient: any = null;
+
+  if (jsonCredentials) {
+    try {
+      const parsed = JSON.parse(jsonCredentials);
+      authClient = new google.auth.JWT({
+        email: parsed.client_email,
+        key: cleanGooglePrivateKey(parsed.private_key || ''),
+        scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive'],
+      });
+    } catch (e) {
+      console.warn('[Google Drive] Failed to parse GOOGLE_SERVICE_ACCOUNT_JSON:', e);
+    }
+  }
+
+  if (!authClient) {
+    const clientEmail = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL || process.env.DRIVE_CLIENT_EMAIL || '').trim();
+    const rawKey = (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || process.env.GOOGLE_PRIVATE_KEY || process.env.DRIVE_PRIVATE_KEY || '').trim();
+
+    if (clientEmail && rawKey) {
+      const privateKey = cleanGooglePrivateKey(rawKey);
+      authClient = new google.auth.JWT({
+        email: clientEmail,
+        key: privateKey,
+        scopes: ['https://www.googleapis.com/auth/drive.file', 'https://www.googleapis.com/auth/drive'],
+      });
+    }
+  }
+
+  if (!authClient) {
+    return null;
+  }
+
+  const drive = google.drive({ version: 'v3', auth: authClient });
+  return { drive, folderId, type: 'service_account' };
+}
+
+function isGoogleDriveConfigured(): boolean {
+  return !!getGoogleDriveClient();
+}
+
+/**
+ * Uploads a base64 or DataURL image buffer to Google Drive and sets public read permission.
+ * Returns direct high-speed CDN URL (https://lh3.googleusercontent.com/d/{fileId})
+ */
+function getLastNameSlug(member: any): string {
+  let rawLastName = (member.lastName || '').trim();
+  if (!rawLastName && member.name) {
+    const parts = member.name.trim().split(/\s+/);
+    if (parts.length > 1) {
+      rawLastName = parts[parts.length - 1];
+    } else if (parts.length === 1) {
+      rawLastName = parts[0];
+    }
+  }
+  if (!rawLastName && member.username) {
+    rawLastName = member.username;
+  }
+  if (!rawLastName) {
+    rawLastName = 'rider';
+  }
+  return rawLastName.toLowerCase().replace(/[^a-z0-9-_]/g, '');
+}
+
+async function uploadBase64ToGoogleDrive(
+  base64Data: string,
+  fileNamePrefix: string = 'bcc_member_photo'
+): Promise<{ url: string; fileId: string; webViewLink?: string } | null> {
+  const driveInfo = getGoogleDriveClient();
+  if (!driveInfo) {
+    return null;
+  }
+
+  const { drive, folderId } = driveInfo;
+
+  try {
+    let mimeType = 'image/jpeg';
+    let base64String = base64Data;
+
+    if (base64Data.startsWith('data:')) {
+      const match = base64Data.match(/^data:([^;]+);base64,(.+)$/);
+      if (match) {
+        mimeType = match[1];
+        base64String = match[2];
+      }
+    }
+
+    const buffer = Buffer.from(base64String, 'base64');
+    const extension = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+    // Format as lastname-avatar.jpg or lastname-bike.jpg as requested (e.g. bangcailan-avatar.jpg)
+    const fileName = fileNamePrefix.includes('.') ? fileNamePrefix : `${fileNamePrefix}.${extension}`;
+
+    const stream = new Readable();
+    stream.push(buffer);
+    stream.push(null);
+
+    const fileMetadata: any = {
+      name: fileName,
+    };
+    if (folderId) {
+      fileMetadata.parents = [folderId];
+    }
+
+    const media = {
+      mimeType,
+      body: stream,
+    };
+
+    const res = await drive.files.create({
+      requestBody: fileMetadata,
+      media,
+      fields: 'id, name, webViewLink, webContentLink',
+      supportsAllDrives: true,
+    });
+
+    const fileId = res.data.id;
+    if (!fileId) return null;
+
+    // Grant public read permission to this uploaded file so it loads universally on all client devices
+    try {
+      await drive.permissions.create({
+        fileId,
+        requestBody: {
+          role: 'reader',
+          type: 'anyone',
+        },
+        supportsAllDrives: true,
+      });
+    } catch (permErr) {
+      console.warn('[Google Drive] Permission set warning (parent folder may already be shared):', permErr);
+    }
+
+    // Direct Google CDN thumbnail/stream URL (ultra-fast, globally cached, no auth required)
+    const directUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
+    return {
+      url: directUrl,
+      fileId,
+      webViewLink: res.data.webViewLink || `https://drive.google.com/file/d/${fileId}/view`,
+    };
+  } catch (err) {
+    console.error('[Google Drive] Upload error:', err);
+    return null;
+  }
+}
+
+/**
+ * Automatically inspects member record: if avatar or bikeInfo.photoUrl is base64,
+ * uploads to Google Drive and replaces them with clean Google Drive URLs.
+ */
+async function processMemberPhotosForDrive(member: any): Promise<any> {
+  if (!member || typeof member !== 'object') return member;
+  const processed = { ...member };
+  const lastNameSlug = getLastNameSlug(processed);
+  const driveConfigured = isGoogleDriveConfigured();
+
+  // 1. Process Avatar
+  if (typeof processed.avatar === 'string' && processed.avatar.startsWith('data:image/')) {
+    if (driveConfigured) {
+      try {
+        const driveRes = await uploadBase64ToGoogleDrive(
+          processed.avatar,
+          `${lastNameSlug}-avatar`
+        );
+        if (driveRes && driveRes.url) {
+          console.log(`[Google Drive] Uploaded avatar for member ${processed.id} -> ${driveRes.url}`);
+          processed.avatar = driveRes.url;
+        } else {
+          processed.avatar = ''; // Prevent base64 bloat if upload fails
+        }
+      } catch (e) {
+        console.warn('[Google Drive] Avatar upload error:', e);
+        processed.avatar = '';
+      }
+    } else {
+      processed.avatar = '';
+    }
+  }
+
+  // 2. Process Motorcycle Cover / Bike Photo
+  if (
+    processed.bikeInfo &&
+    typeof processed.bikeInfo.photoUrl === 'string' &&
+    processed.bikeInfo.photoUrl.startsWith('data:image/')
+  ) {
+    if (driveConfigured) {
+      try {
+        const driveRes = await uploadBase64ToGoogleDrive(
+          processed.bikeInfo.photoUrl,
+          `${lastNameSlug}-bike`
+        );
+        if (driveRes && driveRes.url) {
+          console.log(`[Google Drive] Uploaded bike photo for member ${processed.id} -> ${driveRes.url}`);
+          processed.bikeInfo = {
+            ...processed.bikeInfo,
+            photoUrl: driveRes.url,
+          };
+        } else {
+          processed.bikeInfo = {
+            ...processed.bikeInfo,
+            photoUrl: '',
+          };
+        }
+      } catch (e) {
+        console.warn('[Google Drive] Bike photo upload error:', e);
+        processed.bikeInfo = {
+          ...processed.bikeInfo,
+          photoUrl: '',
+        };
+      }
+    } else {
+      processed.bikeInfo = {
+        ...processed.bikeInfo,
+        photoUrl: '',
+      };
+    }
+  }
+
+  return processed;
 }
 
 // Bootstrap password for the seeded administrator, used only when the database has no admin yet.
@@ -2706,6 +2946,186 @@ app.get('/api/mongodb/members', async (req, res) => {
   }
 });
 
+// GOOGLE DRIVE DIRECT UPLOAD & STATUS APIS
+app.get('/api/drive/status', (req, res) => {
+  const configured = isGoogleDriveConfigured();
+  const folderId = (process.env.GOOGLE_DRIVE_FOLDER_ID || process.env.DRIVE_FOLDER_ID || '').trim();
+  const email = (process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || process.env.GOOGLE_CLIENT_EMAIL || '').trim();
+  res.json({
+    success: true,
+    configured,
+    folderId: folderId ? `${folderId.slice(0, 6)}...${folderId.slice(-4)}` : null,
+    serviceAccount: email || (process.env.GOOGLE_SERVICE_ACCOUNT_JSON ? 'Configured via JSON' : null),
+  });
+});
+
+app.post('/api/drive/upload', async (req, res) => {
+  const { image, fileName, folder, userId, lastName, riderName } = req.body || {};
+  if (!image || typeof image !== 'string') {
+    return res.status(400).json({ error: 'image base64 string or dataUrl is required' });
+  }
+
+  // If Google Drive is not configured, return image as fallback without failing
+  if (!isGoogleDriveConfigured()) {
+    return res.json({
+      success: true,
+      url: image,
+      provider: 'base64_fallback',
+      configured: false,
+      message: 'Google Drive credentials not configured in environment; stored base64 image.',
+    });
+  }
+
+  try {
+    let prefix = fileName;
+    if (!prefix) {
+      const nameSource = lastName || riderName || 'rider';
+      const slug = String(nameSource).toLowerCase().trim().split(/\s+/).pop()?.replace(/[^a-z0-9-_]/g, '') || 'rider';
+      const isBike = folder?.includes('bike') || folder?.includes('cover') || folder?.includes('moto');
+      prefix = `${slug}-${isBike ? 'bike' : 'avatar'}`;
+    }
+    const uploadRes = await uploadBase64ToGoogleDrive(image, prefix);
+    if (uploadRes && uploadRes.url) {
+      return res.json({
+        success: true,
+        url: uploadRes.url,
+        fileId: uploadRes.fileId,
+        webViewLink: uploadRes.webViewLink,
+        provider: 'google_drive',
+        configured: true,
+      });
+    } else {
+      return res.json({
+        success: true,
+        url: image,
+        provider: 'base64_fallback',
+        configured: true,
+        message: 'Google Drive upload returned null; retained base64 fallback.',
+      });
+    }
+  } catch (err: any) {
+    console.error('Google Drive direct upload endpoint error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to upload image to Google Drive' });
+  }
+});
+
+// Admin endpoint to migrate all existing base64 avatars and motorcycle photos to Google Drive
+app.post('/api/drive/migrate-existing', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) {
+    return res.status(503).json({ error: 'MongoDB not connected' });
+  }
+  if (!isGoogleDriveConfigured()) {
+    return res.status(400).json({ error: 'Google Drive credentials are not configured in environment.' });
+  }
+
+  try {
+    const members = await database.collection('members').find({}).toArray();
+    const registrations = await database.collection('registration').find({}).toArray();
+    let migratedAvatars = 0;
+    let migratedBikes = 0;
+
+    // 1. Migrate members collection
+    for (const m of members) {
+      let needsUpdate = false;
+      let newAvatar = m.avatar;
+      let newBikePhoto = m.bikeInfo?.photoUrl;
+      const lastNameSlug = getLastNameSlug(m);
+
+      if (typeof m.avatar === 'string' && m.avatar.startsWith('data:image/')) {
+        const driveRes = await uploadBase64ToGoogleDrive(m.avatar, `${lastNameSlug}-avatar`);
+        if (driveRes?.url) {
+          newAvatar = driveRes.url;
+          migratedAvatars++;
+          needsUpdate = true;
+        } else {
+          newAvatar = '';
+          needsUpdate = true;
+        }
+      }
+
+      if (m.bikeInfo && typeof m.bikeInfo.photoUrl === 'string' && m.bikeInfo.photoUrl.startsWith('data:image/')) {
+        const driveRes = await uploadBase64ToGoogleDrive(m.bikeInfo.photoUrl, `${lastNameSlug}-bike`);
+        if (driveRes?.url) {
+          newBikePhoto = driveRes.url;
+          migratedBikes++;
+          needsUpdate = true;
+        } else {
+          newBikePhoto = '';
+          needsUpdate = true;
+        }
+      }
+
+      if (needsUpdate) {
+        await database.collection('members').updateOne(
+          { id: m.id },
+          {
+            $set: {
+              avatar: newAvatar,
+              ...(m.bikeInfo ? { 'bikeInfo.photoUrl': newBikePhoto } : {}),
+              updatedAt: new Date().toISOString(),
+            },
+          }
+        );
+      }
+    }
+
+    // 2. Migrate registration collection
+    for (const r of registrations) {
+      let needsUpdate = false;
+      let newAvatar = r.avatar;
+      let newBikePhoto = r.bikeInfo?.photoUrl;
+      const lastNameSlug = getLastNameSlug(r);
+
+      if (typeof r.avatar === 'string' && r.avatar.startsWith('data:image/')) {
+        const driveRes = await uploadBase64ToGoogleDrive(r.avatar, `${lastNameSlug}-avatar`);
+        if (driveRes?.url) {
+          newAvatar = driveRes.url;
+          migratedAvatars++;
+          needsUpdate = true;
+        } else {
+          newAvatar = '';
+          needsUpdate = true;
+        }
+      }
+
+      if (r.bikeInfo && typeof r.bikeInfo.photoUrl === 'string' && r.bikeInfo.photoUrl.startsWith('data:image/')) {
+        const driveRes = await uploadBase64ToGoogleDrive(r.bikeInfo.photoUrl, `${lastNameSlug}-bike`);
+        if (driveRes?.url) {
+          newBikePhoto = driveRes.url;
+          migratedBikes++;
+          needsUpdate = true;
+        } else {
+          newBikePhoto = '';
+          needsUpdate = true;
+        }
+      }
+
+      if (needsUpdate) {
+        await database.collection('registration').updateOne(
+          { id: r.id },
+          {
+            $set: {
+              avatar: newAvatar,
+              ...(r.bikeInfo ? { 'bikeInfo.photoUrl': newBikePhoto } : {}),
+              updatedAt: new Date().toISOString(),
+            },
+          }
+        );
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Migration complete. Migrated ${migratedAvatars} avatar(s) and ${migratedBikes} motorcycle photo(s) to Google Drive as lastname-avatar and lastname-bike.`,
+      migratedAvatars,
+      migratedBikes,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post('/api/mongodb/members', async (req, res) => {
   const database = await getMongoDb();
   const rawMember = req.body;
@@ -2716,7 +3136,9 @@ app.post('/api/mongodb/members', async (req, res) => {
     return res.status(400).json({ error: 'Member document must contain an id property' });
   }
 
-  const member = sanitizeMemberForMongo(rawMember);
+  // Upload photos to Google Drive if configured
+  const memberWithDrivePhotos = await processMemberPhotosForDrive(rawMember);
+  const member = sanitizeMemberForMongo(memberWithDrivePhotos);
   normalizePasswordForWrite(member);
 
   try {
@@ -2735,7 +3157,7 @@ app.post('/api/mongodb/members', async (req, res) => {
       },
       { upsert: true }
     );
-    res.json({ success: true, id: member.id, result });
+    res.json({ success: true, id: member.id, avatar: member.avatar, bikePhotoUrl: member.bikeInfo?.photoUrl, result });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2752,7 +3174,8 @@ app.post('/api/mongodb/members/bulk', async (req, res) => {
   }
 
   try {
-    const bulkOps = members.map((rawM) => {
+    const processedMembers = await Promise.all(members.map((m) => processMemberPhotosForDrive(m)));
+    const bulkOps = processedMembers.map((rawM) => {
       const m = sanitizeMemberForMongo(rawM);
       normalizePasswordForWrite(m);
       return {
@@ -2848,7 +3271,8 @@ app.post('/api/mongodb/registration', async (req, res) => {
     return res.status(400).json({ error: 'Registration form submission must contain an id property' });
   }
 
-  const registrationDoc = sanitizeRegistrationForMongo(rawForm);
+  const formWithDrivePhotos = await processMemberPhotosForDrive(rawForm);
+  const registrationDoc = sanitizeRegistrationForMongo(formWithDrivePhotos);
   normalizePasswordForWrite(registrationDoc);
 
   try {
@@ -2860,6 +3284,8 @@ app.post('/api/mongodb/registration', async (req, res) => {
     res.json({
       success: true,
       id: registrationDoc.id,
+      avatar: registrationDoc.avatar,
+      bikePhotoUrl: registrationDoc.bikeInfo?.photoUrl,
       message: 'Form successfully stored in MongoDB "registration" table.',
       result,
     });
@@ -3675,6 +4101,23 @@ app.post('/api/mongodb/financeLogs', async (req, res) => {
       { upsert: true }
     );
 
+    // Broadcast push notification to everyone (background PWA/browser + active sockets)
+    try {
+      const amountStr = record.amount !== undefined ? `₱${Number(record.amount).toLocaleString()}` : '';
+      const txType = record.type || record.itemType || record.category || 'Transaction';
+      const desc = record.title || record.description || record.memberName || 'Club Ledger';
+      await broadcastPushNotification({
+        title: `New Transaction: ${txType}`,
+        body: `${amountStr} - ${desc}`.trim(),
+        category: 'finance',
+        tab: 'finances',
+        url: '/',
+        tag: `tx-${record.id}-${Date.now()}`
+      });
+    } catch (pushErr) {
+      console.warn('[Push] Transaction push notification broadcast error:', pushErr);
+    }
+
     res.json({
       success: true,
       id: record.id,
@@ -3705,6 +4148,20 @@ app.post('/api/mongodb/financeLogs/bulk', async (req, res) => {
 
     if (bulkOps.length > 0) {
       await database.collection('financeLogs').bulkWrite(bulkOps);
+
+      // Broadcast bulk transaction notification
+      try {
+        await broadcastPushNotification({
+          title: `New Club Transactions (${records.length} records)`,
+          body: `Multiple transactions were added to the BCC Club Ledger.`,
+          category: 'finance',
+          tab: 'finances',
+          url: '/',
+          tag: `tx-bulk-${Date.now()}`
+        });
+      } catch (pushErr) {
+        console.warn('[Push] Bulk transaction push broadcast error:', pushErr);
+      }
     }
     res.json({ success: true, count: records.length });
   } catch (err: any) {

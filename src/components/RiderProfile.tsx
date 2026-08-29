@@ -194,7 +194,9 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
   };
 
   const handleCropComplete = async (croppedDataUrl: string) => {
-    const compressed = await uploadStorageFile(croppedDataUrl);
+    const folder = cropperTarget.includes('bike') ? 'bike' : 'avatar';
+    const lastName = activeRider?.lastName || activeRider?.name || '';
+    const compressed = await uploadStorageFile(croppedDataUrl, folder, 800, 0.82, lastName);
     const finalUrl = compressed || croppedDataUrl;
 
     if (cropperTarget === 'avatar_direct' && activeRider) {
@@ -427,6 +429,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
               <img
                 src={activeRider.bikeInfo.photoUrl}
                 alt="Motorcycle Cover"
+                referrerPolicy="no-referrer"
                 className="w-full h-full object-cover object-center"
               />
             ) : (
@@ -493,6 +496,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                   <img
                     src={activeRider.avatar}
                     alt={activeRider.name}
+                    referrerPolicy="no-referrer"
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -742,6 +746,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                           <img
                             src={avatar || activeRider.avatar}
                             alt="Avatar Preview"
+                            referrerPolicy="no-referrer"
                             className="w-full h-full object-cover"
                           />
                         ) : (
@@ -772,6 +777,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                           <img
                             src={bikePhoto || activeRider.bikeInfo?.photoUrl}
                             alt="Bike Preview"
+                            referrerPolicy="no-referrer"
                             className="w-full h-full object-cover"
                           />
                         ) : (

@@ -217,16 +217,37 @@ export async function checkMongoDbStatus(): Promise<MongoStatusResponse> {
   }
 }
 
-// Upload / Storage Helper for MongoDB / Server with automatic image compression
+// Upload / Storage Helper for Google Drive / MongoDB with automatic compression
 export async function uploadStorageFile(
   file: File | Blob | string,
   folder = 'avatars',
-  maxDimension = 500,
-  quality = 0.8
+  maxDimension = 800,
+  quality = 0.82,
+  lastName?: string
 ): Promise<string | null> {
+  // Helper to send data URL to Google Drive upload API
+  const pushToDriveIfConfigured = async (dataUrl: string): Promise<string> => {
+    try {
+      const res = await authFetch('/api/drive/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl, folder, lastName }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.success && json.url) {
+          return json.url;
+        }
+      }
+    } catch (e) {
+      console.warn('[Drive Upload] Direct API upload attempt:', e);
+    }
+    return dataUrl;
+  };
+
   if (typeof file === 'string') {
     if (!file.startsWith('data:image')) return file;
-    return new Promise((resolve) => {
+    const compressed = await new Promise<string>((resolve) => {
       const img = new Image();
       img.onload = () => {
         let width = img.width;
@@ -256,8 +277,11 @@ export async function uploadStorageFile(
       img.onerror = () => resolve(file);
       img.src = file;
     });
+
+    return await pushToDriveIfConfigured(compressed);
   }
-  return new Promise((resolve) => {
+
+  const rawCompressed = await new Promise<string | null>((resolve) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const rawDataUrl = e.target?.result;
@@ -319,6 +343,9 @@ export async function uploadStorageFile(
     reader.onerror = () => resolve(null);
     reader.readAsDataURL(file);
   });
+
+  if (!rawCompressed) return null;
+  return await pushToDriveIfConfigured(rawCompressed);
 }
 
 export async function deleteStorageFile(url?: string | null): Promise<void> {
@@ -789,12 +816,34 @@ export class DataStoreService {
 
     const endpoint = sanitized.approvalStatus === 'Pending' ? '/api/mongodb/registration' : '/api/mongodb/members';
 
-    // Sync to MongoDB asynchronously
+    // Sync to MongoDB asynchronously and update with Google Drive URLs if converted
     authFetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sanitized),
-    }).catch((err) => console.warn('MongoDB updateUser sync error:', err));
+    })
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          let changed = false;
+          if (data.avatar && data.avatar !== sanitized.avatar) {
+            sanitized.avatar = data.avatar;
+            changed = true;
+          }
+          if (data.bikePhotoUrl && sanitized.bikeInfo && data.bikePhotoUrl !== sanitized.bikeInfo.photoUrl) {
+            sanitized.bikeInfo.photoUrl = data.bikePhotoUrl;
+            changed = true;
+          }
+          if (changed) {
+            this.users = this.users.map((u) => (u.id === sanitized.id ? { ...sanitized } : u));
+            saveToStorage(STORAGE_KEYS.USERS, this.users);
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('bcc_users_updated', { detail: this.users }));
+            }
+          }
+        }
+      })
+      .catch((err) => console.warn('MongoDB updateUser sync error:', err));
 
     if (wasNotApproved && isNowApproved) {
       // Trigger Web Push Alert for Member Approval

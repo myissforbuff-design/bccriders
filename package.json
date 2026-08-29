@@ -17,6 +17,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "googleapis": "^176.0.0",
     "html2canvas-pro": "^2.3.3",
     "html2pdf.js": "^0.14.0",
     "html5-qrcode": "^2.3.8",

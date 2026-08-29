@@ -895,6 +895,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                         <img
                           src={avatarDataUrl || '/avatar.svg'}
                           alt="Avatar Preview"
+                          referrerPolicy="no-referrer"
                           className="w-full h-full object-cover p-1"
                           onError={(e) => {
                             (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
@@ -1571,6 +1572,7 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
                           <img
                             src={bikePhotoUrl}
                             alt="Motorcycle"
+                            referrerPolicy="no-referrer"
                             className="w-full h-44 sm:h-52 object-cover transition-transform duration-300 group-hover:scale-105"
                           />
                           <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
