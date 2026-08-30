@@ -1306,6 +1306,16 @@ export class DataStoreService {
     saveToStorage(STORAGE_KEYS.NOTIFS, this.notifications);
   }
 
+  clearAllNotifications(): void {
+    this.notifications = [];
+    saveToStorage(STORAGE_KEYS.NOTIFS, this.notifications);
+  }
+
+  setNotifications(list: NotificationItem[]): void {
+    this.notifications = list;
+    saveToStorage(STORAGE_KEYS.NOTIFS, this.notifications);
+  }
+
   // Announcements
   getAnnouncements(): Announcement[] {
     return this.announcements;

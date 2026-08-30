@@ -424,6 +424,10 @@ export interface NotificationItem {
   title: string;
   message: string;
   type: 'ride' | 'due' | 'meeting' | 'social' | 'system';
+  category?: string;
+  tab?: string;
+  tag?: string;
+  createdAt?: string;
   timestamp: string;
   read: boolean;
   actionUrl?: string;

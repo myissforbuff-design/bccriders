@@ -17,6 +17,7 @@ import { Finances } from './components/Finances';
 import { AnnouncementsView } from './components/AnnouncementsView';
 import { RealtimeStatusPill } from './components/RealtimeStatusPill';
 import { PushNotificationBanner } from './components/PushNotificationBanner';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { useIsAnyModalOpen } from './hooks/useModalDismiss';
 import { useRealtimeSync } from './hooks/useRealtimeSync';
 import { Bike, ShieldCheck, X, CheckCircle2, Download, Printer } from 'lucide-react';
@@ -24,7 +25,7 @@ import { AnimatePresence, motion } from 'motion/react';
 
 function MainAppContent() {
   const { currentUser, isAuthenticated, isAdmin, logout } = useAuth();
-  const { toastMessage, clearToast, triggerPushAlert } = useNotifications();
+  const { toastMessage, clearToast, triggerPushAlert, clearAllNotifications } = useNotifications();
   const isAnyModalOpen = useIsAnyModalOpen();
 
   // Opens the Socket.io push channel on app load and re-handshakes when the signed-in rider
@@ -89,11 +90,14 @@ function MainAppContent() {
 
   if (!isAuthenticated) {
     return (
-      <LandingPage
-        onLoginSuccess={() => {
-          setActiveTab(isAdmin ? 'dashboard' : 'profile');
-        }}
-      />
+      <>
+        <LandingPage
+          onLoginSuccess={() => {
+            setActiveTab(isAdmin ? 'dashboard' : 'profile');
+          }}
+        />
+        <PWAInstallBanner />
+      </>
     );
   }
 
@@ -230,6 +234,9 @@ function MainAppContent() {
         </main>
       </div>
 
+      {/* PWA App Install Modal / Banner */}
+      <PWAInstallBanner />
+
       {/* Heads-Up Push Notification Banner (OS / Reference Image Style) */}
       <AnimatePresence>
         {toastMessage && (
@@ -240,7 +247,16 @@ function MainAppContent() {
             appName={toastMessage.appName || 'BCC Riders'}
             timeAgo={toastMessage.timeAgo || 'Just now'}
             iconSrc={toastMessage.icon || '/logo.png'}
+            isThread={toastMessage.isThread}
+            threadItems={toastMessage.threadItems}
             onDismiss={clearToast}
+            onClearThread={clearAllNotifications}
+            onThreadItemClick={(item) => {
+              if (item.tab) {
+                setActiveTab(item.tab as TabType);
+              }
+              clearToast();
+            }}
             onClick={() => {
               if (toastMessage.tab) {
                 setActiveTab(toastMessage.tab as TabType);

@@ -1,11 +1,38 @@
-const CACHE_NAME = 'bcc-riders-v5';
+const CACHE_NAME = 'bcc-riders-v7';
+const PRECACHE_ASSETS = [
+  '/',
+  '/?source=pwa',
+  '/manifest.json',
+  '/logo.png',
+  '/pwa-icon-192.png',
+  '/pwa-icon-512.png',
+  '/pwa-maskable-192.png',
+  '/pwa-maskable-512.png',
+  '/badge-b.svg'
+];
 
 self.addEventListener('install', (event) => {
-  self.skipWaiting();
+  event.waitUntil(
+    caches.open(CACHE_NAME).then((cache) => {
+      return cache.addAll(PRECACHE_ASSETS).catch((err) => {
+        console.warn('Precache partial warning:', err);
+      });
+    }).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((name) => {
+          if (name !== CACHE_NAME) {
+            return caches.delete(name);
+          }
+        })
+      );
+    }).then(() => self.clients.claim())
+  );
 });
 
 // Helper to ensure icon and badge paths are always absolute URLs for OS notifications
@@ -31,8 +58,8 @@ self.addEventListener('push', (event) => {
   }
 
   const title = data.title || 'BCC Riders Club';
-  const logoUrl = resolveNotificationUrl('/logo.png');
-  const iconUrl = resolveNotificationUrl(data.icon || '/logo.png');
+  const logoUrl = resolveNotificationUrl('/pwa-icon-512.png');
+  const iconUrl = resolveNotificationUrl(data.icon || '/pwa-icon-512.png');
   const badgeUrl = resolveNotificationUrl(data.badge || '/badge-b.svg');
 
   const options = {
@@ -74,7 +101,6 @@ self.addEventListener('notificationclick', (event) => {
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // If a window is already open, focus it and post a message with target tab
       for (const client of clientList) {
         if ('focus' in client) {
           if (targetTab) {
@@ -87,7 +113,6 @@ self.addEventListener('notificationclick', (event) => {
           return client.focus();
         }
       }
-      // If no window is open, open a new one
       if (self.clients.openWindow) {
         const urlToOpen = targetTab ? `${targetUrl}#${targetTab}` : targetUrl;
         return self.clients.openWindow(urlToOpen);
@@ -96,17 +121,37 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// Cache fallback for offline mode
+// Network first, then fallback to cache for offline mode
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   
+  // Exclude API requests and WebSockets from cache fallback
+  const url = new URL(event.request.url);
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/socket.io/')) {
+    return;
+  }
+
   event.respondWith(
     fetch(event.request)
       .then((response) => {
+        // Cache successful static asset responses
+        if (response && response.status === 200 && response.type === 'basic') {
+          const responseToCache = response.clone();
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache).catch(() => {});
+          });
+        }
         return response;
       })
       .catch(() => {
-        return caches.match(event.request);
+        return caches.match(event.request).then((cachedResponse) => {
+          if (cachedResponse) return cachedResponse;
+          // Fallback to offline start page if navigation request
+          if (event.request.mode === 'navigate') {
+            return caches.match('/?source=pwa') || caches.match('/');
+          }
+          return new Response('Network offline', { status: 503, statusText: 'Service Unavailable' });
+        });
       })
   );
 });

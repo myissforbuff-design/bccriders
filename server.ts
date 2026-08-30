@@ -1626,6 +1626,34 @@ async function broadcastPushNotification(
     }
   }
 
+  // 3. Save to notification_history in MongoDB so mobile users get missed notifications on login/app open
+  if (database) {
+    try {
+      const now = new Date();
+      const notifDoc = {
+        id: payload.tag || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+        title: payload.title,
+        body: payload.body,
+        message: payload.body,
+        category: payload.category || 'general',
+        type: payload.category || 'ride',
+        tab: payload.tab || 'dashboard',
+        url: payload.url || '/',
+        tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
+        customData: payload.customData || {},
+        createdAt: now.toISOString(),
+        timestamp: now.getTime(),
+      };
+      await database.collection('notification_history').updateOne(
+        { id: notifDoc.id },
+        { $set: notifDoc },
+        { upsert: true }
+      );
+    } catch (saveErr) {
+      console.warn('[NotificationHistory] Save error:', saveErr);
+    }
+  }
+
   return { socketsNotified, webPushSent, webPushErrors };
 }
 
@@ -1737,6 +1765,135 @@ app.post('/api/push/broadcast', async (req, res) => {
       message: 'Push notification dispatched to all devices.',
       ...stats,
     });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Notifications History & User Check/Clear State Endpoints
+app.get('/api/notifications/history', async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) {
+    return res.json({ success: true, notifications: [] });
+  }
+  try {
+    const sinceParam = req.query.since ? Number(req.query.since) : 0;
+    const limit = Math.min(Number(req.query.limit) || 40, 100);
+    const query: any = {};
+    if (sinceParam && !isNaN(sinceParam) && sinceParam > 0) {
+      query.timestamp = { $gt: sinceParam };
+    }
+
+    // If notification_history is empty, seed from updates and events
+    const count = await database.collection('notification_history').countDocuments({});
+    if (count === 0) {
+      try {
+        const seedItems: any[] = [];
+        const announcements = await database.collection('updates').find({}).sort({ createdAt: -1 }).limit(5).toArray();
+        announcements.forEach((a: any) => {
+          seedItems.push({
+            id: `notif_ann_${a.id || a._id}`,
+            title: `Club Announcement: ${a.title || 'Update'}`,
+            body: (a.content || 'Tap to view announcement details.').slice(0, 140),
+            message: (a.content || 'Tap to view announcement details.').slice(0, 140),
+            category: 'announcements',
+            type: 'social',
+            tab: 'announcements',
+            url: '/',
+            tag: `announcement-${a.id || Date.now()}`,
+            createdAt: a.createdAt || new Date().toISOString(),
+            timestamp: new Date(a.createdAt || Date.now()).getTime() || (Date.now() - 3600000),
+          });
+        });
+
+        const events = await database.collection('events').find({}).sort({ createdAt: -1 }).limit(5).toArray();
+        events.forEach((e: any) => {
+          seedItems.push({
+            id: `notif_evt_${e.id || e._id}`,
+            title: `New Club Ride: ${e.title || 'Activity'}`,
+            body: `Scheduled for ${e.date || 'upcoming date'} at ${e.startLocation || 'meeting point'}.`,
+            message: `Scheduled for ${e.date || 'upcoming date'} at ${e.startLocation || 'meeting point'}.`,
+            category: 'activities',
+            type: 'ride',
+            tab: 'rides',
+            url: '/',
+            tag: `activity-${e.id || Date.now()}`,
+            createdAt: e.createdAt || new Date().toISOString(),
+            timestamp: new Date(e.createdAt || Date.now()).getTime() || (Date.now() - 7200000),
+          });
+        });
+
+        if (seedItems.length > 0) {
+          await database.collection('notification_history').insertMany(seedItems);
+        }
+      } catch (seedErr) {
+        console.warn('[NotificationHistory] Seed notice:', seedErr);
+      }
+    }
+
+    const list = await database
+      .collection('notification_history')
+      .find(query)
+      .sort({ timestamp: -1 })
+      .limit(limit)
+      .toArray();
+
+    res.json({
+      success: true,
+      notifications: list.map((doc: any) => ({
+        id: doc.id || doc._id?.toString(),
+        title: doc.title,
+        message: doc.body || doc.message,
+        body: doc.body || doc.message,
+        type: doc.type || (doc.category === 'activities' ? 'ride' : doc.category === 'finance' ? 'due' : doc.category === 'sos' ? 'system' : 'social'),
+        category: doc.category || 'general',
+        tab: doc.tab || 'dashboard',
+        url: doc.url || '/',
+        tag: doc.tag || `bcc-thread-${Date.now()}`,
+        timestamp: doc.timestamp || (doc.createdAt ? new Date(doc.createdAt).getTime() : Date.now()),
+        createdAt: doc.createdAt || new Date().toISOString(),
+        read: false,
+      })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message, notifications: [] });
+  }
+});
+
+app.post('/api/notifications/state', async (req, res) => {
+  const database = await getMongoDb();
+  const { userId, lastClearedAt, lastCheckedAt } = req.body || {};
+  if (!userId) {
+    return res.status(400).json({ error: 'userId is required' });
+  }
+  if (!database) {
+    return res.json({ success: true, saved: false });
+  }
+  try {
+    const updateDoc: any = { updatedAt: new Date().toISOString() };
+    if (lastClearedAt !== undefined) updateDoc.lastClearedAt = Number(lastClearedAt);
+    if (lastCheckedAt !== undefined) updateDoc.lastCheckedAt = Number(lastCheckedAt);
+
+    await database.collection('user_notification_state').updateOne(
+      { userId },
+      { $set: updateDoc, $setOnInsert: { createdAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({ success: true, state: updateDoc });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/notifications/state', async (req, res) => {
+  const database = await getMongoDb();
+  const userId = (req.query.userId as string) || '';
+  if (!userId || !database) {
+    return res.json({ success: true, state: null });
+  }
+  try {
+    const state = await database.collection('user_notification_state').findOne({ userId });
+    res.json({ success: true, state });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

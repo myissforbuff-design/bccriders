@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useModalDismiss, useIsAnyModalOpen } from '../hooks/useModalDismiss';
+import { usePWAInstall } from '../hooks/usePWAInstall';
 import { ModalPortal } from './ModalPortal';
+import { PushNotificationCenter } from './PushNotificationCenter';
 import {
   LayoutDashboard,
   Users,
@@ -17,6 +19,8 @@ import {
   ScanLine,
   Calendar,
   Megaphone,
+  Download,
+  Smartphone,
   X,
 } from 'lucide-react';
 
@@ -52,6 +56,7 @@ export const Navigation: React.FC<NavigationProps> = ({
   onToggleCollapse,
 }) => {
   const { currentUser, isAdmin } = useAuth();
+  const { isInstallable, isInstalled, triggerInstall } = usePWAInstall();
   const [showOfficerAlert, setShowOfficerAlert] = useState(false);
   const [showTreasurerAlert, setShowTreasurerAlert] = useState(false);
   const isAnyModalOpen = useIsAnyModalOpen();
@@ -207,6 +212,20 @@ export const Navigation: React.FC<NavigationProps> = ({
               </p>
             </div>
           </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {!isInstalled && (
+              <button
+                onClick={() => triggerInstall()}
+                className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold flex items-center gap-1 shadow-sm transition-all cursor-pointer"
+                title="Install standalone app"
+              >
+                <Download className="w-3 h-3 text-white" />
+                <span>Install</span>
+              </button>
+            )}
+            <PushNotificationCenter />
+          </div>
         </div>
       )}
 
@@ -332,6 +351,29 @@ export const Navigation: React.FC<NavigationProps> = ({
                 </button>
               );
             })}
+
+            {/* Desktop Install Standalone App Button */}
+            {!isInstalled && (
+              <div className="pt-2">
+                <button
+                  onClick={() => triggerInstall()}
+                  title={isCollapsed ? 'Install Desktop App' : undefined}
+                  className={`w-full flex items-center ${
+                    isCollapsed ? 'justify-center px-0' : 'justify-between px-3.5'
+                  } py-2.5 rounded-xl text-xs font-semibold bg-emerald-600/90 hover:bg-emerald-600 text-white shadow-md transition-all cursor-pointer border border-emerald-400/30`}
+                >
+                  <div className={`flex items-center ${isCollapsed ? 'gap-0' : 'gap-2.5'}`}>
+                    <Download className="w-4 h-4 text-emerald-200 shrink-0" />
+                    <span className={isCollapsed ? 'hidden' : 'block'}>Install App</span>
+                  </div>
+                  {!isCollapsed && (
+                    <span className="text-[10px] bg-emerald-950/60 px-1.5 py-0.5 rounded text-emerald-200 uppercase font-bold">
+                      PWA
+                    </span>
+                  )}
+                </button>
+              </div>
+            )}
           </nav>
 
           {/* User Account Info Footer */}

@@ -2,8 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>BCC Riders Club</title>
+    <meta name="description" content="Official BCC Riders Club App - Rides, Membership, Dues, Safety & Community." />
+    
     <script>
       // Make window.fetch assignable (writable via getter/setter) to prevent getter-only TypeError when polyfills reassign fetch
       (function() {
@@ -32,21 +34,32 @@
         }
       })();
     </script>
+    
+    <!-- PWA Web App Manifest -->
     <link rel="manifest" href="/manifest.json" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/logo.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/logo.png" />
+    
+    <!-- App Icons -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/pwa-icon-192.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/pwa-icon-192.png" />
     <link rel="icon" type="image/png" sizes="192x192" href="/pwa-icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/pwa-icon-512.png" />
-    <link rel="shortcut icon" type="image/png" href="/logo.png" />
+    <link rel="shortcut icon" type="image/png" href="/pwa-icon-192.png" />
     <link rel="apple-touch-icon" sizes="180x180" href="/pwa-icon-192.png" />
     <link rel="apple-touch-icon" href="/pwa-icon-512.png" />
+    
+    <!-- Standalone PWA & Chrome App Capabilities -->
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-title" content="BCC Riders Club" />
+    <meta name="apple-mobile-web-app-title" content="BCC Riders" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="application-name" content="BCC Riders Club" />
     <meta name="theme-color" content="#1b4332" />
+    <meta name="msapplication-TileColor" content="#1b4332" />
+    <meta name="msapplication-TileImage" content="/pwa-icon-512.png" />
+
     <!-- Leaflet CSS for offline route maps -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    
     <!-- Google Fonts: Google Sans & Google Sans Text -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -57,7 +70,10 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', function() {
-          navigator.serviceWorker.register('/sw.js').catch(function(err) {
+          navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(function(reg) {
+            // Check for updates
+            reg.update().catch(function() {});
+          }).catch(function(err) {
             console.log('SW registration error:', err);
           });
         });
@@ -66,4 +82,3 @@
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
-

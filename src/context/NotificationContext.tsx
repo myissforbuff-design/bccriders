@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { NotificationItem } from '../types';
 import { store } from '../lib/db';
 import {
@@ -8,6 +8,10 @@ import {
   savePushNotificationConfig,
   initPushNotifications,
   syncPushSubscriptionWithServer,
+  getUserNotificationState,
+  saveUserNotificationState,
+  fetchMissedNotifications,
+  sendThreadedPushNotification,
 } from '../lib/pushNotifications';
 
 export interface ToastNotificationPayload {
@@ -18,6 +22,17 @@ export interface ToastNotificationPayload {
   appName?: string;
   icon?: string;
   timeAgo?: string;
+  isThread?: boolean;
+  threadItems?: Array<{
+    id: string;
+    title: string;
+    message: string;
+    type?: string;
+    category?: string;
+    tab?: string;
+    timeAgo?: string;
+    timestamp?: number | string;
+  }>;
 }
 
 interface NotificationContextType {
@@ -28,6 +43,8 @@ interface NotificationContextType {
   togglePushNotifications: () => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
+  clearAllNotifications: () => void;
+  checkForMissedNotifications: (force?: boolean) => Promise<void>;
   triggerPushAlert: (title: string, message: string, type?: NotificationItem['type'], tab?: string) => void;
   toastMessage: ToastNotificationPayload | null;
   clearToast: () => void;
@@ -41,12 +58,92 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return getPushNotificationConfig().enabled;
   });
   const [toastMessage, setToastMessage] = useState<ToastNotificationPayload | null>(null);
+  const seenNotificationIdsRef = useRef<Set<string>>(new Set());
+  const isCheckingRef = useRef<boolean>(false);
 
-  const refreshNotifs = () => {
-    setNotifications([...store.getNotifications()]);
+  const getCurrentUserId = (): string => {
+    try {
+      const sessionUser = sessionStorage.getItem('bcc_session_user') || localStorage.getItem('bcc_user');
+      if (sessionUser) {
+        const u = JSON.parse(sessionUser);
+        return u.id || u.username || 'guest';
+      }
+    } catch {}
+    return 'guest';
   };
 
+  const refreshNotifs = useCallback(() => {
+    setNotifications([...store.getNotifications()]);
+  }, []);
+
   const unreadCount = notifications.filter((n) => !n.read).length;
+
+  /**
+   * Checks for notifications that occurred since the last time the user checked/cleared their notifications.
+   * Compiles them into a Thread if multiple updates exist.
+   */
+  const checkForMissedNotifications = useCallback(async (force: boolean = false) => {
+    if (isCheckingRef.current) return;
+    isCheckingRef.current = true;
+
+    try {
+      const userId = getCurrentUserId();
+      let { lastClearedAt } = getUserNotificationState(userId);
+
+      // If user has never cleared notifications, set baseline to 24 hours ago
+      if (!lastClearedAt || lastClearedAt <= 0) {
+        lastClearedAt = Date.now() - 24 * 60 * 60 * 1000;
+        saveUserNotificationState(userId, { lastClearedAt });
+      }
+
+      const missedList = await fetchMissedNotifications(lastClearedAt, 30);
+
+      if (missedList && missedList.length > 0) {
+        // Filter out items already presented in current session unless force is true
+        const newItems = force
+          ? missedList
+          : missedList.filter((item) => !seenNotificationIdsRef.current.has(item.id));
+
+        if (newItems.length > 0) {
+          // Record seen IDs
+          newItems.forEach((item) => seenNotificationIdsRef.current.add(item.id));
+
+          // Merge into local store if not already present
+          const currentStoreNotifs = store.getNotifications();
+          const existingIds = new Set(currentStoreNotifs.map((n) => n.id));
+          const itemsToAdd = newItems.filter((item) => !existingIds.has(item.id));
+
+          if (itemsToAdd.length > 0) {
+            const formattedForStore: NotificationItem[] = itemsToAdd.map((item) => ({
+              id: item.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              title: item.title,
+              message: item.message || item.body || '',
+              type: (item.type as any) || (item.category === 'activities' ? 'ride' : item.category === 'finance' ? 'due' : 'social'),
+              category: item.category,
+              tab: item.tab,
+              tag: item.tag,
+              timestamp: item.timestamp
+                ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                : 'Just now',
+              createdAt: item.createdAt || new Date().toISOString(),
+              read: false,
+            }));
+
+            // Prepend new items to store
+            store.setNotifications([...formattedForStore, ...currentStoreNotifs]);
+            refreshNotifs();
+          }
+
+          // Deliver as a cohesive Thread
+          await sendThreadedPushNotification(newItems, false);
+        }
+      }
+    } catch (err) {
+      console.warn('[NotificationContext] Catch-up check notice:', err);
+    } finally {
+      isCheckingRef.current = false;
+    }
+  }, [refreshNotifs]);
 
   useEffect(() => {
     // Register service worker on startup
@@ -63,6 +160,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       syncPushSubscriptionWithServer();
     }
 
+    // Initial missed notifications check on mount / login
+    checkForMissedNotifications();
+
     // Listen for push notifications triggered across tabs / components
     const handleInAppAlert = (e: Event) => {
       const customEvent = e as CustomEvent;
@@ -76,9 +176,27 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           appName: 'BCC Riders',
           icon: detail.icon || '/logo.png',
           timeAgo: 'Just now',
+          isThread: detail.isThread,
+          threadItems: detail.threadItems,
         });
         refreshNotifs();
       }
+    };
+
+    // Listen for visibility / app resume: when mobile user returns to app from lockscreen / background
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkForMissedNotifications();
+      }
+    };
+
+    const handleFocus = () => {
+      checkForMissedNotifications();
+    };
+
+    // Listen for user login / account switch events
+    const handleUserChanged = () => {
+      checkForMissedNotifications(true);
     };
 
     // Listen for service worker navigation messages
@@ -102,6 +220,10 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     window.addEventListener('bcc_inapp_push_alert', handleInAppAlert);
     window.addEventListener('bcc_push_config_changed', handleConfigChange);
+    window.addEventListener('bcc_user_session_changed', handleUserChanged);
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('message', handleSwMessage);
     }
@@ -109,15 +231,21 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     return () => {
       window.removeEventListener('bcc_inapp_push_alert', handleInAppAlert);
       window.removeEventListener('bcc_push_config_changed', handleConfigChange);
+      window.removeEventListener('bcc_user_session_changed', handleUserChanged);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.removeEventListener('message', handleSwMessage);
       }
     };
-  }, []);
+  }, [checkForMissedNotifications, refreshNotifs]);
 
   const requestPushPermission = async (): Promise<boolean> => {
     const granted = await requestPushPermissionLib();
     setPushEnabled(granted);
+    if (granted) {
+      checkForMissedNotifications(true);
+    }
     return granted;
   };
 
@@ -146,7 +274,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     });
     refreshNotifs();
 
-    // Trigger Toast banner matching reference image style
+    // Trigger Toast banner
     setToastMessage({
       title,
       message,
@@ -180,14 +308,25 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     refreshNotifs();
   };
 
+  const clearAllNotifications = () => {
+    const userId = getCurrentUserId();
+    const now = Date.now();
+    // Record that the user cleared all notifications at this timestamp
+    saveUserNotificationState(userId, { lastClearedAt: now, lastCheckedAt: now });
+    store.clearAllNotifications();
+    refreshNotifs();
+    setToastMessage(null);
+  };
+
   const clearToast = () => setToastMessage(null);
 
-  // Auto-dismiss toast
+  // Auto-dismiss toast after delay (longer if thread)
   useEffect(() => {
     if (toastMessage) {
+      const delay = toastMessage.isThread ? 8000 : 5000;
       const timer = setTimeout(() => {
         setToastMessage(null);
-      }, 5000);
+      }, delay);
       return () => clearTimeout(timer);
     }
   }, [toastMessage]);
@@ -202,6 +341,8 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         togglePushNotifications,
         markAsRead,
         markAllAsRead,
+        clearAllNotifications,
+        checkForMissedNotifications,
         triggerPushAlert,
         toastMessage,
         clearToast,

@@ -208,14 +208,203 @@ export async function initPushNotifications(): Promise<void> {
 export interface PushNotificationPayload {
   title: string;
   body: string;
-  category: keyof PushNotificationConfig['categories'];
+  category: keyof PushNotificationConfig['categories'] | string;
   icon?: string;
   badge?: string;
   url?: string;
   tab?: string;
   tag?: string;
   requireInteraction?: boolean;
+  isThread?: boolean;
+  threadItems?: Array<{
+    id: string;
+    title: string;
+    message: string;
+    type?: string;
+    category?: string;
+    tab?: string;
+    timeAgo?: string;
+    timestamp?: number | string;
+  }>;
   customData?: Record<string, any>;
+}
+
+export interface UserNotificationState {
+  lastClearedAt: number;
+  lastCheckedAt: number;
+}
+
+export function getUserNotificationState(userId: string = 'guest'): UserNotificationState {
+  if (typeof window === 'undefined') return { lastClearedAt: 0, lastCheckedAt: 0 };
+  const key = `bcc_user_notif_state_${userId || 'guest'}`;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        lastClearedAt: Number(parsed.lastClearedAt) || 0,
+        lastCheckedAt: Number(parsed.lastCheckedAt) || 0,
+      };
+    }
+  } catch {}
+  return { lastClearedAt: 0, lastCheckedAt: 0 };
+}
+
+export function saveUserNotificationState(
+  userId: string = 'guest',
+  state: Partial<UserNotificationState>
+): void {
+  if (typeof window === 'undefined') return;
+  const key = `bcc_user_notif_state_${userId || 'guest'}`;
+  const current = getUserNotificationState(userId);
+  const updated: UserNotificationState = {
+    lastClearedAt: state.lastClearedAt !== undefined ? state.lastClearedAt : current.lastClearedAt,
+    lastCheckedAt: state.lastCheckedAt !== undefined ? state.lastCheckedAt : current.lastCheckedAt,
+  };
+  try {
+    localStorage.setItem(key, JSON.stringify(updated));
+  } catch {}
+
+  // Sync with server in background
+  fetch('/api/notifications/state', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      userId: userId || 'guest',
+      lastClearedAt: updated.lastClearedAt,
+      lastCheckedAt: updated.lastCheckedAt,
+    }),
+  }).catch(() => {});
+}
+
+export async function fetchMissedNotifications(
+  sinceTimestamp: number,
+  limit: number = 30
+): Promise<any[]> {
+  try {
+    const url = `/api/notifications/history?since=${sinceTimestamp || 0}&limit=${limit}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    if (data.success && Array.isArray(data.notifications)) {
+      return data.notifications;
+    }
+  } catch (err) {
+    console.warn('[Push] fetchMissedNotifications error:', err);
+  }
+  return [];
+}
+
+/**
+ * Sends or presents a thread of missed/unread notifications:
+ * Groups multiple notifications into a single threaded card and OS notification
+ */
+export async function sendThreadedPushNotification(
+  items: any[],
+  broadcast: boolean = false
+): Promise<boolean> {
+  if (!items || items.length === 0) return false;
+
+  const config = getPushNotificationConfig();
+  const hasPermission = typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
+
+  if (items.length === 1) {
+    const single = items[0];
+    return sendPushNotification(
+      {
+        title: single.title,
+        body: single.message || single.body || '',
+        category: single.category || 'general',
+        tab: single.tab || 'dashboard',
+        tag: single.tag || `bcc-${single.category || 'update'}-${Date.now()}`,
+        customData: single,
+      },
+      broadcast
+    );
+  }
+
+  // Format Thread Summary
+  const count = items.length;
+  const threadTitle = `BCC Club Updates · Thread (${count} New)`;
+  const bulletLines = items
+    .slice(0, 3)
+    .map((item, idx) => `${idx + 1}. ${item.title}`)
+    .join('\n');
+  const threadBody = count > 3 ? `${bulletLines}\n+ ${count - 3} more updates...` : bulletLines;
+
+  const threadPayload: PushNotificationPayload = {
+    title: threadTitle,
+    body: threadBody,
+    category: 'announcements',
+    tab: items[0]?.tab || 'announcements',
+    tag: `bcc-thread-updates-${Date.now()}`,
+    isThread: true,
+    threadItems: items.map((item) => ({
+      id: item.id || `thread_item_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      title: item.title,
+      message: item.message || item.body || '',
+      type: item.type || item.category || 'ride',
+      category: item.category || 'general',
+      tab: item.tab || 'dashboard',
+      timestamp: item.timestamp,
+      timeAgo: item.timestamp
+        ? new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        : 'Recent',
+    })),
+  };
+
+  // Dispatch local in-app alert card
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('bcc_inapp_push_alert', {
+        detail: threadPayload,
+      })
+    );
+  }
+
+  // Play engine roar sound if enabled
+  if (config.sound) {
+    playMotorcycleStartSound();
+  }
+
+  // Native OS Notification as a single expandable Thread
+  if (hasPermission && typeof window !== 'undefined') {
+    try {
+      const origin = window.location.origin;
+      const resolvedIcon = `${origin}/logo.png`;
+      const resolvedBadge = `${origin}/badge-b.svg`;
+
+      if ('serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.ready;
+        if (reg && reg.showNotification) {
+          await reg.showNotification(threadTitle, {
+            body: threadBody,
+            icon: resolvedIcon,
+            badge: resolvedBadge,
+            tag: 'bcc-thread-updates',
+            renotify: true,
+            vibrate: config.vibration ? [200, 100, 200, 100, 200] : undefined,
+            data: {
+              url: '/',
+              tab: items[0]?.tab || 'dashboard',
+              isThread: true,
+              count,
+            },
+          } as any);
+        }
+      } else {
+        new Notification(threadTitle, {
+          body: threadBody,
+          icon: resolvedIcon,
+          tag: 'bcc-thread-updates',
+        });
+      }
+    } catch (e) {
+      console.warn('Native threaded notification error:', e);
+    }
+  }
+
+  return true;
 }
 
 // Motorcycle Engine Start Audio Synthesizer (Realistic Starter Crank + Ignition Roar + Rev)

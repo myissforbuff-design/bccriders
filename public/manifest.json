@@ -1,31 +1,114 @@
 {
-  "short_name": "BCC Riders",
+  "id": "/?source=pwa",
   "name": "BCC Riders Club",
-  "description": "BCC Riders Club Official Mobile & Web Application",
+  "short_name": "BCC Riders",
+  "description": "BCC Riders Club Official Mobile & Web Application for rides, announcements, dues, and emergency safety.",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone",
+    "minimal-ui",
+    "browser"
+  ],
+  "orientation": "portrait",
+  "background_color": "#1b4332",
+  "theme_color": "#1b4332",
+  "categories": [
+    "sports",
+    "lifestyle",
+    "social",
+    "utilities"
+  ],
+  "prefer_related_applications": false,
   "icons": [
     {
-      "src": "/logo.png",
+      "src": "/pwa-icon-192.png",
       "type": "image/png",
-      "sizes": "512x512",
+      "sizes": "192x192",
       "purpose": "any"
     },
     {
       "src": "/pwa-icon-512.png",
       "type": "image/png",
       "sizes": "512x512",
-      "purpose": "maskable"
+      "purpose": "any"
     },
     {
-      "src": "/pwa-icon-192.png",
+      "src": "/pwa-maskable-192.png",
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "maskable"
+    },
+    {
+      "src": "/pwa-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/pwa-maskable-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
     }
   ],
-  "start_url": "/",
-  "background_color": "#1b4332",
-  "theme_color": "#1b4332",
-  "display": "standalone",
-  "orientation": "portrait",
-  "scope": "/"
+  "shortcuts": [
+    {
+      "name": "Upcoming Rides",
+      "short_name": "Rides",
+      "description": "View scheduled club rides and routes",
+      "url": "/?tab=rides",
+      "icons": [
+        {
+          "src": "/pwa-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Treasury & Dues",
+      "short_name": "Treasury",
+      "description": "Pay dues and check club financial balance",
+      "url": "/?tab=treasury",
+      "icons": [
+        {
+          "src": "/pwa-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Emergency SOS",
+      "short_name": "SOS",
+      "description": "Emergency SOS beacon and medical info",
+      "url": "/?tab=sos",
+      "icons": [
+        {
+          "src": "/pwa-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Announcements",
+      "short_name": "News",
+      "description": "Read latest club announcements and updates",
+      "url": "/?tab=announcements",
+      "icons": [
+        {
+          "src": "/pwa-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  }
 }
