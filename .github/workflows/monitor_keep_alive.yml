@@ -15,14 +15,17 @@ jobs:
     steps:
       - name: Send Keep-Alive Ping
         run: |
-          # Use user-configured secret APP_URL, fallback to the default Render/Dev domain if not set
+          # Use user-configured secret APP_URL, fallback to your custom domain bccriders.cc
           URL="${{ secrets.APP_URL }}"
           if [ -z "$URL" ]; then
-            URL="https://ais-pre-ckqqittwgzx3f4mqczhgrx-749352485827.asia-southeast1.run.app"
+            URL="https://bccriders.cc"
           fi
           
+          # Clean trailing slash if present
+          URL="${URL%/}"
+          
           echo "Pinging service at $URL/api/health"
-          RESPONSE=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time 15 "$URL/api/health")
+          RESPONSE=$(curl -s -L -o /dev/null -w "%{http_code}" --max-time 20 "$URL/api/health")
           echo "Response HTTP Status: $RESPONSE"
           
           if [ "$RESPONSE" -eq 200 ]; then
