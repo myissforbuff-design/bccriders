@@ -11,7 +11,7 @@ import {
   Send,
   ArrowRight,
 } from 'lucide-react';
-import { store } from '../lib/db';
+import { store, formatApiUrl } from '../lib/db';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
 
@@ -158,7 +158,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/forgot-password', {
+      const res = await fetch(formatApiUrl('/api/auth/forgot-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail }),
@@ -188,7 +188,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     setError('');
 
     try {
-      const res = await fetch('/api/auth/forgot-password', {
+      const res = await fetch(formatApiUrl('/api/auth/forgot-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail }),
@@ -223,7 +223,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/verify-otp', {
+      const res = await fetch(formatApiUrl('/api/auth/verify-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: cleanEmail, otp: cleanOtp }),
@@ -263,7 +263,7 @@ export const ForgotPasswordModal: React.FC<ForgotPasswordModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/reset-password', {
+      const res = await fetch(formatApiUrl('/api/auth/reset-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

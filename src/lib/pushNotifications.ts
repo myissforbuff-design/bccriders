@@ -1,3 +1,5 @@
+import { formatApiUrl } from './db';
+
 export interface PushNotificationConfig {
   enabled: boolean;
   categories: {
@@ -101,7 +103,7 @@ export async function syncPushSubscriptionWithServer(): Promise<boolean> {
     if (!registration) return false;
 
     // Fetch VAPID Public Key from server
-    const keyRes = await fetch('/api/push/vapid-public-key');
+    const keyRes = await fetch(formatApiUrl('/api/push/vapid-public-key'));
     if (!keyRes.ok) return false;
     const { publicKey } = await keyRes.json();
     if (!publicKey) return false;
@@ -122,7 +124,7 @@ export async function syncPushSubscriptionWithServer(): Promise<boolean> {
         if (stored) currentUser = JSON.parse(stored);
       } catch {}
 
-      await fetch('/api/push/subscribe', {
+      await fetch(formatApiUrl('/api/push/subscribe'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -149,7 +151,7 @@ export async function unsubscribePushFromServer(): Promise<boolean> {
     if (subscription) {
       const endpoint = subscription.endpoint;
       await subscription.unsubscribe();
-      await fetch('/api/push/unsubscribe', {
+      await fetch(formatApiUrl('/api/push/unsubscribe'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint }),
@@ -164,7 +166,7 @@ export async function unsubscribePushFromServer(): Promise<boolean> {
 
 export async function getRegisteredPushDevicesCount(): Promise<{ count: number; activeSockets: number }> {
   try {
-    const res = await fetch('/api/push/subscriptions/count');
+    const res = await fetch(formatApiUrl('/api/push/subscriptions/count'));
     if (res.ok) {
       const data = await res.json();
       return { count: data.count || 0, activeSockets: data.activeSockets || 0 };
@@ -301,7 +303,7 @@ export function saveUserNotificationState(
   } catch {}
 
   // Sync with server in background
-  fetch('/api/notifications/state', {
+  fetch(formatApiUrl('/api/notifications/state'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -317,7 +319,7 @@ export async function fetchMissedNotifications(
   limit: number = 30
 ): Promise<any[]> {
   try {
-    const url = `/api/notifications/history?since=${sinceTimestamp || 0}&limit=${limit}`;
+    const url = formatApiUrl(`/api/notifications/history?since=${sinceTimestamp || 0}&limit=${limit}`);
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json();
@@ -587,7 +589,7 @@ export async function sendPushNotification(
       ? (payload.badge.startsWith('http') ? payload.badge : `${origin}${payload.badge}`)
       : `${origin}/app-logo.png`;
 
-    fetch('/api/push/broadcast', {
+    fetch(formatApiUrl('/api/push/broadcast'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

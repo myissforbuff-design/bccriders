@@ -15,6 +15,7 @@
  */
 
 import { getAuthToken } from './storageSecurity';
+import { formatApiUrl } from './db';
 
 export interface BiometricCredentialInfo {
   credentialId: string;
@@ -178,7 +179,7 @@ async function fetchServerChallenge(
       headers['x-session-token'] = token;
     }
 
-    const res = await fetch('/api/auth/webauthn/challenge', {
+    const res = await fetch(formatApiUrl('/api/auth/webauthn/challenge'), {
       method: 'POST',
       headers,
       body: JSON.stringify({ purpose, userId: userIdOrUsername || undefined }),
@@ -296,7 +297,7 @@ export async function registerBiometricCredential(user: {
     }
 
     try {
-      const res = await fetch('/api/auth/webauthn/register', {
+      const res = await fetch(formatApiUrl('/api/auth/webauthn/register'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -444,7 +445,7 @@ export async function authenticateBiometricCredential(
     // sign a rider into someone else's account on a shared phone.
     let verifyData: any = {};
     try {
-      const res = await fetch('/api/auth/webauthn/verify', {
+      const res = await fetch(formatApiUrl('/api/auth/webauthn/verify'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

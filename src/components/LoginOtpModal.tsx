@@ -14,6 +14,7 @@ import { OfficialDotSpinner } from './OfficialLoader';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
 import { authenticateBiometricCredential, getBiometricForUser } from '../lib/biometrics';
+import { formatApiUrl } from '../lib/db';
 
 interface LoginOtpModalProps {
   isOpen: boolean;
@@ -138,7 +139,7 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
     setLoading(true);
 
     try {
-      const res = await fetch('/api/auth/verify-login-otp', {
+      const res = await fetch(formatApiUrl('/api/auth/verify-login-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -281,7 +282,7 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
     setError('');
 
     try {
-      const res = await fetch('/api/auth/login-otp', {
+      const res = await fetch(formatApiUrl('/api/auth/login-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

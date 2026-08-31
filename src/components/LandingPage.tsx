@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { store } from '../lib/db';
+import { store, formatApiUrl } from '../lib/db';
 import { ConstitutionView } from './ConstitutionView';
 import { RegistrationPageFlow } from './RegistrationPageFlow';
 import { OfficialLoader } from './OfficialLoader';
@@ -292,7 +292,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
 
     // 2. Request OTP from backend (which checks MongoDB database and sends Resend authorization email)
     try {
-      const res = await fetch('/api/auth/login-otp', {
+      const res = await fetch(formatApiUrl('/api/auth/login-otp'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
