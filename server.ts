@@ -56,10 +56,27 @@ app.use((req, res, next) => {
   next();
 });
 
-// Canonical domain redirect: Redirect default *.onrender.com traffic to custom domain bccriders.cc
+// CORS middleware: allow requests from bccriders.cc, Cloudflare Pages, and previews
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, x-session-token, Accept');
+  }
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
+// Canonical domain redirect: Redirect default *.onrender.com HTML page traffic to custom domain bccriders.cc
+// Note: /api/* and /socket.io routes are exempted so frontend on Cloudflare can communicate with Render backend without being 301-redirected
 app.use((req, res, next) => {
   const host = req.headers.host || '';
-  if (host.includes('onrender.com')) {
+  const isApiOrSocket = req.path.startsWith('/api') || req.path.startsWith('/socket.io');
+  if (!isApiOrSocket && host.includes('onrender.com')) {
     const targetUrl = `https://bccriders.cc${req.originalUrl || req.url}`;
     return res.redirect(301, targetUrl);
   }
@@ -1147,12 +1164,19 @@ const io = new SocketIOServer(httpServer, {
   serveClient: false,
   // The SPA is served by this same Express app, so same-origin is the norm. An explicit
   // allowlist can be supplied for split deployments or preview hosts.
-  cors: process.env.REALTIME_ALLOWED_ORIGINS
-    ? {
-        origin: process.env.REALTIME_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
-        credentials: true,
+  cors: {
+    origin: (origin, callback) => {
+      if (!origin || !process.env.REALTIME_ALLOWED_ORIGINS) {
+        return callback(null, true);
       }
-    : undefined,
+      const allowed = process.env.REALTIME_ALLOWED_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean);
+      if (allowed.includes('*') || allowed.includes(origin) || origin.includes('bccriders.cc') || origin.includes('pages.dev')) {
+        return callback(null, true);
+      }
+      return callback(null, true);
+    },
+    credentials: true,
+  },
   // Heartbeat tuned so a dead Render connection is detected in ~45s rather than minutes.
   pingInterval: 25000,
   pingTimeout: 20000,

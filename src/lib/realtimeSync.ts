@@ -301,10 +301,10 @@ function scheduleFullResync(reason: string): void {
 // ==========================================
 
 function resolveSocketUrl(): string | undefined {
-  // Same-origin in every real deployment (Express + Socket.io share one HTTP server and one port),
-  // so let socket.io infer it. `VITE_REALTIME_URL` is an escape hatch for split-origin setups.
-  const override = viteEnv.VITE_REALTIME_URL;
-  return typeof override === 'string' && override.trim() ? override.trim() : undefined;
+  // Same-origin in unified deployments (Express + Socket.io share one HTTP server and one port).
+  // In split deployments (Cloudflare Pages frontend + Render backend), VITE_API_URL or VITE_REALTIME_URL is used.
+  const override = viteEnv.VITE_REALTIME_URL || (import.meta as any).env?.VITE_API_URL;
+  return typeof override === 'string' && override.trim() ? override.trim().replace(/\/+$/, '') : undefined;
 }
 
 /**

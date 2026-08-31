@@ -115,6 +115,17 @@ function handleUnauthorizedResponse(url: string): void {
   }
 }
 
+export function formatApiUrl(url: string): string {
+  if (url && url.startsWith('/api/')) {
+    const rawBase = ((import.meta as any)?.env?.VITE_API_URL || '').trim();
+    if (rawBase) {
+      const baseUrl = rawBase.replace(/\/+$/, '');
+      return `${baseUrl}${url}`;
+    }
+  }
+  return url;
+}
+
 // Authenticated fetch wrapper injecting Bearer token
 export async function authFetch(url: string, options?: RequestInit): Promise<Response> {
   const token = getAuthToken();
@@ -128,7 +139,9 @@ export async function authFetch(url: string, options?: RequestInit): Promise<Res
     authHeaders['x-session-token'] = token;
   }
 
-  const res = await fetch(url, {
+  const targetUrl = formatApiUrl(url);
+
+  const res = await fetch(targetUrl, {
     ...options,
     headers: authHeaders,
   });
