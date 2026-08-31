@@ -1,6 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNotifications } from '../context/NotificationContext';
-import { useModalDismiss } from '../hooks/useModalDismiss';
+import { store } from '../lib/db';
+import { User as UserType } from '../types';
+import {
+  markNotificationsAsSeen,
+  saveUserNotificationState,
+} from '../lib/pushNotifications';
 import {
   Bell,
   CheckCheck,
@@ -8,7 +13,7 @@ import {
   BellOff,
   X,
   Calendar,
-  DollarSign,
+  User,
   Megaphone,
   ShieldAlert,
   Trash2,
@@ -17,7 +22,13 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
-export const PushNotificationCenter: React.FC = () => {
+interface PushNotificationCenterProps {
+  buttonClassName?: string;
+}
+
+export const PushNotificationCenter: React.FC<PushNotificationCenterProps> = ({
+  buttonClassName,
+}) => {
   const {
     notifications,
     unreadCount,
@@ -31,7 +42,45 @@ export const PushNotificationCenter: React.FC = () => {
 
   const [isOpen, setIsOpen] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  useModalDismiss(isOpen, () => setIsOpen(false));
+  const [users, setUsers] = useState<UserType[]>(() => store.getUsers());
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Sync users list whenever user/member data updates
+  useEffect(() => {
+    const updateUsers = () => {
+      setUsers([...store.getUsers()]);
+    };
+    window.addEventListener('bcc_users_updated', updateUsers);
+    window.addEventListener('bcc_members_updated', updateUsers);
+    return () => {
+      window.removeEventListener('bcc_users_updated', updateUsers);
+      window.removeEventListener('bcc_members_updated', updateUsers);
+    };
+  }, []);
+
+  // Close on Escape key
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Esc') {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
+
+  // Mark all currently listed notifications as seen and update lastCheckedAt when opening center
+  useEffect(() => {
+    if (isOpen) {
+      const user = store.getCurrentUser();
+      const userId = user?.id || user?.username || 'guest';
+      if (notifications.length > 0) {
+        markNotificationsAsSeen(userId, notifications.map((n) => n.id));
+      }
+      saveUserNotificationState(userId, { lastCheckedAt: Date.now() });
+    }
+  }, [isOpen, notifications]);
 
   const handleRefreshMissed = async () => {
     setIsRefreshing(true);
@@ -42,18 +91,196 @@ export const PushNotificationCenter: React.FC = () => {
     }
   };
 
-  const getIcon = (type?: string, category?: string) => {
-    const key = (category || type || '').toLowerCase();
-    if (key.includes('finance') || key.includes('due')) {
-      return <DollarSign className="w-4 h-4 text-emerald-400" />;
+  /**
+   * Resolves the rider profile associated with a transaction or notification
+   */
+  const findRiderForNotification = (item: any): UserType | undefined => {
+    // 1. Check direct user ID or payer/member ID
+    const targetId =
+      item.userId ||
+      item.memberId ||
+      item.customData?.userId ||
+      item.customData?.memberId ||
+      item.customData?.payerId;
+    if (targetId) {
+      const u = users.find((usr) => usr.id === targetId);
+      if (u) return u;
     }
+
+    // 2. Check direct user name, payer name, or member name
+    const rawTargetName =
+      item.payerName ||
+      item.userName ||
+      item.memberName ||
+      item.customData?.userName ||
+      item.customData?.payerName ||
+      item.customData?.memberName;
+
+    if (rawTargetName && typeof rawTargetName === 'string') {
+      const cleanTarget = rawTargetName.replace(/^(Bro\.|Sis\.|Brother|Sister|Rider)\s+/i, '').trim().toLowerCase();
+      const u = users.find((usr) => {
+        const uName = (usr.name || '').toLowerCase();
+        const uUser = (usr.username || '').toLowerCase();
+        return (
+          uName === cleanTarget ||
+          uUser === cleanTarget ||
+          (cleanTarget.length >= 3 && (uName.includes(cleanTarget) || cleanTarget.includes(uName)))
+        );
+      });
+      if (u) return u;
+    }
+
+    // 3. Extract name from parenthesized expressions (e.g., "Membership Fee (Juan Dela Cruz)", "Monthly Due (Bro. Juan)")
+    const fullText = `${item.title || ''} ${item.message || ''} ${item.body || ''}`;
+    const parenMatch = fullText.match(/\(([^)]+)\)/);
+    if (parenMatch && parenMatch[1]) {
+      const insideParen = parenMatch[1].replace(/^(Bro\.|Sis\.|Brother|Sister|Rider)\s+/i, '').trim().toLowerCase();
+      if (insideParen.length >= 3) {
+        const u = users.find((usr) => {
+          const uName = (usr.name || '').toLowerCase();
+          return uName === insideParen || uName.includes(insideParen) || insideParen.includes(uName);
+        });
+        if (u) return u;
+      }
+    }
+
+    // 4. Search in full item message, title, or body for member names, usernames, or member numbers
+    const lowerText = fullText.toLowerCase();
+    const sortedUsers = [...users].sort((a, b) => (b.name?.length || 0) - (a.name?.length || 0));
+
+    for (const u of sortedUsers) {
+      if (u.name && u.name.length >= 3) {
+        const cleanName = u.name.toLowerCase();
+        if (lowerText.includes(cleanName)) {
+          return u;
+        }
+      }
+      if (u.memberNumber && u.memberNumber.length >= 4) {
+        if (lowerText.includes(u.memberNumber.toLowerCase())) {
+          return u;
+        }
+      }
+      if (u.username && u.username.length >= 3) {
+        if (lowerText.includes(u.username.toLowerCase())) {
+          return u;
+        }
+      }
+    }
+
+    return undefined;
+  };
+
+  /**
+   * Renders the visual badge / rider profile for each notification item
+   */
+  const renderItemVisual = (item: any) => {
+    const key = (item.category || item.type || '').toLowerCase();
+    const titleText = (item.title || '').toLowerCase();
+    const msgText = (item.message || item.body || '').toLowerCase();
+
+    const isFinanceOrMembershipTransaction =
+      key.includes('finance') ||
+      key.includes('due') ||
+      key.includes('membership') ||
+      key.includes('member') ||
+      key.includes('fee') ||
+      key.includes('collection') ||
+      key.includes('payment') ||
+      item.tab === 'finances' ||
+      item.tab === 'members' ||
+      titleText.includes('treasury') ||
+      titleText.includes('membership fee') ||
+      titleText.includes('member approved') ||
+      titleText.includes('membership status') ||
+      msgText.includes('membership fee') ||
+      msgText.includes('monthly due') ||
+      msgText.includes('approved into the club');
+
+    if (isFinanceOrMembershipTransaction) {
+      const rider = findRiderForNotification(item);
+      const avatarUrl =
+        item.avatar ||
+        item.customData?.userAvatar ||
+        item.customData?.avatar ||
+        rider?.avatar;
+
+      const displayName =
+        rider?.name ||
+        item.customData?.userName ||
+        item.customData?.memberName ||
+        item.payerName ||
+        item.userName ||
+        'Rider';
+
+      const cleanDisplayName = displayName.replace(/^(Bro\.|Sis\.|Brother|Sister|Rider)\s+/i, '').trim();
+      const nameParts = cleanDisplayName.split(/\s+/).filter(Boolean);
+      const initials =
+        nameParts.length > 1
+          ? `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase()
+          : (cleanDisplayName.slice(0, 2) || 'RD').toUpperCase();
+
+      if (avatarUrl) {
+        return (
+          <div className="relative w-9 h-9 rounded-full overflow-hidden shrink-0 border border-emerald-300 shadow-xs bg-stone-100 flex items-center justify-center mt-0.5">
+            <img
+              src={avatarUrl}
+              alt={cleanDisplayName}
+              className="w-full h-full object-cover"
+              referrerPolicy="no-referrer"
+              onError={(e) => {
+                const target = e.currentTarget;
+                target.style.display = 'none';
+                const parent = target.parentElement;
+                if (parent) {
+                  parent.className =
+                    'w-9 h-9 rounded-full bg-[#1b4332] text-white flex items-center justify-center text-[11px] font-bold tracking-wider shrink-0 border border-[#2d6a4f] shadow-xs mt-0.5';
+                  parent.innerText = initials;
+                }
+              }}
+            />
+          </div>
+        );
+      }
+
+      if (rider || cleanDisplayName !== 'Rider') {
+        return (
+          <div
+            className="w-9 h-9 rounded-full bg-[#1b4332] text-white flex items-center justify-center text-[11px] font-bold tracking-wider shrink-0 border border-[#2d6a4f] shadow-xs mt-0.5"
+            title={cleanDisplayName}
+          >
+            {initials}
+          </div>
+        );
+      }
+
+      return (
+        <div className="w-9 h-9 rounded-full bg-emerald-100 text-[#1b4332] flex items-center justify-center shrink-0 border border-emerald-300 shadow-xs mt-0.5">
+          <User className="w-4.5 h-4.5 text-[#1b4332]" />
+        </div>
+      );
+    }
+
     if (key.includes('activ') || key.includes('ride')) {
-      return <Calendar className="w-4 h-4 text-cyan-400" />;
+      return (
+        <div className="p-2 rounded-xl bg-stone-100 border border-stone-200 shrink-0 mt-0.5">
+          <Calendar className="w-4 h-4 text-sky-700" />
+        </div>
+      );
     }
+
     if (key.includes('sos') || key.includes('emerg')) {
-      return <ShieldAlert className="w-4 h-4 text-rose-400" />;
+      return (
+        <div className="p-2 rounded-xl bg-rose-50 border border-rose-200 shrink-0 mt-0.5">
+          <ShieldAlert className="w-4 h-4 text-rose-700" />
+        </div>
+      );
     }
-    return <Megaphone className="w-4 h-4 text-amber-400" />;
+
+    return (
+      <div className="p-2 rounded-xl bg-stone-100 border border-stone-200 shrink-0 mt-0.5">
+        <Megaphone className="w-4 h-4 text-amber-700" />
+      </div>
+    );
   };
 
   const handleItemClick = (item: any) => {
@@ -66,16 +293,20 @@ export const PushNotificationCenter: React.FC = () => {
     }
   };
 
+  const defaultButtonClass =
+    buttonClassName ||
+    'relative p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white border border-white/20 transition-all cursor-pointer';
+
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="relative p-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-emerald-400 border border-slate-700/60 transition-all cursor-pointer"
-        title="Push Notification Drawer"
+        className={defaultButtonClass}
+        title="Notifications"
       >
         <Bell className="w-5 h-5" />
         {unreadCount > 0 && (
-          <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-slate-950 animate-pulse">
+          <span className="absolute -top-1 -right-1 flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500 text-[10px] font-bold text-white shadow-xs">
             {unreadCount}
           </span>
         )}
@@ -84,25 +315,26 @@ export const PushNotificationCenter: React.FC = () => {
       <AnimatePresence>
         {isOpen && (
           <>
+            {/* Click-outside backdrop without screen blurring */}
             <div
-              className="fixed inset-0 z-40 bg-slate-950/20 backdrop-blur-xs"
+              className="fixed inset-0 z-40 bg-black/10 transition-opacity"
               onClick={() => setIsOpen(false)}
             />
             <motion.div
               initial={{ opacity: 0, y: 10, scale: 0.95 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 10, scale: 0.95 }}
-              className="absolute right-0 mt-3 w-84 sm:w-96 z-50 rounded-2xl bg-slate-900 border border-slate-700/80 shadow-2xl shadow-emerald-950/30 overflow-hidden"
+              className="absolute right-0 mt-3 w-84 sm:w-96 z-50 rounded-2xl bg-white border border-stone-200 shadow-2xl shadow-stone-900/15 overflow-hidden text-stone-900"
             >
               {/* Header */}
-              <div className="p-3.5 sm:p-4 bg-slate-800/70 border-b border-slate-700/60 flex items-center justify-between">
+              <div className="p-3.5 sm:p-4 bg-stone-50 border-b border-stone-200 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <h3 className="font-heading font-semibold text-white text-sm sm:text-base flex items-center gap-1.5">
-                    <Layers className="w-4 h-4 text-cyan-400" />
-                    Notification Thread
+                  <h3 className="font-heading font-bold text-stone-900 text-sm sm:text-base flex items-center gap-1.5">
+                    <Layers className="w-4 h-4 text-[#1b4332]" />
+                    Notification
                   </h3>
                   {unreadCount > 0 && (
-                    <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-500/20 text-emerald-400 font-medium">
+                    <span className="px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-[#1b4332] font-bold border border-emerald-200">
                       {unreadCount} new
                     </span>
                   )}
@@ -112,28 +344,28 @@ export const PushNotificationCenter: React.FC = () => {
                   <button
                     onClick={handleRefreshMissed}
                     disabled={isRefreshing}
-                    className="p-1.5 text-slate-400 hover:text-cyan-400 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                    className="p-1.5 text-stone-500 hover:text-stone-900 rounded-lg hover:bg-stone-200 transition-colors cursor-pointer"
                     title="Check missed updates"
                   >
-                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-cyan-400' : ''}`} />
+                    <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-[#1b4332]' : ''}`} />
                   </button>
 
                   <button
                     onClick={togglePushNotifications}
-                    className={`p-1.5 rounded-lg text-xs font-medium flex items-center gap-1 transition-colors cursor-pointer ${
+                    className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
                       pushEnabled
-                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                        : 'bg-slate-800 text-slate-400 border border-slate-700'
+                        ? 'bg-emerald-100 text-[#1b4332] border border-emerald-300'
+                        : 'bg-stone-200 text-stone-700 border border-stone-300 hover:bg-stone-300'
                     }`}
                     title={pushEnabled ? 'Push Alerts Active' : 'Enable Push Alerts'}
                   >
-                    {pushEnabled ? <BellRing className="w-3.5 h-3.5 text-emerald-400" /> : <BellOff className="w-3.5 h-3.5 text-slate-400" />}
+                    {pushEnabled ? <BellRing className="w-3.5 h-3.5 text-emerald-600" /> : <BellOff className="w-3.5 h-3.5 text-stone-500" />}
                     <span className="hidden sm:inline">{pushEnabled ? 'Push ON' : 'Push OFF'}</span>
                   </button>
 
                   <button
                     onClick={() => setIsOpen(false)}
-                    className="p-1.5 text-slate-400 hover:text-white rounded-lg cursor-pointer"
+                    className="p-1.5 text-stone-400 hover:text-stone-800 rounded-lg hover:bg-stone-200 transition-colors cursor-pointer"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -141,10 +373,10 @@ export const PushNotificationCenter: React.FC = () => {
               </div>
 
               {/* Action Bar */}
-              <div className="px-3.5 py-2 bg-slate-950/60 border-b border-slate-800 flex items-center justify-between text-xs">
-                <span className="text-[11px] text-slate-400">
+              <div className="px-3.5 py-2 bg-stone-50/60 border-b border-stone-200 flex items-center justify-between text-xs">
+                <span className="text-[11px] text-stone-500 font-medium">
                   {notifications.length > 0
-                    ? `${notifications.length} update${notifications.length > 1 ? 's' : ''} in thread`
+                    ? `${notifications.length} update${notifications.length > 1 ? 's' : ''}`
                     : 'All clear'}
                 </span>
 
@@ -152,7 +384,7 @@ export const PushNotificationCenter: React.FC = () => {
                   {unreadCount > 0 && (
                     <button
                       onClick={markAllAsRead}
-                      className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1 cursor-pointer font-medium"
+                      className="text-[#1b4332] hover:text-emerald-700 flex items-center gap-1 cursor-pointer font-bold"
                     >
                       <CheckCheck className="w-3.5 h-3.5" />
                       Mark read
@@ -162,8 +394,8 @@ export const PushNotificationCenter: React.FC = () => {
                   {notifications.length > 0 && (
                     <button
                       onClick={clearAllNotifications}
-                      className="text-rose-400 hover:text-rose-300 flex items-center gap-1 cursor-pointer font-medium"
-                      title="Clear notifications and reset missed thread baseline"
+                      className="text-rose-600 hover:text-rose-700 flex items-center gap-1 cursor-pointer font-semibold"
+                      title="Clear notifications"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       Clear all
@@ -172,14 +404,14 @@ export const PushNotificationCenter: React.FC = () => {
                 </div>
               </div>
 
-              {/* Notification Thread List */}
-              <div className="max-h-80 overflow-y-auto divide-y divide-slate-800/60 custom-scrollbar">
+              {/* Notification List */}
+              <div className="max-h-80 overflow-y-auto divide-y divide-stone-100 custom-scrollbar">
                 {notifications.length === 0 ? (
-                  <div className="p-8 text-center text-slate-500 text-sm">
-                    <Layers className="w-8 h-8 mx-auto text-slate-600 mb-2 opacity-50" />
-                    <p>No new notifications in thread.</p>
-                    <p className="text-xs text-slate-600 mt-1">
-                      Missed alerts since your last visit will automatically appear here.
+                  <div className="p-8 text-center text-stone-500 text-sm">
+                    <Layers className="w-8 h-8 mx-auto text-stone-300 mb-2" />
+                    <p className="font-semibold text-stone-700">No new notifications.</p>
+                    <p className="text-xs text-stone-400 mt-1">
+                      Missed alerts will automatically appear here.
                     </p>
                   </div>
                 ) : (
@@ -188,32 +420,30 @@ export const PushNotificationCenter: React.FC = () => {
                       key={item.id}
                       onClick={() => handleItemClick(item)}
                       className={`p-3 sm:p-3.5 transition-colors cursor-pointer flex gap-3 items-start ${
-                        item.read ? 'bg-slate-900/40 hover:bg-slate-800/30' : 'bg-slate-800/40 hover:bg-slate-800/60'
+                        item.read ? 'bg-white hover:bg-stone-50' : 'bg-emerald-50/40 hover:bg-emerald-50/70'
                       }`}
                     >
-                      <div className="p-2 rounded-xl bg-slate-800 border border-slate-700/60 mt-0.5 shrink-0">
-                        {getIcon(item.type, item.category)}
-                      </div>
+                      {renderItemVisual(item)}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center justify-between gap-2">
-                          <h4 className={`text-xs font-semibold truncate ${item.read ? 'text-slate-300' : 'text-white'}`}>
+                          <h4 className={`text-xs truncate ${item.read ? 'font-semibold text-stone-800' : 'font-extrabold text-stone-950'}`}>
                             {item.title}
                           </h4>
-                          <span className="text-[10px] text-slate-500 whitespace-nowrap shrink-0">
+                          <span className="text-[10px] text-stone-400 whitespace-nowrap shrink-0 font-medium">
                             {item.timestamp}
                           </span>
                         </div>
-                        <p className="text-xs text-slate-400 mt-0.5 line-clamp-2 leading-relaxed">
+                        <p className="text-xs text-stone-600 mt-0.5 line-clamp-2 leading-relaxed font-normal">
                           {item.message}
                         </p>
                         {item.tab && (
-                          <span className="inline-block mt-1 text-[10px] text-cyan-400 bg-cyan-950/40 border border-cyan-800/40 px-1.5 py-0.2 rounded font-medium">
+                          <span className="inline-block mt-1 text-[10px] text-[#1b4332] bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded font-semibold">
                             Tap to open {item.tab}
                           </span>
                         )}
                       </div>
                       {!item.read && (
-                        <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 shrink-0" />
+                        <span className="w-2 h-2 rounded-full bg-emerald-600 mt-1.5 shrink-0" />
                       )}
                     </div>
                   ))
@@ -226,3 +456,4 @@ export const PushNotificationCenter: React.FC = () => {
     </div>
   );
 };
+

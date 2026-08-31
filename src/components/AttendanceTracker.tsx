@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { useAuth } from '../context/AuthContext';
 import {
   User,
   Activity,
@@ -7,6 +8,11 @@ import {
   isMemberOnlyRole,
   isActivityApplicableToUser,
 } from '../types';
+import {
+  markMemberPresent,
+  markMemberAbsent,
+  findAttendanceRecord,
+} from '../lib/attendanceService';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
 import { OfficialDotSpinner, CardValueSkeleton, CardSubSkeleton } from './OfficialLoader';
@@ -33,6 +39,10 @@ import {
   Shield,
   ShieldAlert,
   Info,
+  Edit2,
+  PlusCircle,
+  MinusCircle,
+  Sparkles,
 } from 'lucide-react';
 
 export interface Attendance {
@@ -81,6 +91,7 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
   users,
   isLoading = false,
 }) => {
+  const { currentUser, isAdmin } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('All');
   const [performanceFilter, setPerformanceFilter] = useState<'All' | 'Perfect' | 'High' | 'Low' | 'Needs Attention'>('All');
@@ -91,6 +102,17 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
   const [modalSearchTerm, setModalSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState<number>(1);
   const itemsPerPage = 10;
+
+  // In-flight action loading state for admin attendance toggling
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
+
+  // Custom Timestamp Override Modal for Admin
+  const [customTimeModalData, setCustomTimeModalData] = useState<{
+    activity: Activity;
+    user: User;
+    dateStamp: string;
+    timeStamp: string;
+  } | null>(null);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -132,6 +154,36 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
   const currentSortOption = sortOptions.find((opt) => opt.value === sortBy) || sortOptions[0];
   const CurrentSortIcon = currentSortOption.icon;
 
+  // Toggle or Update Member Attendance (Present / Absent)
+  const handleToggleAttendance = async (
+    activity: Activity,
+    user: User,
+    newStatus: 'present' | 'absent',
+    logDocId?: string,
+    customDate?: string,
+    customTime?: string
+  ) => {
+    if (!isAdmin) return;
+    const actionKey = `${activity.id}_${user.id}`;
+    setActionLoadingId(actionKey);
+    try {
+      if (newStatus === 'present') {
+        await markMemberPresent(activity, user, {
+          dateStamp: customDate,
+          timeStamp: customTime,
+          markedBy: currentUser?.name || 'Administrator',
+        });
+      } else {
+        await markMemberAbsent(activity, user, logDocId);
+      }
+    } catch (err) {
+      console.error('Failed to toggle attendance:', err);
+    } finally {
+      setActionLoadingId(null);
+      setCustomTimeModalData(null);
+    }
+  };
+
   // Helper to determine single member's status for a given activity
   const getMemberRecordForActivity = (activity: Activity, user: User) => {
     const memNo = (user.memberNumber || '').toLowerCase().trim();
@@ -171,6 +223,8 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
         dateStamp,
         timeStamp,
         isFinished: true,
+        logDocId: logMatch.id,
+        isManual: !!logMatch.manualEntry,
       };
     }
 
@@ -195,6 +249,8 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
           dateStamp: attMatch.date || activity.date,
           timeStamp: attMatch.time || 'Recorded',
           isFinished: true,
+          logDocId: undefined,
+          isManual: false,
         };
       }
     }
@@ -219,6 +275,8 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
       dateStamp: activity.date,
       timeStamp: null,
       isFinished,
+      logDocId: undefined,
+      isManual: false,
     };
   };
 
@@ -1012,6 +1070,18 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                   </div>
                 </div>
 
+                {/* Admin Mode Informational Banner */}
+                {isAdmin && (
+                  <div className="p-2.5 sm:p-3 bg-[#d8f3dc]/50 border border-[#b7d2b7] rounded-xl sm:rounded-2xl flex items-center justify-between gap-2 text-xs shadow-2xs">
+                    <div className="flex items-center gap-2 text-[#1b4332] min-w-0">
+                      <Sparkles className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                      <span className="text-[10.5px] sm:text-xs font-semibold leading-tight">
+                        <strong className="font-extrabold text-[#1b4332]">Admin Attendance Controls:</strong> You can manually mark this member as <strong>Present</strong> (if they forgot to scan) or <strong>Absent</strong> for any event.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
                 {/* Modal Filters & Search */}
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-0.5">
                   <div className="relative flex-1 sm:max-w-xs">
@@ -1051,10 +1121,13 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                     </div>
                   ) : (
                     <div className="divide-y divide-[#e2ece2]">
-                      <div className="hidden md:grid md:grid-cols-12 gap-3 px-5 py-2.5 bg-[#f7f9f7] text-[9.5px] font-extrabold text-[#52605d] uppercase tracking-wider">
-                        <div className="col-span-5">Activity & Audience</div>
-                        <div className="col-span-3">Event Date</div>
-                        <div className="col-span-4 text-right">Attendance Status & Timestamp</div>
+                      <div className={`hidden md:grid gap-3 px-4 sm:px-5 py-2.5 bg-[#f7f9f7] text-[9.5px] font-extrabold text-[#52605d] uppercase tracking-wider ${
+                        isAdmin ? 'md:grid-cols-12' : 'md:grid-cols-12'
+                      }`}>
+                        <div className={isAdmin ? "col-span-4" : "col-span-5"}>Activity & Audience</div>
+                        <div className={isAdmin ? "col-span-2" : "col-span-3"}>Event Date</div>
+                        <div className={isAdmin ? "col-span-3 text-right" : "col-span-4 text-right"}>Status & Timestamp</div>
+                        {isAdmin && <div className="col-span-3 text-right">Admin Action</div>}
                       </div>
 
                       {modalFilteredActivities.map(({ activity, record, isApplicable }) => {
@@ -1066,12 +1139,16 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                             })
                           : activity.date;
 
+                        const isThisRowLoading = actionLoadingId === `${activity.id}_${selectedMember.id}`;
+
                         return (
                           <div
                             key={activity.id}
-                            className="p-3 sm:p-4 hover:bg-[#f7f9f7]/70 transition-colors flex flex-col md:grid md:grid-cols-12 gap-1.5 md:gap-3 items-start md:items-center"
+                            className={`p-3 sm:p-4 hover:bg-[#f7f9f7]/70 transition-colors flex flex-col md:grid gap-2 md:gap-3 items-start md:items-center ${
+                              isAdmin ? 'md:grid-cols-12' : 'md:grid-cols-12'
+                            }`}
                           >
-                            <div className="col-span-5 space-y-1">
+                            <div className={`${isAdmin ? 'col-span-4' : 'col-span-5'} space-y-1 w-full md:w-auto`}>
                               <div className="flex items-center gap-1.5 flex-wrap">
                                 <h5 className="font-extrabold text-xs text-[#1b4332]">{activity.name}</h5>
                                 {renderAudienceBadge(activity.targetAudience)}
@@ -1079,17 +1156,24 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                               <div className="md:hidden text-[10px] text-[#52605d]">Date: {formattedDate}</div>
                             </div>
 
-                            <div className="hidden md:block col-span-3 text-xs font-semibold text-[#1b4332]">
+                            <div className={`hidden md:block ${isAdmin ? 'col-span-2' : 'col-span-3'} text-xs font-semibold text-[#1b4332]`}>
                               {formattedDate}
                             </div>
 
-                            <div className="col-span-4 w-full md:w-auto flex md:justify-end">
+                            <div className={`${isAdmin ? 'col-span-3' : 'col-span-4'} w-full md:w-auto flex md:justify-end`}>
                               {record.attended ? (
                                 <div className="flex flex-col md:items-end gap-0.5">
-                                  <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
-                                    <CheckCircle className="w-3 h-3 text-emerald-600" />
-                                    <span>Present</span>
-                                  </span>
+                                  <div className="flex items-center gap-1">
+                                    <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shadow-2xs">
+                                      <CheckCircle className="w-3 h-3 text-emerald-600" />
+                                      <span>Present</span>
+                                    </span>
+                                    {record.isManual && (
+                                      <span className="px-1.5 py-0.2 rounded-md text-[8.5px] font-bold bg-[#e2ece2] text-[#1b4332] border border-[#b7d2b7]" title="Manually recorded by Admin">
+                                        Manual
+                                      </span>
+                                    )}
+                                  </div>
                                   {record.timestamp && (
                                     <span className="text-[9.5px] text-stone-500 font-mono font-medium">
                                       {record.timestamp}
@@ -1097,22 +1181,121 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                                   )}
                                 </div>
                               ) : !isApplicable ? (
-                                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-stone-100 text-stone-600 border border-stone-200 flex items-center gap-1" title="This meeting was for officers only and not required for general members">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-stone-100 text-stone-600 border border-stone-200 flex items-center gap-1" title="This meeting was for officers only and not required for general members">
                                   <Info className="w-3 h-3 text-stone-400" />
                                   <span>Not Required</span>
                                 </span>
                               ) : record.isFinished ? (
-                                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-rose-100 text-rose-800 border border-rose-300 flex items-center gap-1 shadow-2xs">
                                   <XCircle className="w-3 h-3 text-rose-600" />
                                   <span>Absent</span>
                                 </span>
                               ) : (
-                                <span className="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1 shadow-2xs">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-extrabold bg-amber-50 text-amber-800 border border-amber-300 flex items-center gap-1 shadow-2xs">
                                   <Clock className="w-3 h-3 text-amber-600" />
                                   <span>Upcoming</span>
                                 </span>
                               )}
                             </div>
+
+                            {/* Admin Action Buttons */}
+                            {isAdmin && (
+                              <div className="col-span-3 w-full md:w-auto flex items-center md:justify-end gap-1.5 pt-1.5 md:pt-0 border-t md:border-t-0 border-[#e2ece2]">
+                                {record.attended ? (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={isThisRowLoading}
+                                      onClick={() =>
+                                        handleToggleAttendance(
+                                          activity,
+                                          selectedMember,
+                                          'absent',
+                                          record.logDocId
+                                        )
+                                      }
+                                      className="px-2.5 py-1 rounded-xl text-[10px] sm:text-[11px] font-extrabold bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-200 hover:border-rose-300 transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs active:scale-95"
+                                      title="Mark this member as Absent"
+                                    >
+                                      {isThisRowLoading ? (
+                                        <OfficialDotSpinner />
+                                      ) : (
+                                        <>
+                                          <XCircle className="w-3 h-3 text-rose-600" />
+                                          <span>Mark Absent</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      disabled={isThisRowLoading}
+                                      onClick={() =>
+                                        setCustomTimeModalData({
+                                          activity,
+                                          user: selectedMember,
+                                          dateStamp: record.dateStamp || activity.date,
+                                          timeStamp: record.timeStamp || '08:00:00 AM',
+                                        })
+                                      }
+                                      className="p-1 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-600 transition-all cursor-pointer"
+                                      title="Edit recorded timestamp"
+                                    >
+                                      <Edit2 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-1">
+                                    <button
+                                      type="button"
+                                      disabled={isThisRowLoading}
+                                      onClick={() =>
+                                        handleToggleAttendance(
+                                          activity,
+                                          selectedMember,
+                                          'present'
+                                        )
+                                      }
+                                      className="px-2.5 py-1 rounded-xl text-[10px] sm:text-[11px] font-extrabold bg-[#1b4332] hover:bg-[#2d6a4f] text-white transition-all flex items-center gap-1 cursor-pointer disabled:opacity-50 shadow-2xs active:scale-95"
+                                      title="Mark this member as Present"
+                                    >
+                                      {isThisRowLoading ? (
+                                        <OfficialDotSpinner />
+                                      ) : (
+                                        <>
+                                          <CheckCircle className="w-3 h-3 text-emerald-300" />
+                                          <span>Mark Present</span>
+                                        </>
+                                      )}
+                                    </button>
+
+                                    <button
+                                      type="button"
+                                      disabled={isThisRowLoading}
+                                      onClick={() =>
+                                        setCustomTimeModalData({
+                                          activity,
+                                          user: selectedMember,
+                                          dateStamp:
+                                            activity.date ||
+                                            new Date().toISOString().split('T')[0],
+                                          timeStamp: new Date().toLocaleTimeString([], {
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            second: '2-digit',
+                                          }),
+                                        })
+                                      }
+                                      className="px-2 py-1 rounded-xl text-[10px] sm:text-[11px] font-bold bg-[#f7f9f7] hover:bg-[#e2ece2] text-[#1b4332] border border-[#e2ece2] flex items-center gap-0.5 transition-all cursor-pointer"
+                                      title="Specify custom attendance date and time"
+                                    >
+                                      <Clock className="w-3 h-3 text-[#2d6a4f]" />
+                                      <span className="hidden sm:inline">Custom</span>
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -1132,6 +1315,139 @@ export const AttendanceTracker: React.FC<AttendanceTrackerProps> = ({
                   className="px-3 sm:px-4 py-1.5 sm:py-2 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl text-[11px] sm:text-xs font-extrabold cursor-pointer transition-colors"
                 >
                   Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </ModalPortal>
+      )}
+
+      {/* CUSTOM TIMESTAMP MODAL FOR ADMIN */}
+      {customTimeModalData && (
+        <ModalPortal>
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[10000] p-3 sm:p-5 animate-fadeIn"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setCustomTimeModalData(null);
+            }}
+          >
+            <div className="bg-white rounded-2xl sm:rounded-3xl border border-[#e2ece2] w-full max-w-md p-4 sm:p-5 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-[#e2ece2] pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-[#1b4332] flex items-center justify-center">
+                    <Clock className="w-4 h-4 text-[#2d6a4f]" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-[#1b4332]">Manual Attendance Entry</h3>
+                    <p className="text-[10.5px] text-[#52605d]">
+                      {customTimeModalData.user.name} • {customTimeModalData.activity.name}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCustomTimeModalData(null)}
+                  className="p-1 rounded-lg text-stone-500 hover:bg-stone-100"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-[10.5px] font-extrabold text-[#52605d] uppercase tracking-wider mb-1">
+                    Date Stamp
+                  </label>
+                  <input
+                    type="date"
+                    value={customTimeModalData.dateStamp}
+                    onChange={(e) =>
+                      setCustomTimeModalData({
+                        ...customTimeModalData,
+                        dateStamp: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10.5px] font-extrabold text-[#52605d] uppercase tracking-wider mb-1">
+                    Time Stamp
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 08:30:00 AM"
+                    value={customTimeModalData.timeStamp}
+                    onChange={(e) =>
+                      setCustomTimeModalData({
+                        ...customTimeModalData,
+                        timeStamp: e.target.value,
+                      })
+                    }
+                    className="w-full px-3 py-2 border border-[#e2ece2] rounded-xl text-xs bg-[#f7f9f7] focus:bg-white focus:outline-none font-mono"
+                  />
+                </div>
+
+                {/* Quick Presets */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCustomTimeModalData({
+                        ...customTimeModalData,
+                        dateStamp: customTimeModalData.activity.date,
+                        timeStamp: '08:00:00 AM',
+                      })
+                    }
+                    className="px-2 py-1 rounded-lg bg-[#f7f9f7] hover:bg-[#e2ece2] border border-[#e2ece2] text-[10px] font-bold text-[#1b4332] cursor-pointer"
+                  >
+                    Event Start (08:00 AM)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCustomTimeModalData({
+                        ...customTimeModalData,
+                        dateStamp: new Date().toISOString().split('T')[0],
+                        timeStamp: new Date().toLocaleTimeString([], {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        }),
+                      })
+                    }
+                    className="px-2 py-1 rounded-lg bg-[#f7f9f7] hover:bg-[#e2ece2] border border-[#e2ece2] text-[10px] font-bold text-[#1b4332] cursor-pointer"
+                  >
+                    Current Time (Now)
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#e2ece2]">
+                <button
+                  type="button"
+                  onClick={() => setCustomTimeModalData(null)}
+                  className="px-3 py-1.5 rounded-xl border border-[#e2ece2] text-[#52605d] text-xs font-bold hover:bg-stone-100 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    handleToggleAttendance(
+                      customTimeModalData.activity,
+                      customTimeModalData.user,
+                      'present',
+                      undefined,
+                      customTimeModalData.dateStamp,
+                      customTimeModalData.timeStamp
+                    )
+                  }
+                  className="px-4 py-1.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-xs"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Save as Present</span>
                 </button>
               </div>
             </div>

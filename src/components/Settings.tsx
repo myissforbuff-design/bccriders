@@ -835,7 +835,7 @@ export const Settings: React.FC = () => {
 
     const rows = filtered.map((p) => [
       p.id,
-      p.paidDate || p.createdAt || 'N/A',
+      p.paidTime ? `${p.paidDate || p.createdAt || 'N/A'} ${p.paidTime}` : (p.paidDate || p.createdAt || 'N/A'),
       p.userMemberNo || p.userId || 'N/A',
       userMap.get(p.userId) || p.userName || p.userMemberNo || 'N/A',
       p.itemType || p.type || 'Other',

@@ -11,6 +11,10 @@ import {
   isMemberOnlyRole,
   isActivityApplicableToUser,
 } from '../types';
+import {
+  markMemberPresent,
+  markMemberAbsent,
+} from '../lib/attendanceService';
 import { OfficialDotSpinner } from './OfficialLoader';
 import { AttendanceTracker } from './AttendanceTracker';
 import { ModalPortal } from './ModalPortal';
@@ -35,6 +39,9 @@ import {
   Shield,
   Check,
   Filter,
+  UserPlus,
+  UserMinus,
+  Sparkles,
 } from 'lucide-react';
 
 interface AttendanceLogDoc {
@@ -169,7 +176,20 @@ export const ActivityLog: React.FC = () => {
   const [memberStatusFilter, setMemberStatusFilter] = useState<'All' | 'Attended' | 'Absent' | 'Upcoming'>('All');
   const [memberPage, setMemberPage] = useState<number>(1);
 
-  useModalDismiss(Boolean(selectedActivityForModal), () => setSelectedActivityForModal(null));
+  // Admin Manual Attendance Management within Activity Logs Modal
+  const [isAddAttendeeOpen, setIsAddAttendeeOpen] = useState(false);
+  const [selectedUserToAddId, setSelectedUserToAddId] = useState('');
+  const [addAttendeeDate, setAddAttendeeDate] = useState('');
+  const [addAttendeeTime, setAddAttendeeTime] = useState('');
+  const [actionLogDeletingId, setActionLogDeletingId] = useState<string | null>(null);
+  const [isAddingAttendee, setIsAddingAttendee] = useState(false);
+  const [attendeeModalSearch, setAttendeeModalSearch] = useState('');
+
+  useModalDismiss(Boolean(selectedActivityForModal), () => {
+    setSelectedActivityForModal(null);
+    setIsAddAttendeeOpen(false);
+    setAttendeeModalSearch('');
+  });
   useModalDismiss(isCreateModalOpen, () => setIsCreateModalOpen(false));
   useModalDismiss(isEditModalOpen, () => setIsEditModalOpen(false));
   useModalDismiss(Boolean(activityToDelete), () => setActivityToDelete(null));
@@ -656,6 +676,64 @@ export const ActivityLog: React.FC = () => {
       localStorage.setItem('bcc_activity_sync_time', Date.now().toString());
     } catch (err) {
       console.error('Failed to delete activity:', err);
+    }
+  };
+
+  // Remove attendee from activity attendance (Mark Absent)
+  const handleRemoveAttendee = async (log: any, activity: Activity) => {
+    if (!isAdmin) return;
+    const logId = log.id || log._id;
+    const memId = log['Member ID'] || log.memberId;
+    const name = log['Last Name'] ? `${log['First Name']} ${log['Last Name']}`.trim() : log.name || log['Full Name'] || '';
+    setActionLogDeletingId(logId || memId || 'removing');
+    try {
+      const userObj: UserType = usersList.find(
+        (u) =>
+          (u.memberNumber && memId && u.memberNumber.toLowerCase().trim() === memId.toLowerCase().trim()) ||
+          (u.id && memId && u.id.toLowerCase().trim() === memId.toLowerCase().trim()) ||
+          (u.name && name && u.name.toLowerCase().trim() === name.toLowerCase().trim())
+      ) || {
+        id: memId || '',
+        name: name || 'Member',
+        role: 'Member',
+        memberNumber: memId || '',
+      };
+      await markMemberAbsent(activity, userObj, logId);
+    } catch (err) {
+      console.error('Failed to remove attendee:', err);
+    } finally {
+      setActionLogDeletingId(null);
+    }
+  };
+
+  // Manually add member as present to this activity
+  const handleAddAttendeeSubmit = async (activity: Activity) => {
+    if (!isAdmin || !selectedUserToAddId) return;
+    const targetUser = usersList.find(
+      (u) => u.id === selectedUserToAddId || u.memberNumber === selectedUserToAddId
+    );
+    if (!targetUser) return;
+    setIsAddingAttendee(true);
+    try {
+      await markMemberPresent(activity, targetUser, {
+        dateStamp: addAttendeeDate || activity.date || new Date().toISOString().split('T')[0],
+        timeStamp:
+          addAttendeeTime ||
+          new Date().toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          }),
+        markedBy: currentUser?.name || 'Administrator',
+      });
+      setIsAddAttendeeOpen(false);
+      setSelectedUserToAddId('');
+      setAddAttendeeDate('');
+      setAddAttendeeTime('');
+    } catch (err) {
+      console.error('Failed to add attendee:', err);
+    } finally {
+      setIsAddingAttendee(false);
     }
   };
 
@@ -1372,8 +1450,19 @@ export const ActivityLog: React.FC = () => {
       {/* MODAL FOR VIEWING EVENT ATTENDANCE LOGS */}
       {selectedActivityForModal && (() => {
         const currentModalActivity = activities.find((a) => a.id === selectedActivityForModal.id) || selectedActivityForModal;
-        const rawLogs = getLogsForActivity(currentModalActivity);
+        const allLogs = getLogsForActivity(currentModalActivity);
         const audienceInfo = getEligibleAudience(currentModalActivity);
+
+        // Filter logs by attendee search query if typed
+        const rawLogs = attendeeModalSearch.trim()
+          ? allLogs.filter((log) => {
+              const q = attendeeModalSearch.toLowerCase();
+              const name = `${log['First Name'] || log.firstName || ''} ${log['Last Name'] || log.lastName || ''} ${log['Full Name'] || log.fullName || log.name || ''}`.toLowerCase();
+              const network = (log['Network'] || log.network || '').toLowerCase();
+              const memId = (log['Member ID'] || log.memberId || '').toLowerCase();
+              return name.includes(q) || network.includes(q) || memId.includes(q);
+            })
+          : allLogs;
 
         const ITEMS_PER_PAGE = 10;
         const totalLogs = rawLogs.length;
@@ -1383,15 +1472,37 @@ export const ActivityLog: React.FC = () => {
         const endIndex = Math.min(startIndex + ITEMS_PER_PAGE, totalLogs);
         const paginatedLogs = rawLogs.slice(startIndex, endIndex);
 
+        // Members not yet recorded as attended (for admin manual add)
+        const attendedMemberIds = new Set(
+          allLogs.map((l) => (l['Member ID'] || l.memberId || '').toString().toLowerCase().trim()).filter(Boolean)
+        );
+        const attendedNames = new Set(
+          allLogs.map((l) => {
+            const last = (l['Last Name'] || l.lastName || '').trim();
+            const first = (l['First Name'] || l.firstName || '').trim();
+            return (last && first ? `${first} ${last}` : l['Full Name'] || l.fullName || l.name || '').toLowerCase().trim();
+          }).filter(Boolean)
+        );
+
+        const availableMembersToAdd = usersList.filter((u) => {
+          if (!isActivityApplicableToUser(currentModalActivity, u)) return false;
+          const uId = (u.memberNumber || u.id || '').toLowerCase().trim();
+          const uName = (u.name || '').toLowerCase().trim();
+          return !attendedMemberIds.has(uId) && !attendedNames.has(uName);
+        });
+
         return (
           <ModalPortal>
             <div
               className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-[9999] p-3 sm:p-5 animate-fadeIn overscroll-contain"
               onClick={(e) => {
-                if (e.target === e.currentTarget) setSelectedActivityForModal(null);
+                if (e.target === e.currentTarget) {
+                  setSelectedActivityForModal(null);
+                  setIsAddAttendeeOpen(false);
+                }
               }}
             >
-              <div className="bg-white rounded-2xl sm:rounded-[28px] border border-[#e2ece2] w-full max-w-md sm:max-w-xl max-h-[78dvh] sm:max-h-[82dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
+              <div className="bg-white rounded-2xl sm:rounded-[28px] border border-[#e2ece2] w-full max-w-md sm:max-w-xl max-h-[85dvh] sm:max-h-[88dvh] flex flex-col shadow-2xl overflow-hidden relative my-auto">
                 {/* Modal Header */}
                 <div className="p-3 sm:p-4 border-b border-[#e2ece2] bg-[#f7f9f7] flex items-center justify-between gap-2.5 shrink-0">
                   <div className="min-w-0 flex-1">
@@ -1414,6 +1525,23 @@ export const ActivityLog: React.FC = () => {
                   </div>
 
                   <div className="flex items-center gap-1.5 shrink-0">
+                    {isAdmin && (
+                      <button
+                        type="button"
+                        onClick={() => setIsAddAttendeeOpen((prev) => !prev)}
+                        className={`px-2.5 py-1 rounded-xl font-extrabold text-[10px] sm:text-[11px] flex items-center gap-1 border transition-all cursor-pointer shadow-2xs ${
+                          isAddAttendeeOpen
+                            ? 'bg-[#1b4332] text-white border-[#1b4332]'
+                            : 'bg-white text-[#1b4332] border-[#b7d2b7] hover:bg-[#d8f3dc]/60'
+                        }`}
+                        title="Manually Add Attendee / Mark Present"
+                      >
+                        <UserPlus className="w-3.5 h-3.5 text-emerald-600" />
+                        <span className="hidden sm:inline">Mark Present</span>
+                        <span className="sm:hidden">Add</span>
+                      </button>
+                    )}
+
                     <button
                       type="button"
                       onClick={() => handleOpenEditModal(currentModalActivity)}
@@ -1426,7 +1554,10 @@ export const ActivityLog: React.FC = () => {
 
                     <button
                       type="button"
-                      onClick={() => setSelectedActivityForModal(null)}
+                      onClick={() => {
+                        setSelectedActivityForModal(null);
+                        setIsAddAttendeeOpen(false);
+                      }}
                       className="p-1 sm:p-1.5 bg-stone-100 hover:bg-stone-200 text-stone-700 rounded-xl transition-colors cursor-pointer shrink-0"
                       title="Close Modal"
                     >
@@ -1434,6 +1565,119 @@ export const ActivityLog: React.FC = () => {
                     </button>
                   </div>
                 </div>
+
+                {/* Manual Mark Member Present Drawer (Admin Only) */}
+                {isAdmin && isAddAttendeeOpen && (
+                  <div className="p-3 sm:p-4 bg-emerald-50/70 border-b border-emerald-200 animate-fadeIn space-y-2.5 shrink-0">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5">
+                        <UserCheck className="w-3.5 h-3.5 text-emerald-700" />
+                        <span className="font-extrabold text-xs text-[#1b4332]">
+                          Manual Attendance Override (Mark Present)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsAddAttendeeOpen(false)}
+                        className="text-stone-400 hover:text-stone-600 p-0.5 rounded"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      <div className="sm:col-span-2">
+                        <label className="block text-[11px] font-bold text-stone-700 mb-1">
+                          Select Club Member *
+                        </label>
+                        <select
+                          value={selectedUserToAddId}
+                          onChange={(e) => setSelectedUserToAddId(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl bg-white border border-[#b7d2b7] text-stone-900 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        >
+                          <option value="">-- Choose member to mark present --</option>
+                          {availableMembersToAdd.map((u) => (
+                            <option key={u.id} value={u.id}>
+                              {u.name} ({u.memberNumber || u.role}) — {u.chapter || 'Main Chapter'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-600 mb-0.5">
+                          Date (Optional)
+                        </label>
+                        <input
+                          type="date"
+                          value={addAttendeeDate || currentModalActivity.date || ''}
+                          onChange={(e) => setAddAttendeeDate(e.target.value)}
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 text-xs text-stone-800"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-stone-600 mb-0.5">
+                          Time (Optional)
+                        </label>
+                        <input
+                          type="time"
+                          value={addAttendeeTime}
+                          onChange={(e) => setAddAttendeeTime(e.target.value)}
+                          placeholder="Auto (now)"
+                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 text-xs text-stone-800"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setIsAddAttendeeOpen(false)}
+                        className="px-3 py-1 rounded-lg text-stone-600 hover:bg-stone-200/60 font-bold text-xs"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!selectedUserToAddId || isAddingAttendee}
+                        onClick={() => handleAddAttendeeSubmit(currentModalActivity)}
+                        className="px-3.5 py-1.5 rounded-xl bg-[#1b4332] text-white font-extrabold text-xs hover:bg-[#2d6a4f] active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 shadow-2xs cursor-pointer"
+                      >
+                        {isAddingAttendee ? (
+                          <>
+                            <OfficialDotSpinner />
+                            <span>Saving...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Confirm Present</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Search in Modal */}
+                {allLogs.length > 5 && (
+                  <div className="px-3 pt-3 pb-1 shrink-0">
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-stone-400" />
+                      <input
+                        type="text"
+                        placeholder="Search attendee name or chapter..."
+                        value={attendeeModalSearch}
+                        onChange={(e) => {
+                          setAttendeeModalSearch(e.target.value);
+                          setLogPage(1);
+                        }}
+                        className="w-full pl-8 pr-3 py-1.5 bg-stone-50 border border-[#e2ece2] rounded-xl text-xs text-stone-800 focus:outline-none focus:ring-1 focus:ring-emerald-500 placeholder:text-stone-400 font-medium"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* Modal Body: Scanned Member Cards with Smooth Scroll */}
                 <div className="p-3 sm:p-4 overflow-y-auto flex-1 flex flex-col justify-between space-y-3 min-h-0 overscroll-contain">
@@ -1447,11 +1691,15 @@ export const ActivityLog: React.FC = () => {
                       </div>
                     ) : totalLogs === 0 ? (
                       <div className="py-8 text-center text-stone-500 font-medium bg-white rounded-2xl border border-[#e2ece2] text-xs shadow-2xs">
-                        No attendance log records found for this event.
+                        {attendeeModalSearch.trim()
+                          ? `No attendees matching "${attendeeModalSearch}".`
+                          : 'No attendance log records found for this event.'}
                       </div>
                     ) : (
                       <div className="grid grid-cols-1 gap-2">
                         {paginatedLogs.map((log, index) => {
+                          const logId = log.id || log._id || `log-${index}`;
+                          const isDeletingThis = actionLogDeletingId === logId || actionLogDeletingId === log['Member ID'] || actionLogDeletingId === log.memberId;
                           const lastName = (log['Last Name'] || log.lastName || '').trim();
                           const firstName = (log['First Name'] || log.firstName || '').trim();
                           let formattedName = '—';
@@ -1468,23 +1716,55 @@ export const ActivityLog: React.FC = () => {
                           const network = log['Network'] || log.network || 'Main Chapter';
                           const rawTime = log['Time Stamp'] || log.timeStamp || log.time || 'N/A';
                           const time = rawTime === 'N/A' ? 'N/A' : rawTime.replace(/(\d{1,2}:\d{2}):\d{2}/, '$1');
+                          const isManualEntry = Boolean(log.manualEntry || log.isManual || log.markedBy);
 
                           return (
                             <div
-                              key={log.id || index}
-                              className="bg-white p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-[#e2ece2] shadow-2xs hover:border-[#b7d2b7] transition-all space-y-0.5"
+                              key={logId}
+                              className="bg-white p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-[#e2ece2] shadow-2xs hover:border-[#b7d2b7] transition-all flex items-center justify-between gap-2"
                             >
-                              <div className="flex items-center justify-between gap-2">
-                                <h4 className="text-xs sm:text-sm font-extrabold text-[#1b4332] truncate">
-                                  {formattedName}
-                                </h4>
+                              <div className="min-w-0 flex-1 space-y-0.5">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="text-xs sm:text-sm font-extrabold text-[#1b4332] truncate">
+                                    {formattedName}
+                                  </h4>
+                                  {isManualEntry && (
+                                    <span className="text-[9px] font-extrabold px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200 shrink-0">
+                                      Manual
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-2 text-[10px] sm:text-[11px] text-stone-500 font-medium">
+                                  <span className="truncate">{network}</span>
+                                  {log['Member ID'] && (
+                                    <span className="font-mono text-[9px] text-stone-400 shrink-0">
+                                      ID: {log['Member ID']}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
                                 <span className="font-mono font-bold text-[10px] sm:text-xs text-[#2d6a4f] bg-[#d8f3dc]/70 px-2 py-0.5 rounded-lg shrink-0">
                                   {time}
                                 </span>
+
+                                {isAdmin && (
+                                  <button
+                                    type="button"
+                                    disabled={isDeletingThis}
+                                    onClick={() => handleRemoveAttendee(log, currentModalActivity)}
+                                    className="p-1 sm:p-1.5 rounded-lg text-rose-500 hover:text-rose-700 hover:bg-rose-50 border border-transparent hover:border-rose-200 transition-all cursor-pointer disabled:opacity-40"
+                                    title="Mark Member Absent / Remove from Event"
+                                  >
+                                    {isDeletingThis ? (
+                                      <OfficialDotSpinner />
+                                    ) : (
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                )}
                               </div>
-                              <p className="text-[10px] sm:text-[11px] text-stone-500 font-medium truncate">
-                                {network}
-                              </p>
                             </div>
                           );
                         })}
@@ -1529,7 +1809,7 @@ export const ActivityLog: React.FC = () => {
                 <div className="p-3 sm:p-4 bg-[#f7f9f7] border-t border-[#e2ece2] flex items-center justify-between gap-2 shrink-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-extrabold text-[11px] sm:text-xs text-[#1b4332] bg-white px-2.5 py-1 rounded-xl border border-[#e2ece2] shadow-2xs">
-                      {rawLogs.length} / {audienceInfo.count} {audienceInfo.label}
+                      {allLogs.length} / {audienceInfo.count} {audienceInfo.label}
                     </span>
                   </div>
                   <div className="flex items-center gap-1.5 sm:gap-2">

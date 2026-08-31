@@ -16,6 +16,7 @@ import { QRScan } from './components/QRScan';
 import { Finances } from './components/Finances';
 import { AnnouncementsView } from './components/AnnouncementsView';
 import { RealtimeStatusPill } from './components/RealtimeStatusPill';
+import { PushNotificationCenter } from './components/PushNotificationCenter';
 import { PushNotificationBanner } from './components/PushNotificationBanner';
 import { PWAInstallBanner } from './components/PWAInstallBanner';
 import { useIsAnyModalOpen } from './hooks/useModalDismiss';
@@ -116,9 +117,7 @@ function MainAppContent() {
         {/* Top Header Bar */}
         {activeTab !== 'qr' && (
           <header
-            className={`sticky top-[48px] sm:top-[52px] lg:top-0 z-30 bg-white/98 backdrop-blur-md border-b border-[#e2ece2] px-3 sm:px-6 py-2 sm:py-3.5 flex items-center justify-between shadow-xs transition-[filter] duration-200 ${
-              isAnyModalOpen ? 'blur-sm lg:blur-none pointer-events-none lg:pointer-events-auto' : ''
-            }`}
+            className="sticky top-[48px] sm:top-[52px] lg:top-0 z-30 bg-white/98 backdrop-blur-md border-b border-[#e2ece2] px-3 sm:px-6 py-2 sm:py-3.5 flex items-center justify-between shadow-xs"
           >
             <div>
               <h1 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-lg capitalize">
@@ -160,6 +159,9 @@ function MainAppContent() {
 
             <div className="flex items-center gap-2">
               <RealtimeStatusPill />
+              <div className="hidden lg:block">
+                <PushNotificationCenter buttonClassName="relative p-2 rounded-xl bg-white hover:bg-[#f7f9f7] text-[#1b4332] border border-[#e2ece2] shadow-xs transition-all cursor-pointer" />
+              </div>
               {activeTab === 'document' && (
                 <>
                   <button

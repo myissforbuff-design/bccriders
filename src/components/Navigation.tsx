@@ -195,9 +195,7 @@ export const Navigation: React.FC<NavigationProps> = ({
       {/* Mobile & Tablet Top Header */}
       {activeTab !== 'qr' && (
         <div
-          className={`lg:hidden sticky top-0 z-50 bg-[#1b4332] border-b border-[#2d6a4f] px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between text-white shadow-xs min-h-[48px] sm:min-h-[52px] transition-[filter] duration-200 ${
-            isAnyModalOpen ? 'blur-sm pointer-events-none' : ''
-          }`}
+          className="lg:hidden sticky top-0 z-50 bg-[#1b4332] border-b border-[#2d6a4f] px-3 sm:px-4 py-1.5 sm:py-2 flex items-center justify-between text-white shadow-xs min-h-[48px] sm:min-h-[52px]"
         >
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
             <div className="p-1 sm:p-1.5 rounded-lg sm:rounded-xl bg-white text-[#1b4332] font-black shadow-md flex items-center justify-center shrink-0 w-7 h-7 sm:w-9 sm:h-9">
@@ -232,9 +230,7 @@ export const Navigation: React.FC<NavigationProps> = ({
       {/* Mobile & Tablet Bottom Navigation Bar (Hierarchy of Green) */}
       {activeTab !== 'qr' && (
         <div
-          className={`lg:hidden fixed bottom-3 left-3 right-3 z-40 max-w-md mx-auto font-sans transition-[filter] duration-200 ${
-            isAnyModalOpen ? 'blur-sm pointer-events-none' : ''
-          }`}
+          className="lg:hidden fixed bottom-3 left-3 right-3 z-40 max-w-md mx-auto font-sans"
         >
           <div className="relative bg-white/98 backdrop-blur-xl rounded-[28px] shadow-2xl shadow-[#1b4332]/15 border border-[#e2ece2] px-2 pt-3 pb-1.5">
             <div className="flex items-center justify-between relative px-2">

@@ -1155,7 +1155,17 @@ export class DataStoreService {
     }).catch((err) => console.warn('MongoDB addPayment sync error:', err));
 
     // Trigger Web Push Alert for Finance Transaction
-    triggerFinancePushNotification(newPayment.type || 'payment', newPayment.amount, newPayment.description || `${newPayment.userName} - ${newPayment.type}`).catch(() => {});
+    const user = this.users.find((u) => u.id === newPayment.userId);
+    triggerFinancePushNotification(
+      newPayment.type || 'payment',
+      newPayment.amount,
+      newPayment.description || `${newPayment.userName} - ${newPayment.type}`,
+      {
+        userId: newPayment.userId,
+        userName: newPayment.userName || user?.name,
+        userAvatar: user?.avatar,
+      }
+    ).catch(() => {});
 
     return newPayment;
   }

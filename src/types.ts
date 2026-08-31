@@ -497,6 +497,7 @@ export interface FinanceRecord {
   amount: number;
   dueDate: string;
   paidDate?: string;
+  paidTime?: string; // Time paid, e.g. "4:45 PM" or "16:45"
   status: 'Paid' | 'Pending' | 'Overdue' | 'Waived';
   paymentMethod?: 'GCash' | 'Cash' | 'Bank Transfer' | 'Credit Card' | 'Other';
   referenceNo?: string;

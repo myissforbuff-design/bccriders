@@ -250,6 +250,41 @@ export function getUserNotificationState(userId: string = 'guest'): UserNotifica
   return { lastClearedAt: 0, lastCheckedAt: 0 };
 }
 
+export function getSeenNotificationIds(userId: string = 'guest'): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  const key = `bcc_seen_notif_ids_${userId || 'guest'}`;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) return new Set(arr);
+    }
+  } catch {}
+  return new Set();
+}
+
+export function markNotificationsAsSeen(userId: string = 'guest', ids: string[]): void {
+  if (typeof window === 'undefined' || !ids || ids.length === 0) return;
+  const key = `bcc_seen_notif_ids_${userId || 'guest'}`;
+  const seen = getSeenNotificationIds(userId);
+  ids.forEach((id) => {
+    if (id) seen.add(String(id));
+  });
+  try {
+    // Keep most recent 200 IDs
+    const arr = Array.from(seen).slice(-200);
+    localStorage.setItem(key, JSON.stringify(arr));
+  } catch {}
+}
+
+export function clearSeenNotificationIds(userId: string = 'guest'): void {
+  if (typeof window === 'undefined') return;
+  const key = `bcc_seen_notif_ids_${userId || 'guest'}`;
+  try {
+    localStorage.removeItem(key);
+  } catch {}
+}
+
 export function saveUserNotificationState(
   userId: string = 'guest',
   state: Partial<UserNotificationState>
@@ -636,7 +671,8 @@ export async function sendPushNotification(
 export async function triggerFinancePushNotification(
   type: 'collection' | 'expense' | 'income' | 'payment' | string,
   amount: number,
-  description: string
+  description: string,
+  payerInfo?: { userId?: string; userName?: string; userAvatar?: string }
 ): Promise<boolean> {
   const formattedAmount = `₱${amount.toLocaleString('en-PH', { minimumFractionDigits: 2 })}`;
   const title = `Treasury: New ${type.charAt(0).toUpperCase() + type.slice(1)}`;
@@ -647,16 +683,24 @@ export async function triggerFinancePushNotification(
     body,
     category: 'finance',
     tab: 'finances',
-    icon: '/app-logo.png',
+    icon: payerInfo?.userAvatar || '/app-logo.png',
     tag: `finance-${Date.now()}`,
-    customData: { amount, type, description },
+    customData: {
+      amount,
+      type,
+      description,
+      userId: payerInfo?.userId,
+      userName: payerInfo?.userName,
+      userAvatar: payerInfo?.userAvatar,
+    },
   });
 }
 
 // 2. Member Approvals Push Alert Trigger (No Emojis)
 export async function triggerMemberApprovalPushNotification(
   memberName: string,
-  approved: boolean
+  approved: boolean,
+  riderInfo?: { userId?: string; userAvatar?: string }
 ): Promise<boolean> {
   const title = approved ? 'Member Approved' : 'Membership Status Updated';
   const body = approved
@@ -668,9 +712,14 @@ export async function triggerMemberApprovalPushNotification(
     body,
     category: 'memberApprovals',
     tab: 'members',
-    icon: '/app-logo.png',
+    icon: riderInfo?.userAvatar || '/app-logo.png',
     tag: `member-${Date.now()}`,
-    customData: { memberName, approved },
+    customData: {
+      memberName,
+      approved,
+      userId: riderInfo?.userId,
+      userAvatar: riderInfo?.userAvatar,
+    },
   });
 }
 

@@ -10,6 +10,9 @@ import {
   syncPushSubscriptionWithServer,
   getUserNotificationState,
   saveUserNotificationState,
+  getSeenNotificationIds,
+  markNotificationsAsSeen,
+  clearSeenNotificationIds,
   fetchMissedNotifications,
   sendThreadedPushNotification,
 } from '../lib/pushNotifications';
@@ -80,7 +83,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   /**
    * Checks for notifications that occurred since the last time the user checked/cleared their notifications.
-   * Compiles them into a Thread if multiple updates exist.
+   * Compiles them into a Thread ONLY if genuinely new, unseen updates exist.
    */
   const checkForMissedNotifications = useCallback(async (force: boolean = false) => {
     if (isCheckingRef.current) return;
@@ -88,30 +91,41 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
     try {
       const userId = getCurrentUserId();
-      let { lastClearedAt } = getUserNotificationState(userId);
+      const userState = getUserNotificationState(userId);
+      const seenIds = getSeenNotificationIds(userId);
+      const currentStoreNotifs = store.getNotifications();
+      const storeIds = new Set(currentStoreNotifs.map((n) => n.id));
 
-      // If user has never cleared notifications, set baseline to 24 hours ago
-      if (!lastClearedAt || lastClearedAt <= 0) {
-        lastClearedAt = Date.now() - 24 * 60 * 60 * 1000;
-        saveUserNotificationState(userId, { lastClearedAt });
+      // Also ensure all existing store IDs are tracked as seen in memory
+      currentStoreNotifs.forEach((n) => seenIds.add(n.id));
+
+      // Determine baseline since timestamp
+      let sinceTimestamp = Math.max(userState.lastClearedAt || 0, userState.lastCheckedAt || 0);
+
+      // If user has no recorded check timestamp yet, set baseline to now so we don't spam historical seed items
+      if (sinceTimestamp <= 0) {
+        const now = Date.now();
+        saveUserNotificationState(userId, { lastCheckedAt: now, lastClearedAt: 0 });
+        markNotificationsAsSeen(userId, currentStoreNotifs.map((n) => n.id));
+        return;
       }
 
-      const missedList = await fetchMissedNotifications(lastClearedAt, 30);
+      const missedList = await fetchMissedNotifications(sinceTimestamp, 30);
+      const now = Date.now();
+      saveUserNotificationState(userId, { lastCheckedAt: now });
 
       if (missedList && missedList.length > 0) {
-        // Filter out items already presented in current session unless force is true
+        // Filter out items already seen or already in local store unless force is explicitly passed
         const newItems = force
           ? missedList
-          : missedList.filter((item) => !seenNotificationIdsRef.current.has(item.id));
+          : missedList.filter((item) => !seenIds.has(item.id) && !storeIds.has(item.id));
 
         if (newItems.length > 0) {
-          // Record seen IDs
-          newItems.forEach((item) => seenNotificationIdsRef.current.add(item.id));
+          // Record seen IDs persistently in localStorage
+          markNotificationsAsSeen(userId, newItems.map((item) => item.id));
 
           // Merge into local store if not already present
-          const currentStoreNotifs = store.getNotifications();
-          const existingIds = new Set(currentStoreNotifs.map((n) => n.id));
-          const itemsToAdd = newItems.filter((item) => !existingIds.has(item.id));
+          const itemsToAdd = newItems.filter((item) => !storeIds.has(item.id));
 
           if (itemsToAdd.length > 0) {
             const formattedForStore: NotificationItem[] = itemsToAdd.map((item) => ({
@@ -134,7 +148,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
             refreshNotifs();
           }
 
-          // Deliver as a cohesive Thread
+          // Deliver as a cohesive Thread ONLY for actually new notifications
           await sendThreadedPushNotification(newItems, false);
         }
       }
@@ -168,6 +182,15 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const customEvent = e as CustomEvent;
       const detail = customEvent.detail;
       if (detail) {
+        const userId = getCurrentUserId();
+        if (detail.id) {
+          markNotificationsAsSeen(userId, [detail.id]);
+        }
+        if (detail.threadItems && Array.isArray(detail.threadItems)) {
+          markNotificationsAsSeen(userId, detail.threadItems.map((t: any) => t.id));
+        }
+        saveUserNotificationState(userId, { lastCheckedAt: Date.now() });
+
         setToastMessage({
           title: detail.title || 'BCC Riders Club Update',
           message: detail.body || detail.message || '',
@@ -266,12 +289,16 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     tab?: string
   ) => {
     // Add to store
-    store.addNotification({
+    const newNotif = store.addNotification({
       title,
       message,
       type,
+      tab,
       read: false,
     });
+    const userId = getCurrentUserId();
+    markNotificationsAsSeen(userId, [newNotif.id]);
+    saveUserNotificationState(userId, { lastCheckedAt: Date.now() });
     refreshNotifs();
 
     // Trigger Toast banner
@@ -300,11 +327,18 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
 
   const markAsRead = (id: string) => {
     store.markNotificationRead(id);
+    const userId = getCurrentUserId();
+    markNotificationsAsSeen(userId, [id]);
+    saveUserNotificationState(userId, { lastCheckedAt: Date.now() });
     refreshNotifs();
   };
 
   const markAllAsRead = () => {
     store.markAllNotificationsRead();
+    const userId = getCurrentUserId();
+    const currentStoreNotifs = store.getNotifications();
+    markNotificationsAsSeen(userId, currentStoreNotifs.map((n) => n.id));
+    saveUserNotificationState(userId, { lastCheckedAt: Date.now() });
     refreshNotifs();
   };
 
@@ -313,6 +347,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
     const now = Date.now();
     // Record that the user cleared all notifications at this timestamp
     saveUserNotificationState(userId, { lastClearedAt: now, lastCheckedAt: now });
+    clearSeenNotificationIds(userId);
     store.clearAllNotifications();
     refreshNotifs();
     setToastMessage(null);

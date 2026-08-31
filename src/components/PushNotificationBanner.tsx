@@ -5,7 +5,7 @@ import {
   X,
   Layers,
   Calendar,
-  DollarSign,
+  User,
   Megaphone,
   ShieldAlert,
   ArrowRight,
@@ -59,7 +59,7 @@ export const PushNotificationBanner: React.FC<PushNotificationBannerProps> = ({
   const getCategoryIcon = (category?: string, type?: string) => {
     const key = (category || type || '').toLowerCase();
     if (key.includes('finance') || key.includes('due')) {
-      return <DollarSign className="w-3.5 h-3.5 text-emerald-400" />;
+      return <User className="w-3.5 h-3.5 text-emerald-400" />;
     }
     if (key.includes('activ') || key.includes('ride')) {
       return <Calendar className="w-3.5 h-3.5 text-cyan-400" />;

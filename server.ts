@@ -4387,6 +4387,74 @@ app.delete('/api/mongodb/attendanceLogs/:id', async (req, res) => {
   }
 });
 
+app.post('/api/mongodb/attendanceLogs/delete', async (req, res) => {
+  const database = await getMongoDb();
+  const { id, activityId, eventName, memberId, memberNumber, userName, firstName, lastName } = req.body || {};
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const conditions: any[] = [];
+    if (id) {
+      conditions.push({ id });
+    }
+    if ((activityId || eventName) && (memberId || memberNumber || userName || (firstName && lastName))) {
+      const actMatches: any[] = [];
+      if (activityId) {
+        actMatches.push({ activityId }, { 'Activity ID': activityId }, { id: activityId });
+      }
+      if (eventName) {
+        const cleanName = eventName.trim();
+        actMatches.push(
+          { 'Event Name': cleanName },
+          { eventName: cleanName },
+          { 'Event Name': { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } },
+          { eventName: { $regex: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } }
+        );
+      }
+
+      const memMatches: any[] = [];
+      if (memberId) {
+        memMatches.push({ 'Member ID': memberId }, { memberId });
+      }
+      if (memberNumber) {
+        memMatches.push({ 'Member ID': memberNumber }, { memberId: memberNumber });
+      }
+      if (userName) {
+        const cleanUName = userName.trim();
+        memMatches.push(
+          { name: cleanUName },
+          { fullName: cleanUName },
+          { 'Full Name': cleanUName },
+          { 'Last Name': { $regex: new RegExp(cleanUName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i') } }
+        );
+      }
+      if (firstName && lastName) {
+        memMatches.push({
+          $and: [
+            { 'First Name': { $regex: new RegExp(`^${firstName.trim()}$`, 'i') } },
+            { 'Last Name': { $regex: new RegExp(`^${lastName.trim()}$`, 'i') } },
+          ],
+        });
+      }
+
+      conditions.push({
+        $and: [
+          { $or: actMatches },
+          { $or: memMatches },
+        ],
+      });
+    }
+
+    if (conditions.length === 0) {
+      return res.status(400).json({ error: 'Valid deletion parameters required (id or activityId + member identifier)' });
+    }
+
+    const result = await database.collection('attendanceLogs').deleteMany({ $or: conditions });
+    res.json({ success: true, deletedCount: result.deletedCount });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // FINANCE LOGS API ("financeLogs" collection table)
 app.get('/api/mongodb/financeLogs', async (req, res) => {
   const database = await getMongoDb();

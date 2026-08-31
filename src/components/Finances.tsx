@@ -69,11 +69,13 @@ export interface FinanceRecord {
   amount: number;
   dueDate: string;
   paidDate?: string;
+  paidTime?: string;
   status: 'Paid' | 'Pending' | 'Overdue' | 'Waived';
   paymentMethod?: 'GCash' | 'Cash' | 'Bank Transfer' | 'Credit Card' | 'Other';
   referenceNo?: string;
   notes?: string;
   updatedAt: string;
+  createdAt?: string;
 }
 
 export type ExpenseCategory =
@@ -253,6 +255,10 @@ export const Finances: React.FC = () => {
   const [recRefNo, setRecRefNo] = useState('');
   const [recNotes, setRecNotes] = useState('');
   const [recDueDate, setRecDueDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [recTime, setRecTime] = useState<string>(() => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  });
 
   // Modal State for Expenses
   const [showExpenseModal, setShowExpenseModal] = useState(false);
@@ -1379,6 +1385,7 @@ export const Finances: React.FC = () => {
       setRecNotes(presetRecord.notes || '');
       const initialDate = presetRecord.paidDate || presetRecord.dueDate || new Date().toISOString().split('T')[0];
       setRecDueDate(initialDate);
+      setRecTime(toTimeInputValue(presetRecord.paidTime || (presetRecord.createdAt ? formatDisplayTime('', presetRecord.createdAt) : undefined)));
 
       // Derive dropdown option key
       if (presetRecord.itemType === 'Membership Fee') {
@@ -1404,6 +1411,7 @@ export const Finances: React.FC = () => {
       setRecRefNo('');
       setRecNotes('');
       setRecDueDate(new Date().toISOString().split('T')[0]);
+      setRecTime(getCurrentTimeInput());
 
       setRecOptionKey('opt_monthly_due');
       setRecItemType('Monthly Due');
@@ -1534,6 +1542,10 @@ export const Finances: React.FC = () => {
       ? 'Paid'
       : recStatus;
 
+    const effectiveTime = isWaiving
+      ? undefined
+      : (recTime ? formatDisplayTime(recTime) : formatDisplayTime(getCurrentTimeInput()));
+
     const effectiveNotes = isWaiving
       ? (recNotes.trim() || 'Waived (Joined before club started)')
       : (recItemType === 'Monthly Due' ? (recNotes.trim() || undefined) : (recNotes.trim() || (recItemType === 'Annual Upfront Promo' ? 'Annual Upfront Promo Package (Full Year Dues)' : undefined)));
@@ -1553,6 +1565,7 @@ export const Finances: React.FC = () => {
                 ...r,
                 status: 'Paid',
                 paidDate: r.paidDate || todayStr,
+                paidTime: r.paidTime || effectiveTime,
                 notes: 'Satisfied by Annual Upfront Promo Package',
                 updatedAt: todayStr,
               };
@@ -1583,6 +1596,7 @@ export const Finances: React.FC = () => {
                   customItemName: due.title,
                   dueDate: todayStr,
                   paidDate: todayStr,
+                  paidTime: effectiveTime,
                   status: 'Paid',
                   paymentMethod: recMethod,
                   notes: 'Satisfied by Annual Upfront Promo Package',
@@ -1634,10 +1648,12 @@ export const Finances: React.FC = () => {
             status: effectiveStatus,
             dueDate: recDueDate,
             paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? recDueDate : editingRecord.paidDate,
+            paidTime: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? (effectiveTime || editingRecord.paidTime) : undefined,
             paymentMethod: isWaiving ? 'N/A' : recMethod,
             referenceNo: isWaiving ? undefined : (recRefNo.trim() || editingRecord.referenceNo || undefined),
             notes: effectiveNotes,
-            updatedAt: todayStr,
+            updatedAt: new Date().toISOString(),
+            createdAt: editingRecord.createdAt || new Date().toISOString(),
           };
 
           let updated = workingRecords.map(r => (r.id === editingRecord.id ? updatedRecord : r));
@@ -1695,16 +1711,19 @@ export const Finances: React.FC = () => {
               amount: amountNum,
               dueDate: recDueDate,
               paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? recDueDate : undefined,
+              paidTime: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? (effectiveTime || existingPending.paidTime) : undefined,
               status: effectiveStatus,
               paymentMethod: isWaiving ? 'N/A' : recMethod,
               referenceNo: recRefNo.trim() || existingPending.referenceNo || undefined,
               notes: effectiveNotes || existingPending.notes,
-              updatedAt: todayStr,
+              updatedAt: new Date().toISOString(),
+              createdAt: existingPending.createdAt || new Date().toISOString(),
             };
             const updated = workingRecords.map(r => (r.id === existingPending.id ? updatedRecord : r));
             saveRecordsToStorage(updated);
             syncPromises.push(syncRecordToMongo(updatedRecord));
           } else {
+            const nowIso = new Date().toISOString();
             const newRec: FinanceRecord = {
               id: `rec_${Date.now()}`,
               userId: recUserId || (users[0]?.id || 'usr_guest'),
@@ -1716,11 +1735,13 @@ export const Finances: React.FC = () => {
               amount: amountNum,
               dueDate: recDueDate,
               paidDate: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? recDueDate : undefined,
+              paidTime: (effectiveStatus === 'Paid' || effectiveStatus === 'Waived') ? effectiveTime : undefined,
               status: effectiveStatus,
               paymentMethod: isWaiving ? 'N/A' : recMethod,
               referenceNo: recRefNo.trim() || undefined,
               notes: effectiveNotes,
-              updatedAt: todayStr,
+              updatedAt: nowIso,
+              createdAt: nowIso,
             };
 
             let updatedList = [...workingRecords, newRec];
@@ -1746,11 +1767,21 @@ export const Finances: React.FC = () => {
           }
         }
 
+        // Reset page to 1 so the most recent transaction is immediately visible
+        setCurrentPage(1);
+        setAccountTxCurrentPage(1);
+
         if (effectiveStatus === 'Paid' && !isWaiving) {
           // Broadcast Push Notification to all mobile users and devices
           const itemDescription = recItemType === 'Other' && recCustomItemName ? recCustomItemName : (recItemType === 'Monthly Due' ? `Monthly Due: ${coveredMonthStr || 'Club Due'}` : (recItemType === 'Membership Fee' ? 'Membership Fee' : recItemType));
           const memberLabel = selectedUser?.name || editingRecord?.userName || 'Club Member';
-          void triggerFinancePushNotification('collection', amountNum, `${itemDescription} (${memberLabel})`);
+          const memberId = selectedUser?.id || editingRecord?.userId;
+          const memberAvatar = selectedUser?.avatar;
+          void triggerFinancePushNotification('collection', amountNum, `${itemDescription} (${memberLabel})`, {
+            userId: memberId,
+            userName: memberLabel,
+            userAvatar: memberAvatar,
+          });
         }
 
         if (editingRecord) {
@@ -2108,6 +2139,56 @@ export const Finances: React.FC = () => {
     return rec.itemType;
   };
 
+  // Helper for Time and Date Formatting
+  const getCurrentTimeInput = (): string => {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  const toTimeInputValue = (timeStr?: string): string => {
+    if (!timeStr) return getCurrentTimeInput();
+    if (/^\d{2}:\d{2}$/.test(timeStr)) return timeStr;
+    if (/^\d{1,2}:\d{2}$/.test(timeStr)) {
+      const [h, m] = timeStr.split(':');
+      return `${h.padStart(2, '0')}:${m}`;
+    }
+    const match = timeStr.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (match) {
+      let hour = parseInt(match[1], 10);
+      const minute = match[2];
+      const isPM = match[3].toUpperCase() === 'PM';
+      if (isPM && hour < 12) hour += 12;
+      if (!isPM && hour === 12) hour = 0;
+      return `${String(hour).padStart(2, '0')}:${minute}`;
+    }
+    return getCurrentTimeInput();
+  };
+
+  const formatDisplayTime = (timeVal?: string, fallbackIso?: string): string => {
+    if (timeVal) {
+      const trimmed = timeVal.trim();
+      if (/^\d{1,2}:\d{2}(:\d{2})?$/.test(trimmed)) {
+        const [h, m] = trimmed.split(':').map(Number);
+        const period = h >= 12 ? 'PM' : 'AM';
+        const formattedHour = h % 12 === 0 ? 12 : h % 12;
+        return `${formattedHour}:${String(m).padStart(2, '0')} ${period}`;
+      }
+      if (/(AM|PM)/i.test(trimmed)) {
+        return trimmed;
+      }
+      return trimmed;
+    }
+    if (fallbackIso && fallbackIso.includes('T')) {
+      try {
+        const d = new Date(fallbackIso);
+        if (!isNaN(d.getTime())) {
+          return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+        }
+      } catch {}
+    }
+    return '';
+  };
+
   // Helper for Date Formatting
   const formatDisplayDate = (dateVal?: string): string => {
     if (!dateVal) return '-';
@@ -2133,25 +2214,157 @@ export const Finances: React.FC = () => {
     return dateVal;
   };
 
-  // Filtered Funds Records
-  const filteredRecords = records.filter(r => {
-    // Hide pending and overdue records in the Funds tab ledger (only collected/paid/waived funds belong in Funds)
-    if (r.status === 'Pending' || r.status === 'Overdue') {
-      return false;
+  // Helper to compute exact epoch timestamp for a FinanceRecord based on transaction date & time
+  const getFinanceRecordSortTime = (rec: FinanceRecord): number => {
+    // 1. Resolve date string (Paid Date is primary for paid/waived transactions)
+    const dateStr = rec.paidDate || rec.dueDate || rec.createdAt || rec.updatedAt;
+    let year = 1970;
+    let month = 0; // 0-indexed
+    let day = 1;
+    let hasValidDate = false;
+
+    if (dateStr) {
+      const ymdMatch = dateStr.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+      if (ymdMatch) {
+        year = parseInt(ymdMatch[1], 10);
+        month = parseInt(ymdMatch[2], 10) - 1;
+        day = parseInt(ymdMatch[3], 10);
+        hasValidDate = true;
+      } else {
+        const parsedDate = new Date(dateStr);
+        if (!isNaN(parsedDate.getTime())) {
+          year = parsedDate.getFullYear();
+          month = parsedDate.getMonth();
+          day = parsedDate.getDate();
+          hasValidDate = true;
+        }
+      }
     }
 
-    const title = getItemTitle(r).toLowerCase();
-    const matchesSearch =
-      r.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      title.includes(searchQuery.toLowerCase()) ||
-      (r.userMemberNo && r.userMemberNo.toLowerCase().includes(searchQuery.toLowerCase())) ||
-      (r.referenceNo && r.referenceNo.toLowerCase().includes(searchQuery.toLowerCase()));
+    // 2. Resolve time (Paid Time)
+    let hours = 0;
+    let minutes = 0;
+    let seconds = 0;
+    let hasValidTime = false;
 
-    const matchesItemType = itemTypeFilter === 'All' || r.itemType === itemTypeFilter;
-    const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
+    if (rec.paidTime) {
+      const trimmedTime = rec.paidTime.trim();
+      // 12-hour format: 5:00 PM, 05:00:00 PM, 12:30 AM
+      const ampmMatch = trimmedTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+      if (ampmMatch) {
+        let h = parseInt(ampmMatch[1], 10);
+        const m = parseInt(ampmMatch[2], 10);
+        const s = ampmMatch[3] ? parseInt(ampmMatch[3], 10) : 0;
+        const isPM = ampmMatch[4].toUpperCase() === 'PM';
+        if (isPM && h < 12) h += 12;
+        if (!isPM && h === 12) h = 0;
+        hours = h;
+        minutes = m;
+        seconds = s;
+        hasValidTime = true;
+      } else {
+        // 24-hour format: 17:00, 17:00:00
+        const h24Match = trimmedTime.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+        if (h24Match) {
+          hours = parseInt(h24Match[1], 10);
+          minutes = parseInt(h24Match[2], 10);
+          seconds = h24Match[3] ? parseInt(h24Match[3], 10) : 0;
+          hasValidTime = true;
+        }
+      }
+    }
 
-    return matchesSearch && matchesItemType && matchesStatus;
-  });
+    // If no explicit paidTime, check createdAt or updatedAt for ISO timestamp
+    if (!hasValidTime) {
+      const isoCandidate = rec.createdAt || rec.updatedAt;
+      if (isoCandidate && isoCandidate.includes('T')) {
+        const parsedIso = new Date(isoCandidate);
+        if (!isNaN(parsedIso.getTime())) {
+          hours = parsedIso.getHours();
+          minutes = parsedIso.getMinutes();
+          seconds = parsedIso.getSeconds();
+          hasValidTime = true;
+        }
+      }
+    }
+
+    if (hasValidDate) {
+      const d = new Date(year, month, day, hours, minutes, seconds);
+      const ms = d.getTime();
+      if (!isNaN(ms)) {
+        return ms;
+      }
+    }
+
+    if (rec.updatedAt) {
+      const t = new Date(rec.updatedAt).getTime();
+      if (!isNaN(t)) return t;
+    }
+    if (rec.createdAt) {
+      const t = new Date(rec.createdAt).getTime();
+      if (!isNaN(t)) return t;
+    }
+
+    const idMatch = rec.id.match(/^rec_(\d{10,13})/);
+    if (idMatch) {
+      const num = parseInt(idMatch[1], 10);
+      return num < 10000000000 ? num * 1000 : num;
+    }
+
+    return 0;
+  };
+
+  const compareFinanceRecords = (a: FinanceRecord, b: FinanceRecord): number => {
+    const timeA = getFinanceRecordSortTime(a);
+    const timeB = getFinanceRecordSortTime(b);
+
+    if (timeA !== timeB) {
+      return timeB - timeA; // Descending: latest transaction time first
+    }
+
+    // Secondary sort by updatedAt / createdAt ISO
+    const updatedA = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+    const updatedB = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+    if (!isNaN(updatedA) && !isNaN(updatedB) && updatedA !== updatedB) {
+      return updatedB - updatedA;
+    }
+
+    const createdA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const createdB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (!isNaN(createdA) && !isNaN(createdB) && createdA !== createdB) {
+      return createdB - createdA;
+    }
+
+    const idNumA = parseInt(a.id.replace(/\D/g, '').slice(-13), 10) || 0;
+    const idNumB = parseInt(b.id.replace(/\D/g, '').slice(-13), 10) || 0;
+    if (idNumA !== idNumB) {
+      return idNumB - idNumA;
+    }
+
+    return b.id.localeCompare(a.id);
+  };
+
+  // Filtered Funds Records
+  const filteredRecords = records
+    .filter(r => {
+      // Hide pending and overdue records in the Funds tab ledger (only collected/paid/waived funds belong in Funds)
+      if (r.status === 'Pending' || r.status === 'Overdue') {
+        return false;
+      }
+
+      const title = getItemTitle(r).toLowerCase();
+      const matchesSearch =
+        r.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        title.includes(searchQuery.toLowerCase()) ||
+        (r.userMemberNo && r.userMemberNo.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        (r.referenceNo && r.referenceNo.toLowerCase().includes(searchQuery.toLowerCase()));
+
+      const matchesItemType = itemTypeFilter === 'All' || r.itemType === itemTypeFilter;
+      const matchesStatus = statusFilter === 'All' || r.status === statusFilter;
+
+      return matchesSearch && matchesItemType && matchesStatus;
+    })
+    .sort(compareFinanceRecords);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -2165,18 +2378,27 @@ export const Finances: React.FC = () => {
   );
 
   // Filtered Expense Records
-  const filteredExpenses = expenses.filter(x => {
-    const query = expenseSearchQuery.toLowerCase();
-    const matchesSearch =
-      x.title.toLowerCase().includes(query) ||
-      (x.payeeOrDisbursedTo && x.payeeOrDisbursedTo.toLowerCase().includes(query)) ||
-      (x.receiptRef && x.receiptRef.toLowerCase().includes(query)) ||
-      (x.notes && x.notes.toLowerCase().includes(query));
+  const filteredExpenses = expenses
+    .filter(x => {
+      const query = expenseSearchQuery.toLowerCase();
+      const matchesSearch =
+        x.title.toLowerCase().includes(query) ||
+        (x.payeeOrDisbursedTo && x.payeeOrDisbursedTo.toLowerCase().includes(query)) ||
+        (x.receiptRef && x.receiptRef.toLowerCase().includes(query)) ||
+        (x.notes && x.notes.toLowerCase().includes(query));
 
-    const matchesCategory = expenseCategoryFilter === 'All' || x.category === expenseCategoryFilter;
+      const matchesCategory = expenseCategoryFilter === 'All' || x.category === expenseCategoryFilter;
 
-    return matchesSearch && matchesCategory;
-  });
+      return matchesSearch && matchesCategory;
+    })
+    .sort((a, b) => {
+      const dateA = a.date ? new Date(a.date).getTime() : 0;
+      const dateB = b.date ? new Date(b.date).getTime() : 0;
+      if (!isNaN(dateA) && !isNaN(dateB) && dateA !== dateB) {
+        return dateB - dateA;
+      }
+      return b.id.localeCompare(a.id);
+    });
 
   useEffect(() => {
     setExpenseCurrentPage(1);
@@ -2698,8 +2920,14 @@ export const Finances: React.FC = () => {
                       </div>
 
                       <div className="text-right">
-                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Date Paid</span>
+                        <span className="text-[10px] text-[#52605d] block uppercase font-bold">Date &amp; Time Paid</span>
                         <span className="font-medium text-[#1b4332] text-xs">{rec.status === 'Pending' ? '-' : formatDisplayDate(rec.paidDate || rec.dueDate)}</span>
+                        {rec.status !== 'Pending' && (rec.paidTime || formatDisplayTime('', rec.createdAt)) && (
+                          <span className="text-[10.5px] text-[#2d6a4f] font-bold flex items-center justify-end gap-1 mt-0.5">
+                            <Clock className="w-2.5 h-2.5 text-[#2d6a4f]" />
+                            <span>{rec.paidTime || formatDisplayTime('', rec.createdAt)}</span>
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -2743,7 +2971,7 @@ export const Finances: React.FC = () => {
                   <th className="py-3 px-4">Member</th>
                   <th className="py-3 px-3">Item Details</th>
                   <th className="py-3 px-3">Amount</th>
-                  <th className="py-3 px-3">Date Paid</th>
+                  <th className="py-3 px-3">Date &amp; Time Paid</th>
                   <th className="py-3 px-3">Method</th>
                   <th className="py-3 px-3">Status</th>
                   <th className="py-3 px-3">Notes</th>
@@ -2785,11 +3013,17 @@ export const Finances: React.FC = () => {
                           ₱{(Number(rec.amount) || 0).toLocaleString()}.00
                         </td>
 
-                        {/* Dates */}
+                        {/* Dates & Time Paid */}
                         <td className="py-3.5 px-3 text-[#52605d]">
                           <p className="font-medium text-[#1b4332] text-[11px]">
                             {rec.status === 'Pending' ? '-' : (isWaived ? `${formatDisplayDate(rec.paidDate || rec.dueDate)}` : formatDisplayDate(rec.paidDate || rec.dueDate))}
                           </p>
+                          {rec.status !== 'Pending' && (rec.paidTime || formatDisplayTime('', rec.createdAt)) && (
+                            <p className="text-[10px] text-[#2d6a4f] font-bold flex items-center gap-1 mt-0.5">
+                              <Clock className="w-2.5 h-2.5 text-[#2d6a4f] shrink-0" />
+                              <span>{rec.paidTime || formatDisplayTime('', rec.createdAt)}</span>
+                            </p>
+                          )}
                         </td>
 
                         {/* Method */}
@@ -3522,16 +3756,18 @@ export const Finances: React.FC = () => {
               const otherPaid = uRecords.filter(r => r.status === 'Paid' && r.itemType !== 'Membership Fee' && r.itemType !== 'Monthly Due' && r.itemType !== 'Annual Upfront Promo').reduce((sum, r) => sum + (Number(r.amount) || 0), 0);
 
               // Filter member records for transaction history
-              const filteredMemberRecs = uRecords.filter(r => {
-                const title = getItemTitle(r).toLowerCase();
-                const q = accountSearchQuery.toLowerCase();
-                return (
-                  title.includes(q) ||
-                  r.itemType.toLowerCase().includes(q) ||
-                  r.status.toLowerCase().includes(q) ||
-                  (r.referenceNo && r.referenceNo.toLowerCase().includes(q))
-                );
-              });
+              const filteredMemberRecs = uRecords
+                .filter(r => {
+                  const title = getItemTitle(r).toLowerCase();
+                  const q = accountSearchQuery.toLowerCase();
+                  return (
+                    title.includes(q) ||
+                    r.itemType.toLowerCase().includes(q) ||
+                    r.status.toLowerCase().includes(q) ||
+                    (r.referenceNo && r.referenceNo.toLowerCase().includes(q))
+                  );
+                })
+                .sort(compareFinanceRecords);
 
               const totalAccountTxPages = Math.ceil(filteredMemberRecs.length / itemsPerPage) || 1;
               const validAccountTxPage = Math.min(Math.max(accountTxCurrentPage, 1), totalAccountTxPages);
@@ -3826,10 +4062,16 @@ export const Finances: React.FC = () => {
                                 </span>
                               </div>
                               <div>
-                                <span className="text-[#52605d] font-bold block">Date Updated:</span>
+                                <span className="text-[#52605d] font-bold block">Date &amp; Time Paid:</span>
                                 <span className="font-semibold text-[#1b4332]">
                                   {isPending ? '-' : formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
                                 </span>
+                                {!isPending && (rec.paidTime || formatDisplayTime('', rec.createdAt)) && (
+                                  <span className="text-[10px] text-[#2d6a4f] font-bold flex items-center gap-1 mt-0.5">
+                                    <Clock className="w-2.5 h-2.5 text-[#2d6a4f]" />
+                                    <span>{rec.paidTime || formatDisplayTime('', rec.createdAt)}</span>
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -3849,7 +4091,7 @@ export const Finances: React.FC = () => {
                           <th className="py-3 px-3">Status</th>
                           <th className="py-3 px-3">Payment Method</th>
                           <th className="py-3 px-3">Ref #</th>
-                          <th className="py-3 px-3">Date Updated</th>
+                          <th className="py-3 px-3">Date &amp; Time Paid</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#e2ece2]">
@@ -3902,7 +4144,15 @@ export const Finances: React.FC = () => {
                                   {rec.referenceNo || '-'}
                                 </td>
                                 <td className="py-3.5 px-3 text-[#52605d] font-medium">
-                                  {isPending ? '-' : formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
+                                  <p className="font-medium text-[#1b4332] text-[11px]">
+                                    {isPending ? '-' : formatDisplayDate(rec.paidDate || rec.updatedAt || rec.dueDate)}
+                                  </p>
+                                  {!isPending && (rec.paidTime || formatDisplayTime('', rec.createdAt)) && (
+                                    <p className="text-[10px] text-[#2d6a4f] font-bold flex items-center gap-1 mt-0.5">
+                                      <Clock className="w-2.5 h-2.5 text-[#2d6a4f] shrink-0" />
+                                      <span>{rec.paidTime || formatDisplayTime('', rec.createdAt)}</span>
+                                    </p>
+                                  )}
                                 </td>
                               </tr>
                             );
@@ -4204,15 +4454,29 @@ export const Finances: React.FC = () => {
                     />
                   </div>
 
-                  {/* Date Paid */}
-                  <div>
-                    <InteractiveDatePicker
-                      label="Date Paid"
-                      value={recDueDate}
-                      onChange={val => setRecDueDate(val)}
-                      disabled={!hasMembers}
-                      required
-                    />
+                  {/* Date & Time Paid */}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div>
+                      <InteractiveDatePicker
+                        label="Date Paid"
+                        value={recDueDate}
+                        onChange={val => setRecDueDate(val)}
+                        disabled={!hasMembers}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9.5px] sm:text-[10.5px] font-bold text-[#1b4332] mb-0.5">
+                        Time Paid
+                      </label>
+                      <input
+                        type="time"
+                        value={recTime}
+                        onChange={e => setRecTime(e.target.value)}
+                        disabled={!hasMembers}
+                        className="w-full px-2.5 py-1 sm:py-1.5 bg-[#f7f9f7] disabled:bg-[#f0f4f1] disabled:text-gray-400 border border-[#e2ece2] rounded-lg text-xs font-semibold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f] focus:bg-white"
+                      />
+                    </div>
                   </div>
 
                   {/* Notes (hidden for Monthly Due) */}
@@ -4339,8 +4603,15 @@ export const Finances: React.FC = () => {
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-[#52605d]">
-                    <span>Date:</span>
-                    <span className="font-bold text-[#1b4332]">{recDueDate || 'Today'}</span>
+                    <span>Date &amp; Time:</span>
+                    <span className="font-bold text-[#1b4332] text-right">
+                      {recDueDate || 'Today'}
+                      {!isWaiveAction && recTime && (
+                        <span className="block sm:inline sm:ml-1 text-[10px] text-[#2d6a4f]">
+                          • {formatDisplayTime(recTime)}
+                        </span>
+                      )}
+                    </span>
                   </div>
                 </div>
 
