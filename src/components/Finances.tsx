@@ -3504,148 +3504,250 @@ export const Finances: React.FC = () => {
                         <p className="font-bold text-stone-600 text-sm">No member accounts match your search</p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {paginatedAccountUsers.map(u => {
-                          const uRecs = records.filter(r => r.userId === u.id);
-                          const hasAnnualPromo = uRecs.some(r => r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
-                          const mf = uRecs.find(r => r.itemType === 'Membership Fee');
-                          const mfStatus = mf?.status || 'Pending';
-                          
-                          const activeMDues = store.getMonthlyDues();
-                          const unpaidMonthlyDues = hasAnnualPromo ? [] : activeMDues.filter(due => {
-                            const coveredMonthStr = `${due.month} ${due.year}`;
-                            const isPaid = uRecs.some(r =>
-                              r.itemType === 'Monthly Due' &&
-                              (r.status === 'Paid' || r.status === 'Waived') &&
-                              (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === `rec_md_${due.id}_${u.id}`)
-                            );
-                            return !isPaid;
-                          });
+                      <>
+                        {/* DESKTOP TABLE VIEW (md and up) */}
+                        <div className="hidden md:block overflow-hidden rounded-2xl bg-white border border-[#e2ece2] shadow-xs">
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse min-w-[850px]">
+                              <thead>
+                                <tr className="bg-[#f7f9f7] border-b border-[#e2ece2] text-[10px] font-extrabold text-[#52605d] uppercase tracking-wider whitespace-nowrap">
+                                  <th className="py-3 px-4 w-[24%]">Member / Account</th>
+                                  <th className="py-3 px-3 w-[12%]">Member ID</th>
+                                  <th className="py-3 px-3 w-[14%]">Membership Fee</th>
+                                  <th className="py-3 px-3 w-[18%]">Monthly Dues Status</th>
+                                  <th className="py-3 px-3 w-[14%]">Total Paid</th>
+                                  <th className="py-3 px-3 w-[12%]">Pending Dues</th>
+                                  <th className="py-3 px-4 text-right w-[80px]">Action</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[#e2ece2] text-xs">
+                                {paginatedAccountUsers.map(u => {
+                                  const uRecs = records.filter(r => r.userId === u.id);
+                                  const hasAnnualPromo = uRecs.some(r => r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
+                                  const mf = uRecs.find(r => r.itemType === 'Membership Fee');
+                                  const mfStatus = mf?.status || 'Pending';
 
-                          const mDues = uRecs.filter(r => r.itemType === 'Monthly Due');
-                          const latestDue = mDues.slice().sort((a, b) => b.dueDate.localeCompare(a.dueDate))[0];
-                          const latestDueStatus = hasAnnualPromo ? 'Paid' : (latestDue?.status || (unpaidMonthlyDues.length > 0 ? 'Pending' : 'Paid'));
-                          
-                          const totalPaid = uRecs
-                            .filter(r => r.status === 'Paid')
-                            .reduce((sum, r) => {
-                              if (r.itemType === 'Monthly Due' && r.notes?.includes('Satisfied by Annual Upfront Promo Package')) {
-                                return sum;
-                              }
-                              return sum + (Number(r.amount) || 0);
-                            }, 0);
-                          const otherPendingCount = uRecs.filter(r => (r.status === 'Pending' || r.status === 'Overdue') && r.itemType !== 'Monthly Due').length;
-                          const totalPendingCount = unpaidMonthlyDues.length + otherPendingCount;
+                                  const activeMDues = store.getMonthlyDues();
+                                  const unpaidMonthlyDues = hasAnnualPromo ? [] : activeMDues.filter(due => {
+                                    const coveredMonthStr = `${due.month} ${due.year}`;
+                                    const isPaid = uRecs.some(r =>
+                                      r.itemType === 'Monthly Due' &&
+                                      (r.status === 'Paid' || r.status === 'Waived') &&
+                                      (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === `rec_md_${due.id}_${u.id}`)
+                                    );
+                                    return !isPaid;
+                                  });
 
-                          return (
-                            <div
-                              key={u.id}
-                              className="bg-[#f7f9f7] border border-[#e2ece2] rounded-2xl p-4 space-y-3 hover:border-[#2d6a4f] hover:shadow-md transition-all flex flex-col justify-between"
-                            >
-                              {/* Header: Avatar, Name, Member Number */}
-                              <div className="flex items-center gap-3">
-                                <img
-                                  src={u.avatar || '/avatar.svg'}
-                                  alt={u.name}
-                                  className="w-11 h-11 rounded-full object-cover border-2 border-[#1b4332] shrink-0 bg-stone-100"
-                                />
-                                <div className="min-w-0 flex-1">
-                                  <h4 className="font-heading text-sm font-black text-[#1b4332] truncate">
-                                    {u.name}
-                                  </h4>
-                                  <p className="text-[11px] text-[#52605d] font-mono font-bold">
-                                    {u.memberNumber || 'BRC-MEMBER'}
-                                  </p>
-                                </div>
-                              </div>
+                                  const totalPaid = uRecs
+                                    .filter(r => r.status === 'Paid')
+                                    .reduce((sum, r) => {
+                                      if (r.itemType === 'Monthly Due' && r.notes?.includes('Satisfied by Annual Upfront Promo Package')) {
+                                        return sum;
+                                      }
+                                      return sum + (Number(r.amount) || 0);
+                                    }, 0);
+                                  const otherPendingCount = uRecs.filter(r => (r.status === 'Pending' || r.status === 'Overdue') && r.itemType !== 'Monthly Due').length;
+                                  const totalPendingCount = unpaidMonthlyDues.length + otherPendingCount;
 
-                              {/* Badges / Metrics Grid */}
-                              <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-[#e2ece2]">
-                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
-                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-1">Membership Fee</span>
-                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                                    mfStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                  }`}>
-                                    {mfStatus}
-                                  </span>
-                                </div>
+                                  return (
+                                    <tr
+                                      key={u.id}
+                                      onClick={() => setAccountMemberId(u.id)}
+                                      className="hover:bg-[#f4f9f5] transition-colors cursor-pointer group"
+                                    >
+                                      {/* Member / Account Column */}
+                                      <td className="py-2.5 px-4">
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                          <img
+                                            src={u.avatar || '/avatar.svg'}
+                                            alt={u.name}
+                                            className="w-9 h-9 rounded-full object-cover border-2 border-[#1b4332] shrink-0 bg-stone-100"
+                                          />
+                                          <div className="min-w-0 flex-1">
+                                            <div className="font-bold text-[#1b4332] text-xs sm:text-[13px] truncate">
+                                              {u.name}
+                                            </div>
+                                            <div className="text-[10.5px] text-[#52605d] truncate">
+                                              @{u.username || (u.email ? u.email.split('@')[0] : 'member')}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </td>
 
-                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
-                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-1">Latest Monthly Due</span>
-                                  <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
-                                    latestDueStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                                  }`}>
-                                    {hasAnnualPromo ? 'Paid (Promo)' : latestDueStatus}
-                                  </span>
-                                </div>
+                                      {/* Member ID Column */}
+                                      <td className="py-2.5 px-3 whitespace-nowrap">
+                                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#f7f9f7] border border-[#e2ece2] font-mono text-[10.5px] font-bold text-[#1b4332] whitespace-nowrap">
+                                          #{u.memberNumber || 'BRC-MEMBER'}
+                                        </span>
+                                      </td>
 
-                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
-                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5">Total Dues Paid</span>
-                                  <span className="font-black text-[#1b4332] text-xs block">
-                                    ₱{totalPaid.toLocaleString()}.00
-                                  </span>
-                                </div>
+                                      {/* Membership Fee Column */}
+                                      <td className="py-2.5 px-3 whitespace-nowrap">
+                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9.5px] font-black uppercase tracking-wider whitespace-nowrap border ${
+                                          mfStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : 'bg-amber-100 text-amber-800 border-amber-200'
+                                        }`}>
+                                          {mfStatus}
+                                        </span>
+                                      </td>
 
-                                <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
-                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5">Pending Dues</span>
-                                  <span className={`font-black text-xs block ${totalPendingCount > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
-                                    {totalPendingCount > 0 ? `${totalPendingCount} item(s)` : 'All Paid'}
-                                  </span>
-                                </div>
-                              </div>
+                                      {/* Monthly Dues Status Column */}
+                                      <td className="py-2.5 px-3 whitespace-nowrap">
+                                        {hasAnnualPromo ? (
+                                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9.5px] font-black text-indigo-800 bg-indigo-50 border border-indigo-200 whitespace-nowrap">
+                                            Promo (All Paid)
+                                          </span>
+                                        ) : unpaidMonthlyDues.length === 0 ? (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-black text-emerald-800 bg-emerald-100 border border-emerald-200 whitespace-nowrap">
+                                            <CheckCircle2 className="w-2.5 h-2.5 text-emerald-700" />
+                                            All Paid
+                                          </span>
+                                        ) : (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-black text-amber-900 bg-amber-100 border border-amber-200 whitespace-nowrap">
+                                            <Clock className="w-2.5 h-2.5 text-amber-700" />
+                                            {unpaidMonthlyDues.length} Unpaid
+                                          </span>
+                                        )}
+                                      </td>
 
-                              {/* Pending Monthly Due Tags */}
-                              <div className="pt-2 border-t border-[#e2ece2] space-y-1.5">
-                                <div className="flex items-center justify-between">
-                                  <span className="text-[9px] uppercase font-extrabold text-[#52605d] flex items-center gap-1">
-                                    <Clock className="w-3 h-3 text-[#2d6a4f]" />
-                                    Monthly Dues Status
-                                  </span>
-                                  {hasAnnualPromo ? (
-                                    <span className="text-[9px] font-black text-indigo-800 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
-                                      Promo (All Paid)
-                                    </span>
-                                  ) : unpaidMonthlyDues.length === 0 ? (
-                                    <span className="text-[9px] font-black text-emerald-800 bg-emerald-100 border border-emerald-300 px-2 py-0.5 rounded-full">
-                                      ✓ All Paid
-                                    </span>
-                                  ) : (
-                                    <span className="text-[9px] font-black text-amber-900 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full">
-                                      {unpaidMonthlyDues.length} Unpaid
-                                    </span>
-                                  )}
-                                </div>
+                                      {/* Total Dues Paid Column */}
+                                      <td className="py-2.5 px-3 whitespace-nowrap">
+                                        <span className="font-black text-[#1b4332] text-xs">
+                                          ₱{totalPaid.toLocaleString()}.00
+                                        </span>
+                                      </td>
 
-                                {unpaidMonthlyDues.length > 0 && !hasAnnualPromo && (
-                                  <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
-                                    {unpaidMonthlyDues.map(due => (
-                                      <span
-                                        key={due.id}
-                                        className="px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 text-amber-900 text-[9.5px] font-bold inline-flex items-center gap-1 shadow-2xs"
-                                        title={`Pending monthly due: ${due.month} ${due.year} (₱${due.amount})`}
-                                      >
-                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                                        <span>{due.month.slice(0, 3)} {due.year}</span>
-                                        <span className="text-amber-800 font-extrabold text-[9px]">₱{due.amount}</span>
-                                      </span>
-                                    ))}
-                                  </div>
-                                )}
-                              </div>
+                                      {/* Pending Dues Column */}
+                                      <td className="py-2.5 px-3 whitespace-nowrap">
+                                        <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10.5px] font-extrabold whitespace-nowrap border ${
+                                          totalPendingCount > 0 ? 'bg-amber-50 text-amber-900 border-amber-200' : 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                                        }`}>
+                                          {totalPendingCount > 0 ? `${totalPendingCount} pending` : 'All Clear'}
+                                        </span>
+                                      </td>
 
-                              {/* Action Button */}
-                              <button
-                                type="button"
-                                onClick={() => setAccountMemberId(u.id)}
-                                className="w-full py-2.5 px-3 rounded-xl bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-xs font-extrabold cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-2xs mt-auto"
+                                      {/* Action Column */}
+                                      <td className="py-2.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                                        <button
+                                          type="button"
+                                          onClick={() => setAccountMemberId(u.id)}
+                                          className="px-2.5 py-1 rounded-lg text-[10.5px] font-bold bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-2xs transition-all cursor-pointer inline-flex items-center gap-1 whitespace-nowrap"
+                                          title="View Member Transactions"
+                                        >
+                                          <FileText className="w-3 h-3 text-[#74c69d]" />
+                                          <span>View</span>
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+
+                        {/* MOBILE CARD GRID VIEW (under md) */}
+                        <div className="md:hidden grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {paginatedAccountUsers.map(u => {
+                            const uRecs = records.filter(r => r.userId === u.id);
+                            const hasAnnualPromo = uRecs.some(r => r.itemType === 'Annual Upfront Promo' && r.status === 'Paid');
+                            const mf = uRecs.find(r => r.itemType === 'Membership Fee');
+                            const mfStatus = mf?.status || 'Pending';
+                            
+                            const activeMDues = store.getMonthlyDues();
+                            const unpaidMonthlyDues = hasAnnualPromo ? [] : activeMDues.filter(due => {
+                              const coveredMonthStr = `${due.month} ${due.year}`;
+                              const isPaid = uRecs.some(r =>
+                                r.itemType === 'Monthly Due' &&
+                                (r.status === 'Paid' || r.status === 'Waived') &&
+                                (r.coveredMonth === coveredMonthStr || r.customItemName === due.title || r.id === `rec_md_${due.id}_${u.id}`)
+                              );
+                              return !isPaid;
+                            });
+
+                            const latestDueStatus = hasAnnualPromo ? 'Paid' : (unpaidMonthlyDues.length > 0 ? 'Pending' : 'Paid');
+                            
+                            const totalPaid = uRecs
+                              .filter(r => r.status === 'Paid')
+                              .reduce((sum, r) => {
+                                if (r.itemType === 'Monthly Due' && r.notes?.includes('Satisfied by Annual Upfront Promo Package')) {
+                                  return sum;
+                                }
+                                return sum + (Number(r.amount) || 0);
+                              }, 0);
+                            const otherPendingCount = uRecs.filter(r => (r.status === 'Pending' || r.status === 'Overdue') && r.itemType !== 'Monthly Due').length;
+                            const totalPendingCount = unpaidMonthlyDues.length + otherPendingCount;
+
+                            return (
+                              <div
+                                key={u.id}
+                                className="bg-[#f7f9f7] border border-[#e2ece2] rounded-2xl p-4 space-y-3 hover:border-[#2d6a4f] hover:shadow-md transition-all flex flex-col justify-between"
                               >
-                                <FileText className="w-3.5 h-3.5" />
-                                <span>View Transactions</span>
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
+                                {/* Header: Avatar, Name, Member Number */}
+                                <div className="flex items-center gap-3">
+                                  <img
+                                    src={u.avatar || '/avatar.svg'}
+                                    alt={u.name}
+                                    className="w-11 h-11 rounded-full object-cover border-2 border-[#1b4332] shrink-0 bg-stone-100"
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <h4 className="font-heading text-sm font-black text-[#1b4332] truncate">
+                                      {u.name}
+                                    </h4>
+                                    <p className="text-[11px] text-[#52605d] font-mono font-bold">
+                                      {u.memberNumber || 'BRC-MEMBER'}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                {/* Badges / Metrics Grid */}
+                                <div className="grid grid-cols-2 gap-2 text-[11px] pt-1 border-t border-[#e2ece2]">
+                                  <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
+                                    <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-1">Membership Fee</span>
+                                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                      mfStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                    }`}>
+                                      {mfStatus}
+                                    </span>
+                                  </div>
+
+                                  <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
+                                    <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-1">Latest Monthly Due</span>
+                                    <span className={`inline-block px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider ${
+                                      latestDueStatus === 'Paid' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                    }`}>
+                                      {hasAnnualPromo ? 'Paid (Promo)' : latestDueStatus}
+                                    </span>
+                                  </div>
+
+                                  <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
+                                    <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5">Total Dues Paid</span>
+                                    <span className="font-black text-[#1b4332] text-xs block">
+                                      ₱{totalPaid.toLocaleString()}.00
+                                    </span>
+                                  </div>
+
+                                  <div className="p-2.5 rounded-xl bg-white border border-[#e2ece2]/80">
+                                    <span className="text-[9px] uppercase font-extrabold text-[#52605d] block mb-0.5">Pending Dues</span>
+                                    <span className={`font-black text-xs block ${totalPendingCount > 0 ? 'text-amber-800' : 'text-emerald-700'}`}>
+                                      {totalPendingCount > 0 ? `${totalPendingCount} item(s)` : 'All Paid'}
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Action Button */}
+                                <button
+                                  type="button"
+                                  onClick={() => setAccountMemberId(u.id)}
+                                  className="w-full py-2.5 px-3 rounded-xl bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-xs font-extrabold cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-2xs mt-auto"
+                                >
+                                  <FileText className="w-3.5 h-3.5" />
+                                  <span>View Transactions</span>
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
                     )}
 
                     {/* PAGINATION CONTROLS FOR ALL MEMBERS */}

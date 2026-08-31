@@ -661,12 +661,29 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                   <span>Edit Info & Role</span>
                 </button>
               )}
+              {isAdmin && currentUser?.id !== activeDropdownMember.id && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const targetMember = activeDropdownMember;
+                    setOpenDropdownId(null);
+                    setDropdownPos(null);
+                    setConfirmModal({ type: 'delete', member: targetMember });
+                  }}
+                  className="w-full text-left px-3.5 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-50 flex items-center gap-2 cursor-pointer transition-colors border-t border-[#f0f4f1]"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-600" />
+                  <span>Delete Member</span>
+                </button>
+              )}
             </>
           )}
         </div>
       )}
 
-      {/* Directory / Pending Table View */}
+      {/* Directory / Pending Table & Card View */}
       {filteredMembers.length === 0 ? (
         <div className="p-8 rounded-3xl bg-white border border-[#e2ece2] text-center space-y-2">
           <CheckCircle2 className="w-8 h-8 text-[#2d6a4f] mx-auto" />
@@ -681,8 +698,310 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
         </div>
       ) : (
         <>
-          {/* Responsive Card Grid View */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {/* DESKTOP TABLE VIEW (md and up) */}
+          <div className="hidden md:block overflow-hidden rounded-2xl bg-white border border-[#e2ece2] shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[800px]">
+                <thead>
+                  <tr className="bg-[#f7f9f7] border-b border-[#e2ece2] text-[10px] font-extrabold text-[#52605d] uppercase tracking-wider whitespace-nowrap">
+                    {rosterTab === 'pending' ? (
+                      <>
+                        <th className="py-3 px-4 w-[28%]">Applicant</th>
+                        <th className="py-3 px-3 w-[12%]">Temp / App ID</th>
+                        <th className="py-3 px-3 w-[15%]">Chapter</th>
+                        <th className="py-3 px-3 w-[18%]">Contact</th>
+                        <th className="py-3 px-3 w-[15%]">Motorcycle</th>
+                        <th className="py-3 px-3 w-[12%]">Status</th>
+                        <th className="py-3 px-4 text-right w-[100px]">Actions</th>
+                      </>
+                    ) : (
+                      <>
+                        <th className="py-3 px-4 w-[24%]">Member / Rider</th>
+                        <th className="py-3 px-3 w-[12%]">Member ID</th>
+                        <th className="py-3 px-3 w-[18%]">Role & Chapter</th>
+                        <th className="py-3 px-3 w-[18%]">Contact</th>
+                        <th className="py-3 px-3 w-[16%]">Motorcycle</th>
+                        <th className="py-3 px-3 w-[10%]">Joined Date</th>
+                        <th className="py-3 px-4 text-right w-[100px]">Actions</th>
+                      </>
+                    )}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#e2ece2] text-xs">
+                  {paginatedMembers.map((m) => {
+                    const isMe = currentUser?.id === m.id;
+                    const isPending = m.approvalStatus === 'Pending';
+
+                    if (isPending) {
+                      return (
+                        <tr
+                          key={m.id}
+                          onClick={() => setReviewingPendingUser(m)}
+                          className="hover:bg-[#fffbeb] transition-colors cursor-pointer group"
+                        >
+                          {/* Applicant Column */}
+                          <td className="py-2.5 px-4">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="relative shrink-0">
+                                <img
+                                  src={m.avatar || DEFAULT_AVATAR}
+                                  alt={m.name}
+                                  onError={(e) => {
+                                    (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
+                                  }}
+                                  className="w-9 h-9 rounded-full object-cover border-2 border-amber-400"
+                                />
+                                <RoleAvatarBadge role={m.role} size="sm" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <div className="font-bold text-[#1b4332] text-xs truncate">
+                                  {m.name}
+                                </div>
+                                <div className="text-[10.5px] text-[#52605d] truncate">
+                                  @{m.username || (m.email ? m.email.split('@')[0] : 'applicant')}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* Temp / App ID */}
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-amber-50 border border-amber-200 font-mono text-[10.5px] font-bold text-amber-900 whitespace-nowrap">
+                              #{m.memberNumber || 'Pending'}
+                            </span>
+                          </td>
+
+                          {/* Chapter */}
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <div className="text-[11px] font-semibold text-[#1b4332] truncate max-w-[150px]">
+                              {m.chapter || m.network || 'Main Chapter'}
+                            </div>
+                            <div className="text-[10px] text-[#52605d] truncate">
+                              {m.leadersName ? `Leader: ${m.leadersName}` : 'Applicant'}
+                            </div>
+                          </td>
+
+                          {/* Contact */}
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <div className="space-y-0.5 text-[10.5px]">
+                              {m.email && (
+                                <div className="flex items-center gap-1 text-[#2d3a3a] max-w-[170px]" title={m.email}>
+                                  <Mail className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                                  <span className="truncate">{m.email}</span>
+                                </div>
+                              )}
+                              {m.phone && (
+                                <div className="flex items-center gap-1 text-[#52605d]">
+                                  <Phone className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                                  <span>{m.phone}</span>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Motorcycle */}
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <div className="space-y-0.5 text-[10.5px]">
+                              <div className="font-semibold text-[#1b4332] flex items-center gap-1 truncate max-w-[150px]">
+                                <Bike className="w-3 h-3 text-amber-600 shrink-0" />
+                                <span className="truncate">{m.bikeInfo?.make || m.bikeInfo?.model ? `${m.bikeInfo.make || ''} ${m.bikeInfo.model || ''}`.trim() : 'No bike info'}</span>
+                              </div>
+                              {(m.bikeInfo?.plateNo || m.bikeInfo?.licensePlate) && (
+                                <div className="text-[10px] font-mono text-[#52605d]">
+                                  Plate: {m.bikeInfo.plateNo || m.bikeInfo.licensePlate}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Status */}
+                          <td className="py-2.5 px-3 whitespace-nowrap">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9.5px] font-extrabold uppercase bg-amber-100 text-amber-900 border border-amber-200 whitespace-nowrap">
+                              <Clock className="w-2.5 h-2.5 text-amber-700" />
+                              Pending
+                            </span>
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-2.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => setReviewingPendingUser(m)}
+                                className="px-2.5 py-1 rounded-lg text-[10.5px] font-bold bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-2xs transition-all cursor-pointer flex items-center gap-1 whitespace-nowrap"
+                                title="Review Application Details"
+                              >
+                                <FileText className="w-3 h-3 text-[#74c69d]" />
+                                <span>Review</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setConfirmModal({ type: 'approve', member: m })}
+                                className="p-1.5 rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 hover:border-emerald-300 transition-colors cursor-pointer"
+                                title="Quick Approve"
+                              >
+                                <CheckCircle2 className="w-3.5 h-3.5" />
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={() => setConfirmModal({ type: 'reject', member: m })}
+                                className="p-1.5 rounded-lg text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 hover:border-rose-300 transition-colors cursor-pointer"
+                                title="Quick Reject"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    return (
+                      <tr
+                        key={m.id}
+                        onClick={() => setSelectedMember(m)}
+                        className="hover:bg-[#f4f9f5] transition-colors cursor-pointer group"
+                      >
+                        {/* Member / Rider Column */}
+                        <td className="py-2.5 px-4">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="relative shrink-0">
+                              <img
+                                src={m.avatar || DEFAULT_AVATAR}
+                                alt={m.name}
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
+                                }}
+                                className="w-9 h-9 rounded-full object-cover border-2 border-[#2d6a4f]"
+                              />
+                              <RoleAvatarBadge role={m.role} size="sm" />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-bold text-[#1b4332] text-xs sm:text-[13px] flex items-center gap-1.5 truncate">
+                                <span className="truncate">{m.name}</span>
+                                {isMe && (
+                                  <span className="text-[8.5px] px-1.5 py-0.2 rounded bg-[#d8f3dc] text-[#1b4332] font-extrabold shrink-0">
+                                    YOU
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10.5px] text-[#52605d] truncate">
+                                @{m.username || (m.email ? m.email.split('@')[0] : 'rider')}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Member ID Column */}
+                        <td className="py-2.5 px-3 whitespace-nowrap">
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-[#f7f9f7] border border-[#e2ece2] font-mono text-[10.5px] font-bold text-[#1b4332] whitespace-nowrap">
+                            #{m.memberNumber || 'N/A'}
+                          </span>
+                        </td>
+
+                        {/* Role & Chapter Column */}
+                        <td className="py-2.5 px-3 whitespace-nowrap">
+                          <div className="space-y-0.5 min-w-0">
+                            <div className="inline-flex items-center px-2 py-0.5 rounded-full text-[9.5px] font-bold bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7] whitespace-nowrap">
+                              {m.role ? m.role.charAt(0).toUpperCase() + m.role.slice(1) : 'Member'}
+                            </div>
+                            <div className="text-[10.5px] text-[#52605d] truncate font-medium whitespace-nowrap">
+                              {m.chapter || m.network || 'Main Chapter'}
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Contact Column */}
+                        <td className="py-2.5 px-3 whitespace-nowrap">
+                          <div className="space-y-0.5 text-[10.5px]">
+                            {m.email && (
+                              <div className="flex items-center gap-1 text-[#2d3a3a] max-w-[170px]" title={m.email}>
+                                <Mail className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                                <span className="truncate">{m.email}</span>
+                              </div>
+                            )}
+                            {m.phone && (
+                              <div className="flex items-center gap-1 text-[#52605d]">
+                                <Phone className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                                <span>{m.phone}</span>
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Motorcycle Column */}
+                        <td className="py-2.5 px-3 whitespace-nowrap">
+                          <div className="space-y-0.5 text-[10.5px]">
+                            <div className="font-semibold text-[#1b4332] flex items-center gap-1 truncate max-w-[160px]">
+                              <Bike className="w-3 h-3 text-[#2d6a4f] shrink-0" />
+                              <span className="truncate">{m.bikeInfo?.make || m.bikeInfo?.model ? `${m.bikeInfo.make || ''} ${m.bikeInfo.model || ''}`.trim() : 'No bike info'}</span>
+                            </div>
+                            {(m.bikeInfo?.plateNo || m.bikeInfo?.licensePlate) && (
+                              <div className="text-[10px] font-mono text-[#52605d]">
+                                Plate: {m.bikeInfo.plateNo || m.bikeInfo.licensePlate}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+
+                        {/* Joined Date */}
+                        <td className="py-2.5 px-3 text-[10.5px] text-[#52605d] whitespace-nowrap font-medium">
+                          {m.joinDate || '—'}
+                        </td>
+
+                        {/* Actions Column */}
+                        <td className="py-2.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => setSelectedMember(m)}
+                              className="px-2.5 py-1 rounded-lg text-[10.5px] font-bold bg-[#f7f9f7] hover:bg-[#d8f3dc] text-[#1b4332] border border-[#e2ece2] hover:border-[#74c69d] transition-colors cursor-pointer flex items-center gap-1 whitespace-nowrap"
+                              title="View Profile Details"
+                            >
+                              <UserCheck className="w-3 h-3 text-[#2d6a4f]" />
+                              <span>View</span>
+                            </button>
+
+                            {isAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => setEditingMember(m)}
+                                className="p-1.5 rounded-lg text-[#52605d] hover:text-[#1b4332] hover:bg-[#d8f3dc] border border-transparent hover:border-[#74c69d] transition-colors cursor-pointer"
+                                title="Edit Member Information"
+                              >
+                                <Pencil className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setDropdownPos({
+                                  top: rect.bottom + 4,
+                                  right: window.innerWidth - rect.right,
+                                });
+                                setOpenDropdownId(openDropdownId === m.id ? null : m.id);
+                              }}
+                              className="p-1.5 rounded-lg text-[#52605d] hover:text-[#1b4332] hover:bg-stone-100 transition-colors cursor-pointer"
+                              title="More Options"
+                            >
+                              <MoreVertical className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* MOBILE CARD GRID VIEW (under md) */}
+          <div className="md:hidden grid grid-cols-1 gap-3">
             {paginatedMembers.map((m) => {
               const isMe = currentUser?.id === m.id;
               const isPending = m.approvalStatus === 'Pending';
@@ -697,7 +1016,7 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                       setSelectedMember(m);
                     }
                   }}
-                  className="p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-xs hover:border-[#2d6a4f] hover:bg-[#f4f9f5] hover:shadow-md transition-all cursor-pointer space-y-4"
+                  className="p-4 rounded-2xl bg-white border border-[#e2ece2] shadow-xs hover:border-[#2d6a4f] hover:bg-[#f4f9f5] hover:shadow-md transition-all cursor-pointer space-y-3"
                 >
                   <div className="flex items-center gap-3">
                     <div className="relative shrink-0">
@@ -707,9 +1026,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
                         }}
-                        className="w-14 h-14 rounded-full object-cover border-2 border-[#2d6a4f]"
+                        className={`w-12 h-12 rounded-full object-cover border-2 ${
+                          isPending ? 'border-amber-400' : 'border-[#2d6a4f]'
+                        }`}
                       />
-                      <RoleAvatarBadge role={m.role} size="md" />
+                      <RoleAvatarBadge role={m.role} size="sm" />
                     </div>
                     <div className="min-w-0 flex-1">
                       <div className="font-bold text-[#1b4332] text-sm truncate flex items-center gap-1.5">
@@ -720,17 +1041,33 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] text-[#2d6a4f] truncate font-medium">
-                        {m.network || m.chapter || 'N/A'}
+                      <div className="text-[10.5px] text-[#2d6a4f] truncate font-semibold">
+                        {m.chapter || m.network || 'Main Chapter'}
                       </div>
                       <div className="text-[10px] text-[#52605d] font-mono truncate">
-                         #{m.memberNumber || 'N/A'} | {m.bikeInfo?.make || m.bikeInfo?.model ? `${m.bikeInfo.make || ''} ${m.bikeInfo.model || ''}`.trim() : 'No info'}
+                        #{m.memberNumber || 'N/A'} • {m.bikeInfo?.make || m.bikeInfo?.model ? `${m.bikeInfo.make || ''} ${m.bikeInfo.model || ''}`.trim() : 'No bike info'}
                       </div>
                     </div>
-                    {isPending && (
-                      <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold uppercase border border-amber-200">
+                    {isPending ? (
+                      <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold uppercase border border-amber-200 shrink-0">
                         Review
                       </span>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setDropdownPos({
+                            top: rect.bottom + 4,
+                            right: window.innerWidth - rect.right,
+                          });
+                          setOpenDropdownId(openDropdownId === m.id ? null : m.id);
+                        }}
+                        className="p-1.5 text-stone-500 hover:text-stone-800 rounded-lg hover:bg-stone-100 shrink-0"
+                      >
+                        <MoreVertical className="w-4 h-4" />
+                      </button>
                     )}
                   </div>
                 </div>
@@ -1165,136 +1502,6 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
           </ModalPortal>
         )}
       </AnimatePresence>
-
-
-
-      {/* Floating Action Dropdown Menu Overlay */}
-      {openDropdownId && dropdownPos && activeDropdownMember && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/10"
-            onClick={(e) => {
-              e.stopPropagation();
-              setOpenDropdownId(null);
-              setDropdownPos(null);
-            }}
-          />
-          <div
-            style={{
-              position: 'fixed',
-              top: `${dropdownPos.top}px`,
-              right: `${dropdownPos.right}px`,
-            }}
-            onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => e.stopPropagation()}
-            className="w-56 rounded-2xl bg-white border border-[#e2ece2] shadow-2xl z-50 overflow-hidden py-1.5 text-left"
-          >
-            {activeDropdownMember.approvalStatus === 'Pending' ? (
-              <>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const target = activeDropdownMember;
-                    setOpenDropdownId(null);
-                    setDropdownPos(null);
-                    setReviewingPendingUser(target);
-                  }}
-                  className="w-full text-left px-4 py-2.5 text-xs font-bold text-[#1b4332] hover:bg-[#d8f3dc] flex items-center gap-2.5 cursor-pointer transition-colors"
-                >
-                  <FileText className="w-4 h-4 text-[#2d6a4f]" />
-                  <span>Review Application</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const target = activeDropdownMember;
-                    setOpenDropdownId(null);
-                    setDropdownPos(null);
-                    setConfirmModal({ type: 'approve', member: target });
-                  }}
-                  className="w-full text-left px-4 py-2.5 text-xs font-bold text-[#1b4332] hover:bg-[#d8f3dc] flex items-center gap-2.5 cursor-pointer transition-colors border-t border-[#f0f4f1]"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-[#2d6a4f]" />
-                  <span>Approve Member</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const target = activeDropdownMember;
-                    setOpenDropdownId(null);
-                    setDropdownPos(null);
-                    setConfirmModal({ type: 'reject', member: target });
-                  }}
-                  className="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer transition-colors border-t border-[#f0f4f1]"
-                >
-                  <Trash2 className="w-4 h-4 text-rose-600" />
-                  <span>Reject Application</span>
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    const target = activeDropdownMember;
-                    setOpenDropdownId(null);
-                    setDropdownPos(null);
-                    setSelectedMember(target);
-                  }}
-                  className="w-full text-left px-4 py-2.5 text-xs font-bold text-[#1b4332] hover:bg-[#d8f3dc] flex items-center gap-2.5 cursor-pointer transition-colors"
-                >
-                  <UserCheck className="w-4 h-4 text-[#2d6a4f]" />
-                  <span>View Profile</span>
-                </button>
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      const target = activeDropdownMember;
-                      setOpenDropdownId(null);
-                      setDropdownPos(null);
-                      setEditingMember(target);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-[#1b4332] hover:bg-[#d8f3dc] flex items-center gap-2.5 cursor-pointer transition-colors border-t border-[#f0f4f1]"
-                  >
-                    <Pencil className="w-4 h-4 text-[#2d6a4f]" />
-                    <span>Edit Info & Role</span>
-                  </button>
-                )}
-                {isAdmin && currentUser.id !== activeDropdownMember.id && (
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      const target = activeDropdownMember;
-                      setOpenDropdownId(null);
-                      setDropdownPos(null);
-                      if (target) {
-                        setConfirmModal({ type: 'delete', member: target });
-                      }
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-700 hover:bg-rose-50 flex items-center gap-2.5 cursor-pointer transition-colors border-t border-[#f0f4f1]"
-                  >
-                    <Trash2 className="w-4 h-4 text-rose-600" />
-                    <span>Delete Member</span>
-                  </button>
-                )}
-              </>
-            )}
-          </div>
-        </>
-      )}
 
       {/* Review Application Modal (Muted Read-Only Form) */}
       <AnimatePresence>

@@ -19,6 +19,8 @@ import { OfficialDotSpinner } from './OfficialLoader';
 import { AttendanceTracker } from './AttendanceTracker';
 import { ModalPortal } from './ModalPortal';
 import { InteractiveDatePicker } from './InteractiveDatePicker';
+import { InteractiveTimePicker } from './InteractiveTimePicker';
+import { InteractiveMemberPicker } from './InteractiveMemberPicker';
 import {
   Calendar,
   CheckCircle,
@@ -1585,48 +1587,36 @@ export const ActivityLog: React.FC = () => {
                       </button>
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      <div className="sm:col-span-2">
-                        <label className="block text-[11px] font-bold text-stone-700 mb-1">
-                          Select Club Member *
-                        </label>
-                        <select
+                    <div className="space-y-2.5 text-xs">
+                      <div>
+                        <InteractiveMemberPicker
+                          label="Select Club Member"
+                          members={availableMembersToAdd}
                           value={selectedUserToAddId}
-                          onChange={(e) => setSelectedUserToAddId(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl bg-white border border-[#b7d2b7] text-stone-900 font-semibold focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                        >
-                          <option value="">-- Choose member to mark present --</option>
-                          {availableMembersToAdd.map((u) => (
-                            <option key={u.id} value={u.id}>
-                              {u.name} ({u.memberNumber || u.role}) — {u.chapter || 'Main Chapter'}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-[10px] font-bold text-stone-600 mb-0.5">
-                          Date (Optional)
-                        </label>
-                        <input
-                          type="date"
-                          value={addAttendeeDate || currentModalActivity.date || ''}
-                          onChange={(e) => setAddAttendeeDate(e.target.value)}
-                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 text-xs text-stone-800"
+                          onChange={(id) => setSelectedUserToAddId(id)}
+                          placeholder="Choose member to mark present..."
+                          required
                         />
                       </div>
 
-                      <div>
-                        <label className="block text-[10px] font-bold text-stone-600 mb-0.5">
-                          Time (Optional)
-                        </label>
-                        <input
-                          type="time"
-                          value={addAttendeeTime}
-                          onChange={(e) => setAddAttendeeTime(e.target.value)}
-                          placeholder="Auto (now)"
-                          className="w-full px-2.5 py-1.5 rounded-lg bg-white border border-stone-300 text-xs text-stone-800"
-                        />
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <div>
+                          <InteractiveDatePicker
+                            label="Attendance Date (Optional)"
+                            value={addAttendeeDate || currentModalActivity.date || ''}
+                            onChange={(val) => setAddAttendeeDate(val)}
+                            placeholder="Select date..."
+                          />
+                        </div>
+
+                        <div>
+                          <InteractiveTimePicker
+                            label="Attendance Time (Optional)"
+                            value={addAttendeeTime}
+                            onChange={(val) => setAddAttendeeTime(val)}
+                            placeholder="Auto (Current Time)"
+                          />
+                        </div>
                       </div>
                     </div>
 
