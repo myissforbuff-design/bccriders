@@ -301,7 +301,16 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
         }),
       });
 
-      const data = await res.json();
+      let data: any;
+      const responseText = await res.text();
+      try {
+        data = responseText ? JSON.parse(responseText) : {};
+      } catch (parseErr) {
+        if (!res.ok) {
+          throw new Error(`Server returned error ${res.status}: ${res.statusText || 'Unable to connect to authentication server'}`);
+        }
+        throw new Error('Received unexpected response from server. Please try again.');
+      }
 
       if (!res.ok || !data.success) {
         throw new Error(data.error || 'Invalid Username or Password.');
