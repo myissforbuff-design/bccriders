@@ -345,12 +345,20 @@ export function getAuthToken(): string {
   try {
     if (typeof window !== 'undefined') {
       if (window.localStorage) {
-        const tok = window.localStorage.getItem(AUTH_TOKEN_KEY);
-        if (tok) return tok;
+        const tok =
+          window.localStorage.getItem(AUTH_TOKEN_KEY) ||
+          window.localStorage.getItem('token') ||
+          window.localStorage.getItem('bcc_session_token') ||
+          window.localStorage.getItem('bcc_admin_token');
+        if (tok && typeof tok === 'string' && tok.trim() !== '') return tok.trim();
       }
       if (window.sessionStorage) {
-        const tok = window.sessionStorage.getItem(AUTH_TOKEN_KEY);
-        if (tok) return tok;
+        const tok =
+          window.sessionStorage.getItem(AUTH_TOKEN_KEY) ||
+          window.sessionStorage.getItem('token') ||
+          window.sessionStorage.getItem('bcc_session_token') ||
+          window.sessionStorage.getItem('bcc_admin_token');
+        if (tok && typeof tok === 'string' && tok.trim() !== '') return tok.trim();
       }
     }
   } catch {}

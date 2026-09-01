@@ -119,7 +119,11 @@ export async function registerUserPin(
     const res = await fetch(formatApiUrl('/api/auth/pin/register'), {
       method: 'POST',
       headers,
-      body: JSON.stringify({ pin: cleanPin }),
+      body: JSON.stringify({
+        pin: cleanPin,
+        userId: user.id,
+        username: user.username,
+      }),
     });
 
     let data: any = {};
@@ -241,7 +245,7 @@ export async function removeUserPin(
     const res = await fetch(formatApiUrl('/api/auth/pin/remove'), {
       method: 'POST',
       headers,
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ userId, username }),
     });
 
     removeDevicePinCredential(userId);
