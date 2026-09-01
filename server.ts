@@ -317,8 +317,16 @@ async function uploadBase64ToGoogleDrive(
     }
 
     const buffer = Buffer.from(base64String, 'base64');
-    const extension = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
-    // Format as lastname-avatar.jpg or lastname-bike.jpg as requested (e.g. bangcailan-avatar.jpg)
+    let extension = 'jpg';
+    if (mimeType.includes('png')) extension = 'png';
+    else if (mimeType.includes('webp')) extension = 'webp';
+    else if (mimeType.includes('gif')) extension = 'gif';
+    else if (mimeType.includes('mp4')) extension = 'mp4';
+    else if (mimeType.includes('webm')) extension = 'webm';
+    else if (mimeType.includes('quicktime') || mimeType.includes('mov')) extension = 'mov';
+    else if (mimeType.includes('3gpp')) extension = '3gp';
+
+    // Format filename properly with correct extension
     const fileName = fileNamePrefix.includes('.') ? fileNamePrefix : `${fileNamePrefix}.${extension}`;
 
     const stream = new Readable();
@@ -3563,19 +3571,20 @@ app.get('/api/drive/file/:fileId', async (req, res) => {
 });
 
 app.post('/api/drive/upload', async (req, res) => {
-  const { image, fileName, folder, userId, lastName, riderName } = req.body || {};
-  if (!image || typeof image !== 'string') {
-    return res.status(400).json({ error: 'image base64 string or dataUrl is required' });
+  const { image, video, media, fileData, fileName, folder, userId, lastName, riderName } = req.body || {};
+  const payloadMedia = image || video || media || fileData;
+  if (!payloadMedia || typeof payloadMedia !== 'string') {
+    return res.status(400).json({ error: 'Media base64 string or dataUrl is required' });
   }
 
   // If Google Drive is not configured, return image as fallback without failing
   if (!isGoogleDriveConfigured()) {
     return res.json({
       success: true,
-      url: image,
+      url: payloadMedia,
       provider: 'base64_fallback',
       configured: false,
-      message: 'Google Drive credentials not configured in environment; stored base64 image.',
+      message: 'Google Drive credentials not configured in environment; stored base64 image/video.',
     });
   }
 
@@ -3585,9 +3594,10 @@ app.post('/api/drive/upload', async (req, res) => {
       const nameSource = lastName || riderName || 'rider';
       const slug = String(nameSource).toLowerCase().trim().split(/\s+/).pop()?.replace(/[^a-z0-9-_]/g, '') || 'rider';
       const isBike = folder?.includes('bike') || folder?.includes('cover') || folder?.includes('moto');
-      prefix = `${slug}-${isBike ? 'bike' : 'avatar'}`;
+      const isVideo = payloadMedia.startsWith('data:video');
+      prefix = `${slug}-${isVideo ? 'video' : isBike ? 'bike' : 'media'}_${Date.now()}`;
     }
-    const uploadRes = await uploadBase64ToGoogleDrive(image, prefix);
+    const uploadRes = await uploadBase64ToGoogleDrive(payloadMedia, prefix);
     if (uploadRes && uploadRes.url) {
       return res.json({
         success: true,
@@ -3600,7 +3610,7 @@ app.post('/api/drive/upload', async (req, res) => {
     } else {
       return res.json({
         success: true,
-        url: image,
+        url: payloadMedia,
         provider: 'base64_fallback',
         configured: true,
         message: 'Google Drive upload returned null; retained base64 fallback.',
@@ -3608,7 +3618,7 @@ app.post('/api/drive/upload', async (req, res) => {
     }
   } catch (err: any) {
     console.error('Google Drive direct upload endpoint error:', err);
-    return res.status(500).json({ error: err.message || 'Failed to upload image to Google Drive' });
+    return res.status(500).json({ error: err.message || 'Failed to upload media to Google Drive' });
   }
 });
 

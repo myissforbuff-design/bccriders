@@ -14,7 +14,7 @@ import { Settings } from './components/Settings';
 import { ActivityLog } from './components/ActivityLog';
 import { QRScan } from './components/QRScan';
 import { Finances } from './components/Finances';
-import { AnnouncementsView } from './components/AnnouncementsView';
+import { UpdatesHub } from './components/UpdatesHub';
 import { RealtimeStatusPill } from './components/RealtimeStatusPill';
 import { PushNotificationCenter } from './components/PushNotificationCenter';
 import { PushNotificationBanner } from './components/PushNotificationBanner';
@@ -202,7 +202,7 @@ function MainAppContent() {
                 />
               )}
 
-              {activeTab === 'announcements' && <AnnouncementsView />}
+              {activeTab === 'announcements' && <UpdatesHub />}
 
               {activeTab === 'members' && (
                 <MembershipManagement />

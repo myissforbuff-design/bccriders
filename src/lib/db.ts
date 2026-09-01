@@ -17,6 +17,9 @@ import {
   Event,
   Payment,
   CommunityPost,
+  ReactionType,
+  FeedCommentItem,
+  FeedCommentReply,
   RideLog,
   RouteMap,
   NotificationItem,
@@ -1198,7 +1201,7 @@ export class DataStoreService {
     return payment;
   }
 
-  // Community Feed
+  // Community Feed & Social News Feed
   getPosts(): CommunityPost[] {
     return this.posts;
   }
@@ -1208,11 +1211,14 @@ export class DataStoreService {
   ): CommunityPost {
     const newPost: CommunityPost = {
       ...post,
-      id: `post_${Date.now()}`,
+      id: `post_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
       likesCount: 0,
       likedBy: [],
       commentsCount: 0,
       createdAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
+      reactions: {},
+      reactionCounts: { like: 0, heart: 0, care: 0, sad: 0, angry: 0 },
+      commentsList: [],
     };
 
     this.posts.unshift(newPost);
@@ -1227,18 +1233,52 @@ export class DataStoreService {
     return newPost;
   }
 
-  toggleLikePost(postId: string, userId: string): CommunityPost {
+  deletePost(postId: string): void {
+    const index = this.posts.findIndex((p) => p.id === postId);
+    if (index > -1) {
+      this.posts.splice(index, 1);
+      saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+      authFetch(`/api/mongodb/posts/${postId}`, {
+        method: 'DELETE',
+      }).catch((err) => console.warn('MongoDB deletePost error:', err));
+    }
+  }
+
+  setPostReaction(postId: string, userId: string, reactionType: ReactionType): CommunityPost {
     const post = this.posts.find((p) => p.id === postId);
     if (!post) throw new Error('Post not found');
 
-    const index = post.likedBy.indexOf(userId);
-    if (index > -1) {
-      post.likedBy.splice(index, 1);
-      post.likesCount = Math.max(0, post.likesCount - 1);
-    } else {
-      post.likedBy.push(userId);
-      post.likesCount += 1;
+    if (!post.reactions) post.reactions = {};
+    if (!post.reactionCounts) {
+      post.reactionCounts = { like: 0, heart: 0, care: 0, sad: 0, angry: 0 };
     }
+
+    const previousReaction = post.reactions[userId];
+
+    if (previousReaction === reactionType) {
+      // Toggle off
+      delete post.reactions[userId];
+      const prevCount = post.reactionCounts[reactionType] || 0;
+      post.reactionCounts[reactionType] = Math.max(0, prevCount - 1);
+
+      const likeIdx = post.likedBy.indexOf(userId);
+      if (likeIdx > -1) post.likedBy.splice(likeIdx, 1);
+    } else {
+      // If changing from another reaction, decrement the previous one
+      if (previousReaction && post.reactionCounts[previousReaction]) {
+        post.reactionCounts[previousReaction] = Math.max(0, post.reactionCounts[previousReaction]! - 1);
+      }
+      post.reactions[userId] = reactionType;
+      post.reactionCounts[reactionType] = (post.reactionCounts[reactionType] || 0) + 1;
+
+      if (!post.likedBy.includes(userId)) {
+        post.likedBy.push(userId);
+      }
+    }
+
+    // Total reactions count
+    const totalReactions = Object.values(post.reactionCounts).reduce((a, b) => (a || 0) + (b || 0), 0) || 0;
+    post.likesCount = totalReactions;
 
     saveToStorage(STORAGE_KEYS.POSTS, this.posts);
 
@@ -1246,9 +1286,87 @@ export class DataStoreService {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(post),
-    }).catch((err) => console.warn('MongoDB toggleLikePost sync error:', err));
+    }).catch((err) => console.warn('MongoDB setPostReaction sync error:', err));
 
     return post;
+  }
+
+  addPostComment(
+    postId: string,
+    comment: { authorId: string; authorName: string; authorAvatar?: string; authorRole?: string; content: string }
+  ): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    if (!post.commentsList) post.commentsList = [];
+
+    const newCommentItem: FeedCommentItem = {
+      id: `comm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      postId,
+      authorId: comment.authorId,
+      authorName: comment.authorName,
+      authorAvatar: comment.authorAvatar,
+      authorRole: comment.authorRole,
+      content: comment.content,
+      createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ', ' + new Date().toLocaleDateString([], { month: 'short', day: 'numeric' }),
+      replies: [],
+    };
+
+    post.commentsList.push(newCommentItem);
+    post.commentsCount = (post.commentsCount || 0) + 1;
+
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch('/api/mongodb/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post),
+    }).catch((err) => console.warn('MongoDB addPostComment sync error:', err));
+
+    return post;
+  }
+
+  addCommentReply(
+    postId: string,
+    commentId: string,
+    reply: { authorId: string; authorName: string; authorAvatar?: string; authorRole?: string; content: string; replyToUserName?: string }
+  ): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    if (!post.commentsList) post.commentsList = [];
+    const parentComment = post.commentsList.find((c) => c.id === commentId);
+
+    if (parentComment) {
+      if (!parentComment.replies) parentComment.replies = [];
+      const newReply: FeedCommentReply = {
+        id: `reply_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        commentId,
+        authorId: reply.authorId,
+        authorName: reply.authorName,
+        authorAvatar: reply.authorAvatar,
+        authorRole: reply.authorRole,
+        content: reply.content,
+        replyToUserName: reply.replyToUserName,
+        createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ', ' + new Date().toLocaleDateString([], { month: 'short', day: 'numeric' }),
+      };
+      parentComment.replies.push(newReply);
+      post.commentsCount = (post.commentsCount || 0) + 1;
+
+      saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+      authFetch('/api/mongodb/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(post),
+      }).catch((err) => console.warn('MongoDB addCommentReply sync error:', err));
+    }
+
+    return post;
+  }
+
+  toggleLikePost(postId: string, userId: string): CommunityPost {
+    return this.setPostReaction(postId, userId, 'like');
   }
 
   // Ride Logs

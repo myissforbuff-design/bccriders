@@ -342,6 +342,32 @@ export interface Payment {
   receiptUrl?: string;
 }
 
+export type ReactionType = 'like' | 'heart' | 'care' | 'sad' | 'angry';
+
+export interface FeedCommentReply {
+  id: string;
+  commentId: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string;
+  authorRole?: string;
+  content: string;
+  createdAt: string;
+  replyToUserName?: string;
+}
+
+export interface FeedCommentItem {
+  id: string;
+  postId: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string;
+  authorRole?: string;
+  content: string;
+  createdAt: string;
+  replies?: FeedCommentReply[];
+}
+
 export interface CommunityPost {
   id: string;
   authorId: string;
@@ -360,6 +386,14 @@ export interface CommunityPost {
   commentsCount: number;
   createdAt: string;
   routeId?: string;
+  mediaUrl?: string;
+  mediaUrls?: string[];
+  mediaType?: 'image' | 'video';
+  driveFileId?: string;
+  driveWebViewLink?: string;
+  reactions?: Record<string, ReactionType>;
+  reactionCounts?: Partial<Record<ReactionType, number>>;
+  commentsList?: FeedCommentItem[];
 }
 
 export interface Comment {
