@@ -261,176 +261,202 @@ export const MembershipAgreementPaper: React.FC<MembershipAgreementPaperProps> =
 
   return (
     <div className="space-y-4">
-      {/* Official Physical Paper View Wrapper */}
-      <div className="w-full overflow-x-auto pb-4 rounded-xl shadow-xs bg-slate-100/60 p-2 sm:p-6 print:p-0 print:bg-transparent print:overflow-visible">
+      {/* Centered Document Stage matching the Novel Constitution Reader Size */}
+      <div className="relative w-full flex items-center justify-center px-0 sm:px-4 py-2 print:p-0">
         <div
-          ref={paperRef}
-          className="relative bg-white text-[#1a231e] p-6 sm:p-10 shadow-md rounded-xs space-y-6 font-serif leading-relaxed min-w-[560px] sm:min-w-0 max-w-4xl mx-auto overflow-hidden print:p-2 print:shadow-none print:m-0 print:space-y-4 print:min-w-0"
+          className="relative w-full max-w-[620px] rounded-2xl shadow-xl p-2 sm:p-4 bg-[#e8dfc8] border-4 border-[#2b2416]/60 flex flex-col justify-between overflow-hidden print:p-0 print:border-none print:shadow-none print:bg-transparent print:max-w-none"
+          style={{
+            boxShadow: '0 25px 50px -12px rgba(27, 67, 50, 0.25), inset 0 2px 4px rgba(255, 255, 255, 0.4), inset 0 -4px 6px rgba(0, 0, 0, 0.3)',
+          }}
         >
-          {/* Subtle Watermark Background Badge */}
-          <div className="absolute inset-0 flex items-center justify-center opacity-[0.03] pointer-events-none select-none">
-            <img src="/logo.png" alt="Watermark" className="w-96 h-96 object-contain" />
-          </div>
+          {/* Authentic Document Spine Shadow & Texture */}
+          <div className="absolute top-0 bottom-0 left-0 w-5 sm:w-7 bg-gradient-to-r from-black/20 via-black/10 to-transparent pointer-events-none z-20 rounded-l-xl print:hidden" />
+          <div className="absolute top-0 bottom-0 right-0 w-3 bg-gradient-to-l from-black/15 to-transparent pointer-events-none z-20 rounded-r-xl print:hidden" />
 
-          {/* Paper Header */}
-          <div className="pb-5 border-b border-[#1b4332]/15 relative z-10 flex flex-row items-center justify-between gap-3 sm:gap-4">
-            <div className="w-16 h-16 sm:w-24 sm:h-24 flex items-center justify-center shrink-0">
-              <img src="/logo.png" alt="BCC Riders Club Logo" className="w-full h-full object-contain bg-white" />
+          {/* Ribbon Bookmark */}
+          <div
+            className="absolute top-0 right-8 z-30 w-5 sm:w-6 h-12 sm:h-14 bg-[#1b4332] shadow-md print:hidden"
+            style={{
+              clipPath: 'polygon(0 0, 100% 0, 100% 100%, 50% 80%, 0 100%)',
+            }}
+            title="Official Certified Document Ribbon"
+          />
+
+          {/* Physical Document Canvas Container */}
+          <div
+            ref={paperRef}
+            className="relative w-full bg-[#fbf8ee] text-[#1a231e] p-4 sm:p-6 md:p-7 shadow-md rounded-xl space-y-4 font-serif leading-relaxed border border-[#dfd5be] overflow-hidden print:p-2 print:shadow-none print:m-0 print:border-none print:bg-white"
+            style={{
+              backgroundImage: `radial-gradient(#1b433206 1px, transparent 1px)`,
+              backgroundSize: '16px 16px',
+            }}
+          >
+            {/* Subtle Watermark Background Badge */}
+            <div className="absolute inset-0 flex items-center justify-center opacity-[0.04] pointer-events-none select-none">
+              <img src="/logo.png" alt="Watermark" className="w-80 h-80 object-contain" />
             </div>
 
-            <div className="text-center flex-1 space-y-1">
-              <h1 className="font-heading font-black text-xl sm:text-3xl text-[#1b4332] tracking-wider uppercase leading-tight whitespace-nowrap">
-                BCC RIDERS CLUB
-              </h1>
-              <p className="text-xs sm:text-sm font-sans font-bold text-[#2d6a4f] uppercase tracking-widest whitespace-nowrap">
-                BUHANGIN COMMUNITY CHURCH
-              </p>
-              <p className="text-[10px] sm:text-[11px] font-sans text-[#52605d] whitespace-nowrap">
-                469 Palm Drive, Buhangin, Davao City, Philippines, 8000
-              </p>
-              <p className="text-[10px] sm:text-[11px] font-sans text-[#52605d] italic whitespace-nowrap">
-                Official Member Record Ref: <span className="font-mono font-bold text-[#1b4332]">{user.memberNumber || 'BRC-0000'}</span>
-              </p>
-            </div>
+            {/* Paper Header */}
+            <div className="pb-3 sm:pb-4 border-b border-[#1b4332]/20 relative z-10 flex flex-row items-center justify-between gap-2 sm:gap-3">
+              <div className="w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center shrink-0">
+                <img src="/logo.png" alt="BCC Riders Club Logo" className="w-full h-full object-contain" />
+              </div>
 
-            <div className="w-16 h-16 sm:w-24 sm:h-24 flex items-center justify-center shrink-0">
-              <img src="/bcc-logo.png" alt="Buhangin Community Church Logo" className="w-full h-full object-contain bg-white" />
-            </div>
-          </div>
-
-        {/* Legal & Conduct Agreement Body */}
-        <div className="space-y-4 text-sm sm:text-base text-[#2d3a3a] text-justify relative z-10 font-sans leading-relaxed">
-          <h2 className="text-center font-heading font-black text-base sm:text-lg text-[#1b4332] uppercase tracking-wider">
-            OFFICIAL MEMBERSHIP AGREEMENT
-          </h2>
-          <p className="indent-8">
-            I hereby agree to abide by the rules, regulations, and code of conduct of the BCC Riders Club.
-            I understand that motorcycle riding involves inherent risks, and I voluntarily assume full
-            responsibility for my actions during all club activities and events.
-          </p>
-
-          <p className="indent-8">
-            I further release and hold harmless the Buhangin Community Church Congregation, the BCC Riders
-            Club, and its officers from any claims or liabilities arising from accidents, injuries, or
-            incidents related to my participation.
-          </p>
-
-          <p className="indent-8">
-            However, in the spirit of Christian brotherhood and humanitarian concern, members are encouraged,
-            though not obligated, to extend help and support to one another as led by personal conviction and
-            God's guidance.
-          </p>
-
-          <p className="indent-8 font-semibold text-[#1b4332]">
-            By signing below, I acknowledge that I have read, understood, and accepted these terms.
-          </p>
-        </div>
-
-        {/* Signatures & Approvals Section */}
-        <div className="pt-6 border-t border-[#2d6a4f]/20 grid grid-cols-2 gap-6 items-end relative z-10 font-sans">
-          {/* Applicant Signature Box */}
-          <div className="space-y-1.5 text-left relative">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#1b4332] block mb-1">
-              Applicant's Signature Over Printed Name:
-            </span>
-
-            <div className="relative flex flex-col items-start justify-end pt-2 pb-1 min-h-[100px]">
-              {/* Signed Signature Image behind printed name */}
-              {signaturePng ? (
-                <img
-                  src={signaturePng}
-                  alt="Applicant Signature"
-                  className="absolute top-1/2 left-0 -translate-y-1/2 max-h-24 object-contain filter brightness-0 contrast-200 pointer-events-none select-none z-0"
-                  style={{ filter: 'brightness(0) contrast(200%)' }}
-                />
-              ) : null}
-
-              {/* Printed Name Line layered on top of signature */}
-              <div className="relative z-10 space-y-1 w-full text-left pt-6">
-                <strong className="block text-base font-black text-[#1b4332] tracking-wide">
-                  {getFormattedName()}
-                </strong>
-                <p className="text-xs font-semibold text-[#52605d]">
-                  Date: <span className="font-mono text-[#1b4332]">{getSubmittedDate()}</span>
+              <div className="text-center flex-1 space-y-0.5">
+                <h1 className="font-heading font-black text-base sm:text-xl text-[#1b4332] tracking-wider uppercase leading-tight whitespace-nowrap">
+                  BCC RIDERS CLUB
+                </h1>
+                <p className="text-[10px] sm:text-xs font-sans font-bold text-[#2d6a4f] uppercase tracking-widest whitespace-nowrap">
+                  BUHANGIN COMMUNITY CHURCH
+                </p>
+                <p className="text-[9px] sm:text-[10.5px] font-sans text-[#52605d] whitespace-nowrap">
+                  469 Palm Drive, Buhangin, Davao City, Philippines
+                </p>
+                <p className="text-[9px] sm:text-[10px] font-sans text-[#52605d] italic whitespace-nowrap">
+                  Official Record Ref: <span className="font-mono font-bold text-[#1b4332]">{user.memberNumber || 'BRC-0000'}</span>
                 </p>
               </div>
+
+              <div className="w-12 h-12 sm:w-16 sm:h-16 flex items-center justify-center shrink-0">
+                <img src="/bcc-logo.png" alt="Buhangin Community Church Logo" className="w-full h-full object-contain" />
+              </div>
             </div>
-          </div>
 
-          {/* Approved By President Box */}
-          <div className="space-y-1.5 text-right relative">
-            <span className="text-xs font-bold uppercase tracking-wider text-[#1b4332] block mb-1">
-              Approved By:
-            </span>
+            {/* Legal & Conduct Agreement Body */}
+            <div className="space-y-3 text-xs sm:text-[13px] text-[#2d3a3a] text-justify relative z-10 font-sans leading-relaxed">
+              <div className="text-center pb-1">
+                <span className="font-serif font-black text-xs sm:text-sm text-[#1b4332] uppercase tracking-wider block">
+                  OFFICIAL MEMBERSHIP AGREEMENT
+                </span>
+                <span className="text-[9.5px] sm:text-[10.5px] font-serif italic text-[#52605d] block">
+                  Declaration of Commitment &amp; Release of Liability
+                </span>
+              </div>
 
-            <div className="relative flex flex-col items-end justify-end pt-2 pb-1 min-h-[100px]">
-              {president ? (
-                <>
-                  {/* Signed President Signature Image and Approval Seal behind printed name */}
-                  {presidentSignaturePng ? (
-                    <>
-                      <img
-                        src="/approved.png"
-                        alt="Official Approval Seal"
-                        className="absolute top-1/2 right-0 -translate-y-1/2 w-48 sm:w-52 max-w-none opacity-25 pointer-events-none select-none z-0"
-                      />
-                      <img
-                        src={presidentSignaturePng}
-                        alt="President Signature"
-                        className="absolute top-1/2 right-0 -translate-y-1/2 max-h-24 object-contain filter brightness-0 contrast-200 pointer-events-none select-none z-0"
-                        style={{ filter: 'brightness(0) contrast(200%)' }}
-                      />
-                    </>
+              <p className="indent-6 sm:indent-8">
+                I hereby agree to abide by the rules, regulations, and code of conduct of the BCC Riders Club.
+                I understand that motorcycle riding involves inherent risks, and I voluntarily assume full
+                responsibility for my actions during all club activities and events.
+              </p>
+
+              <p className="indent-6 sm:indent-8">
+                I further release and hold harmless the Buhangin Community Church Congregation, the BCC Riders
+                Club, and its officers from any claims or liabilities arising from accidents, injuries, or
+                incidents related to my participation.
+              </p>
+
+              <p className="indent-6 sm:indent-8">
+                However, in the spirit of Christian brotherhood and humanitarian concern, members are encouraged,
+                though not obligated, to extend help and support to one another as led by personal conviction and
+                God's guidance.
+              </p>
+
+              <p className="indent-6 sm:indent-8 font-semibold text-[#1b4332] text-[11.5px] sm:text-xs">
+                By signing below, I acknowledge that I have read, understood, and accepted these terms.
+              </p>
+            </div>
+
+            {/* Signatures & Approvals Section */}
+            <div className="pt-4 border-t border-[#2d6a4f]/20 grid grid-cols-2 gap-4 items-end relative z-10 font-sans">
+              {/* Applicant Signature Box */}
+              <div className="space-y-1 text-left relative">
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-[#1b4332] block">
+                  Applicant's Signature:
+                </span>
+
+                <div className="relative flex flex-col items-start justify-end pt-1 pb-1 min-h-[70px] sm:min-h-[85px]">
+                  {/* Signed Signature Image behind printed name */}
+                  {signaturePng ? (
+                    <img
+                      src={signaturePng}
+                      alt="Applicant Signature"
+                      className="absolute top-1/2 left-0 -translate-y-1/2 max-h-16 sm:max-h-20 object-contain filter brightness-0 contrast-200 pointer-events-none select-none z-0"
+                      style={{ filter: 'brightness(0) contrast(200%)' }}
+                    />
                   ) : null}
 
-                  {/* Name Content Layered on top of seal */}
-                  <div className="relative z-10 space-y-1 w-full text-right pt-6">
-                    {/* President Name Line */}
-                    <div className="space-y-0.5">
-                      <strong className="block text-base font-black text-[#1b4332] tracking-wide">
-                        {presidentDisplayName}
-                      </strong>
-                      <p className="text-xs font-extrabold text-[#2d6a4f] uppercase tracking-wider">
-                        BCC Riders Club President
-                      </p>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* Blank Signatory when no president is tagged or appointed or president was deleted */
-                <div className="relative z-10 space-y-1 w-full text-right pt-6">
-                  <div className="space-y-0.5">
-                    <div className="border-b border-[#1b4332]/40 w-52 ml-auto mb-1 h-8"></div>
-                    <p className="text-xs font-extrabold text-[#2d6a4f] uppercase tracking-wider">
-                      BCC Riders Club President
+                  {/* Printed Name Line layered on top of signature */}
+                  <div className="relative z-10 space-y-0.5 w-full text-left pt-4">
+                    <strong className="block text-xs sm:text-sm font-black text-[#1b4332] tracking-wide truncate">
+                      {getFormattedName()}
+                    </strong>
+                    <p className="text-[10px] font-semibold text-[#52605d]">
+                      Date: <span className="font-mono text-[#1b4332]">{getSubmittedDate()}</span>
                     </p>
                   </div>
                 </div>
-              )}
+              </div>
+
+              {/* Approved By President Box */}
+              <div className="space-y-1 text-right relative">
+                <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider text-[#1b4332] block">
+                  Approved By:
+                </span>
+
+                <div className="relative flex flex-col items-end justify-end pt-1 pb-1 min-h-[70px] sm:min-h-[85px]">
+                  {president ? (
+                    <>
+                      {/* Signed President Signature Image and Approval Seal behind printed name */}
+                      {presidentSignaturePng ? (
+                        <>
+                          <img
+                            src="/approved.png"
+                            alt="Official Approval Seal"
+                            className="absolute top-1/2 right-0 -translate-y-1/2 w-36 sm:w-44 max-w-none opacity-25 pointer-events-none select-none z-0"
+                          />
+                          <img
+                            src={presidentSignaturePng}
+                            alt="President Signature"
+                            className="absolute top-1/2 right-0 -translate-y-1/2 max-h-16 sm:max-h-20 object-contain filter brightness-0 contrast-200 pointer-events-none select-none z-0"
+                            style={{ filter: 'brightness(0) contrast(200%)' }}
+                          />
+                        </>
+                      ) : null}
+
+                      {/* Name Content Layered on top of seal */}
+                      <div className="relative z-10 space-y-0.5 w-full text-right pt-4">
+                        <strong className="block text-xs sm:text-sm font-black text-[#1b4332] tracking-wide truncate">
+                          {presidentDisplayName}
+                        </strong>
+                        <p className="text-[10px] font-extrabold text-[#2d6a4f] uppercase tracking-wider">
+                          BCC Riders Club President
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    /* Blank Signatory when no president is tagged or appointed or president was deleted */
+                    <div className="relative z-10 space-y-0.5 w-full text-right pt-4">
+                      <div className="border-b border-[#1b4332]/40 w-36 sm:w-44 ml-auto mb-1 h-6"></div>
+                      <p className="text-[10px] font-extrabold text-[#2d6a4f] uppercase tracking-wider">
+                        BCC Riders Club President
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Bible Verse Footer Block */}
+            <div className="pt-3 border-t border-[#e2ece2] text-center space-y-0.5 relative z-10">
+              <p className="font-serif italic text-[10.5px] sm:text-xs text-[#1b4332] max-w-lg mx-auto leading-relaxed">
+                “Then I saw heaven opened, and suddenly a white horse appeared. The name of the one riding it was Faithful and True, and with pure righteousness he judges and rides to battle.”
+              </p>
+              <p className="font-sans text-[9.5px] sm:text-[10px] font-extrabold text-[#2d6a4f] uppercase tracking-wider">
+                — Revelation 19:11 (TPT)
+              </p>
+            </div>
+
+            {/* Paper Footer Stamp */}
+            <div className="pt-2 border-t border-[#e2ece2]/60 flex flex-row items-center justify-between text-[9.5px] sm:text-[10px] font-sans text-[#52605d] gap-2 relative z-10">
+              <div className="flex items-center gap-1.5 truncate">
+                <ShieldCheck className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                <span className="truncate">Digital Auth Hash: <code className="font-mono text-[#1b4332]">BCC-AUTH-{user.id.toUpperCase().slice(0, 8)}</code></span>
+              </div>
+              <span className="font-bold text-[#1b4332] shrink-0">Status: APPROVED &amp; SIGNED</span>
             </div>
           </div>
         </div>
-
-        {/* Bible Verse Footer Block */}
-        <div className="pt-5 border-t border-[#e2ece2] text-center space-y-1 relative z-10">
-          <p className="font-serif italic text-xs sm:text-sm text-[#1b4332] max-w-2xl mx-auto leading-relaxed">
-            “Then I saw heaven opened, and suddenly a white horse appeared. The name of the one riding it was Faithful and True, and with pure righteousness he judges and rides to battle.”
-          </p>
-          <p className="font-sans text-[11px] font-extrabold text-[#2d6a4f] uppercase tracking-wider">
-            — Revelation 19:11 (TPT)
-          </p>
-        </div>
-
-        {/* Paper Footer Stamp */}
-        <div className="pt-3 border-t border-[#e2ece2]/60 flex flex-row items-center justify-between text-[11px] font-sans text-[#52605d] gap-2 relative z-10">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="w-4 h-4 text-[#2d6a4f]" />
-            <span>Digital Authentication Hash: <code className="font-mono text-[#1b4332]">BCC-AUTH-{user.id.toUpperCase().slice(0, 10)}</code></span>
-          </div>
-          <span className="font-semibold text-[#1b4332]">Status: APPROVED & SIGNED</span>
-        </div>
       </div>
-    </div>
 
       {/* Confirmation Modal */}
       <AnimatePresence>

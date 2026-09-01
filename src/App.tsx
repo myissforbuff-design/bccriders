@@ -8,7 +8,7 @@ import { Dashboard } from './components/Dashboard';
 import { MembershipManagement } from './components/MembershipManagement';
 import { CommunityBoard } from './components/CommunityBoard';
 import { RiderProfile } from './components/RiderProfile';
-import { MembershipAgreementPaper } from './components/MembershipAgreementPaper';
+import { DocumentHub } from './components/DocumentHub';
 import { AdminERPPanel } from './components/AdminERPPanel';
 import { Settings } from './components/Settings';
 import { ActivityLog } from './components/ActivityLog';
@@ -145,8 +145,8 @@ function MainAppContent() {
                   ? 'Executive Admin Hub'
                   : activeTab === 'document' ? (
                       <>
-                        <span className="sm:hidden">Document</span>
-                        <span className="hidden sm:inline">Official Membership Agreement</span>
+                        <span className="sm:hidden">Documents</span>
+                        <span className="hidden sm:inline">Official Documents &amp; Governance</span>
                       </>
                     )
                   : activeTab === 'profile'
@@ -223,7 +223,7 @@ function MainAppContent() {
               )}
 
               {activeTab === 'document' && currentUser && (
-                <MembershipAgreementPaper
+                <DocumentHub
                   user={currentUser}
                   exportPdfTrigger={exportPdfTrigger}
                   printTrigger={printTrigger}

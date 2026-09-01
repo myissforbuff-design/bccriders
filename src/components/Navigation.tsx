@@ -87,6 +87,7 @@ export const Navigation: React.FC<NavigationProps> = ({
           { id: 'members', label: 'Members', icon: Users },
           { id: 'qr', label: 'QR Scan', icon: ScanLine },
           { id: 'finances', label: 'Finances', icon: Wallet },
+          { id: 'document', label: 'Document', icon: FileText },
           { id: 'activity', label: 'Activity', icon: ClipboardList },
           { id: 'settings', label: 'Settings', icon: Settings },
         ]
