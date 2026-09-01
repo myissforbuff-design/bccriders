@@ -745,8 +745,22 @@ export const NewsFeed: React.FC = () => {
                 {/* Media Attachment (Photo or Video with Google Drive integration) */}
                 {post.mediaUrl && (
                   <div className="mt-2.5 rounded-lg sm:rounded-xl overflow-hidden border border-[#e2ece2] bg-[#0c1a14] relative group">
-                    {post.mediaType === 'video' || post.mediaUrl.includes('.mp4') || post.mediaUrl.startsWith('data:video') || (post.driveFileId && post.mediaType === 'video') ? (
-                      <div className="relative">
+                    {post.driveFileId && (post.mediaType === 'video' || post.mediaUrl.includes('.mp4') || post.mediaUrl.includes('.mov')) ? (
+                      <div className="relative w-full aspect-video min-h-[220px] max-h-[360px] bg-black flex items-center justify-center">
+                        <iframe
+                          src={`https://drive.google.com/file/d/${post.driveFileId}/preview`}
+                          className="w-full h-full min-h-[220px] border-0 rounded-t-lg bg-black"
+                          allow="autoplay; encrypted-media; picture-in-picture"
+                          allowFullScreen
+                          title={post.title || 'Video Player'}
+                        />
+                        <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-xs text-white text-[9.5px] font-bold flex items-center gap-1 pointer-events-none z-10">
+                          <VideoIcon className="w-2.5 h-2.5 text-[#74c69d]" />
+                          <span>Video</span>
+                        </div>
+                      </div>
+                    ) : post.mediaType === 'video' || post.mediaUrl.includes('.mp4') || post.mediaUrl.startsWith('data:video') ? (
+                      <div className="relative bg-black flex items-center justify-center min-h-[220px]">
                         <video
                           src={
                             post.driveFileId

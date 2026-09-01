@@ -5305,28 +5305,28 @@ app.post('/api/mongodb/payments', async (req, res) => {
   }
 });
 
-// NEWS FEED & COMMUNITY POSTS API ("newsFeed" MongoDB collection)
-// Stores text metadata, titles, content, categories, comments, replies, reactions in MongoDB 'newsFeed'
-// while offloading photos and videos to Google Shared Drive 'newsFeed' subfolder
-app.get(['/api/mongodb/newsFeed', '/api/mongodb/posts'], async (req, res) => {
+// COMMUNITY POSTS API ("posts" MongoDB collection)
+// Stores text metadata, titles, content, categories, comments, replies, reactions in MongoDB 'posts'
+// while offloading photos and videos directly to Google Shared Drive 0AGPGJ8Knm3Y7Uk9PVA
+app.get('/api/mongodb/posts', async (req, res) => {
   const database = await getMongoDb();
   if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
   try {
-    // 1. Query newsFeed collection
-    let docs = await database.collection('newsFeed').find({}).sort({ createdAt: -1, timestamp: -1 }).toArray();
-
-    // 2. Migration fallback: if newsFeed is empty, migrate from legacy posts collection
-    if (docs.length === 0) {
-      const legacyPosts = await database.collection('posts').find({}).toArray();
-      if (legacyPosts.length > 0) {
-        for (const lp of legacyPosts) {
-          const { _id, ...cleanDoc } = lp;
-          await database.collection('newsFeed').updateOne({ id: cleanDoc.id }, { $set: cleanDoc }, { upsert: true });
+    // If newsFeed collection was previously created, migrate any docs to 'posts' and drop newsFeed
+    try {
+      const nfDocs = await database.collection('newsFeed').find({}).toArray();
+      if (nfDocs.length > 0) {
+        for (const doc of nfDocs) {
+          const { _id, ...cleanDoc } = doc;
+          await database.collection('posts').updateOne({ id: cleanDoc.id }, { $set: cleanDoc }, { upsert: true });
         }
-        docs = await database.collection('newsFeed').find({}).sort({ createdAt: -1, timestamp: -1 }).toArray();
       }
+      await database.collection('newsFeed').drop().catch(() => {});
+    } catch (dropErr) {
+      // ignore
     }
 
+    const docs = await database.collection('posts').find({}).sort({ createdAt: -1, timestamp: -1 }).toArray();
     const data = docs.map(({ _id, ...rest }) => rest);
     res.json({ success: true, count: data.length, data });
   } catch (err: any) {
@@ -5334,18 +5334,23 @@ app.get(['/api/mongodb/newsFeed', '/api/mongodb/posts'], async (req, res) => {
   }
 });
 
-app.post(['/api/mongodb/newsFeed', '/api/mongodb/posts'], async (req, res) => {
+// Backward compatibility redirect for any old client fetch
+app.get('/api/mongodb/newsFeed', async (req, res) => {
+  res.redirect(307, '/api/mongodb/posts');
+});
+
+app.post('/api/mongodb/posts', async (req, res) => {
   const database = await getMongoDb();
   let post = req.body;
   if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
   try {
-    // If post media contains bulky base64 data, offload image/video to Google Drive 'newsFeed' folder
+    // If post media contains bulky base64 data, offload image/video to Google Shared Drive 0AGPGJ8Knm3Y7Uk9PVA
     if (post.mediaUrl && typeof post.mediaUrl === 'string' && post.mediaUrl.startsWith('data:')) {
       if (isGoogleDriveConfigured()) {
         const isVideo = post.mediaType === 'video' || post.mediaUrl.startsWith('data:video');
         const slug = String(post.authorName || 'rider').toLowerCase().trim().split(/\s+/).pop()?.replace(/[^a-z0-9-_]/g, '') || 'rider';
         const fileName = `newsfeed-${slug}-${isVideo ? 'video' : 'photo'}_${Date.now()}`;
-        const driveRes = await uploadBase64ToGoogleDrive(post.mediaUrl, fileName, 'newsFeed');
+        const driveRes = await uploadBase64ToGoogleDrive(post.mediaUrl, fileName);
         if (driveRes && driveRes.url) {
           post.mediaUrl = driveRes.url;
           post.driveFileId = driveRes.fileId;
@@ -5359,19 +5364,12 @@ app.post(['/api/mongodb/newsFeed', '/api/mongodb/posts'], async (req, res) => {
       updatedAt: new Date().toISOString(),
     };
 
-    // Store text document in dedicated 'newsFeed' MongoDB collection
-    await database.collection('newsFeed').updateOne(
-      { id: post.id },
-      { $set: documentToSave },
-      { upsert: true }
-    );
-
-    // Keep legacy collection in sync
+    // Store text document directly in 'posts' collection in MongoDB
     await database.collection('posts').updateOne(
       { id: post.id },
       { $set: documentToSave },
       { upsert: true }
-    ).catch(() => {});
+    );
 
     res.json({ success: true, id: post.id, post: documentToSave });
   } catch (err: any) {
@@ -5379,13 +5377,29 @@ app.post(['/api/mongodb/newsFeed', '/api/mongodb/posts'], async (req, res) => {
   }
 });
 
-app.delete(['/api/mongodb/newsFeed/:id', '/api/mongodb/posts/:id'], async (req, res) => {
+app.post('/api/mongodb/newsFeed', async (req, res) => {
+  const database = await getMongoDb();
+  let post = req.body;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    await database.collection('posts').updateOne(
+      { id: post.id },
+      { $set: { ...post, updatedAt: new Date().toISOString() } },
+      { upsert: true }
+    );
+    res.json({ success: true, id: post.id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete(['/api/mongodb/posts/:id', '/api/mongodb/newsFeed/:id'], async (req, res) => {
   const database = await getMongoDb();
   if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
   try {
     const postId = req.params.id;
-    await database.collection('newsFeed').deleteOne({ id: postId });
-    await database.collection('posts').deleteOne({ id: postId }).catch(() => {});
+    await database.collection('posts').deleteOne({ id: postId });
+    await database.collection('newsFeed').deleteOne({ id: postId }).catch(() => {});
     res.json({ success: true, id: postId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -5725,8 +5739,7 @@ app.post('/api/mongodb/seed', async (req, res) => {
       const ops = posts.map((p) => ({
         updateOne: { filter: { id: p.id }, update: { $set: p }, upsert: true },
       }));
-      await database.collection('newsFeed').bulkWrite(ops);
-      await database.collection('posts').bulkWrite(ops).catch(() => {});
+      await database.collection('posts').bulkWrite(ops);
     }
 
     res.json({ success: true, message: 'Database populated with initial BCC Riders data.' });
