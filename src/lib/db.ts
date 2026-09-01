@@ -17,9 +17,6 @@ import {
   Event,
   Payment,
   CommunityPost,
-  ReactionType,
-  FeedCommentItem,
-  FeedCommentReply,
   RideLog,
   RouteMap,
   NotificationItem,
@@ -511,19 +508,6 @@ export class DataStoreService {
     }
 
     return this.users;
-  }
-
-  /** Re-reads the `newsFeed` collection from MongoDB and updates local feed posts. */
-  async refreshNewsFeedFromServer(): Promise<CommunityPost[]> {
-    const dataPosts = await safeFetchJson('/api/mongodb/newsFeed');
-    if (dataPosts.success && Array.isArray(dataPosts.data)) {
-      this.posts = dataPosts.data;
-      saveToStorage(STORAGE_KEYS.POSTS, this.posts);
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('bcc_newsfeed_updated', { detail: this.posts }));
-      }
-    }
-    return this.posts;
   }
 
   /** Re-reads the `updates` collection and republishes announcements. */
@@ -1214,7 +1198,7 @@ export class DataStoreService {
     return payment;
   }
 
-  // Community Feed & Social News Feed
+  // Community Feed
   getPosts(): CommunityPost[] {
     return this.posts;
   }
@@ -1224,180 +1208,47 @@ export class DataStoreService {
   ): CommunityPost {
     const newPost: CommunityPost = {
       ...post,
-      id: `post_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      id: `post_${Date.now()}`,
       likesCount: 0,
       likedBy: [],
       commentsCount: 0,
       createdAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
-      reactions: {},
-      reactionCounts: { like: 0, heart: 0, care: 0, sad: 0, angry: 0 },
-      commentsList: [],
     };
 
     this.posts.unshift(newPost);
     saveToStorage(STORAGE_KEYS.POSTS, this.posts);
 
-    authFetch('/api/mongodb/newsFeed', {
+    authFetch('/api/mongodb/posts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newPost),
-    }).catch((err) => console.warn('MongoDB createPost newsFeed sync error:', err));
+    }).catch((err) => console.warn('MongoDB createPost sync error:', err));
 
     return newPost;
   }
 
-  updatePost(postId: string, updates: Partial<CommunityPost>): CommunityPost {
-    const post = this.posts.find((p) => p.id === postId);
-    if (!post) throw new Error('Post not found');
-
-    Object.assign(post, updates, {
-      updatedAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
-    });
-    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
-
-    authFetch('/api/mongodb/newsFeed', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(post),
-    }).catch((err) => console.warn('MongoDB updatePost newsFeed sync error:', err));
-
-    return post;
-  }
-
-  deletePost(postId: string): void {
-    const index = this.posts.findIndex((p) => p.id === postId);
-    if (index > -1) {
-      this.posts.splice(index, 1);
-      saveToStorage(STORAGE_KEYS.POSTS, this.posts);
-      authFetch(`/api/mongodb/newsFeed/${postId}`, {
-        method: 'DELETE',
-      }).catch((err) => console.warn('MongoDB deletePost newsFeed error:', err));
-    }
-  }
-
-  setPostReaction(postId: string, userId: string, reactionType: ReactionType): CommunityPost {
-    const post = this.posts.find((p) => p.id === postId);
-    if (!post) throw new Error('Post not found');
-
-    if (!post.reactions) post.reactions = {};
-    if (!post.reactionCounts) {
-      post.reactionCounts = { like: 0, heart: 0, care: 0, sad: 0, angry: 0 };
-    }
-
-    const previousReaction = post.reactions[userId];
-
-    if (previousReaction === reactionType) {
-      // Toggle off
-      delete post.reactions[userId];
-      const prevCount = post.reactionCounts[reactionType] || 0;
-      post.reactionCounts[reactionType] = Math.max(0, prevCount - 1);
-
-      const likeIdx = post.likedBy.indexOf(userId);
-      if (likeIdx > -1) post.likedBy.splice(likeIdx, 1);
-    } else {
-      // If changing from another reaction, decrement the previous one
-      if (previousReaction && post.reactionCounts[previousReaction]) {
-        post.reactionCounts[previousReaction] = Math.max(0, post.reactionCounts[previousReaction]! - 1);
-      }
-      post.reactions[userId] = reactionType;
-      post.reactionCounts[reactionType] = (post.reactionCounts[reactionType] || 0) + 1;
-
-      if (!post.likedBy.includes(userId)) {
-        post.likedBy.push(userId);
-      }
-    }
-
-    // Total reactions count
-    const totalReactions = Object.values(post.reactionCounts).reduce((a, b) => (a || 0) + (b || 0), 0) || 0;
-    post.likesCount = totalReactions;
-
-    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
-
-    authFetch('/api/mongodb/newsFeed', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(post),
-    }).catch((err) => console.warn('MongoDB setPostReaction newsFeed sync error:', err));
-
-    return post;
-  }
-
-  addPostComment(
-    postId: string,
-    comment: { authorId: string; authorName: string; authorAvatar?: string; authorRole?: string; content: string }
-  ): CommunityPost {
-    const post = this.posts.find((p) => p.id === postId);
-    if (!post) throw new Error('Post not found');
-
-    if (!post.commentsList) post.commentsList = [];
-
-    const newCommentItem: FeedCommentItem = {
-      id: `comm_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      postId,
-      authorId: comment.authorId,
-      authorName: comment.authorName,
-      authorAvatar: comment.authorAvatar,
-      authorRole: comment.authorRole,
-      content: comment.content,
-      createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ', ' + new Date().toLocaleDateString([], { month: 'short', day: 'numeric' }),
-      replies: [],
-    };
-
-    post.commentsList.push(newCommentItem);
-    post.commentsCount = (post.commentsCount || 0) + 1;
-
-    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
-
-    authFetch('/api/mongodb/newsFeed', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(post),
-    }).catch((err) => console.warn('MongoDB addPostComment newsFeed sync error:', err));
-
-    return post;
-  }
-
-  addCommentReply(
-    postId: string,
-    commentId: string,
-    reply: { authorId: string; authorName: string; authorAvatar?: string; authorRole?: string; content: string; replyToUserName?: string }
-  ): CommunityPost {
-    const post = this.posts.find((p) => p.id === postId);
-    if (!post) throw new Error('Post not found');
-
-    if (!post.commentsList) post.commentsList = [];
-    const parentComment = post.commentsList.find((c) => c.id === commentId);
-
-    if (parentComment) {
-      if (!parentComment.replies) parentComment.replies = [];
-      const newReply: FeedCommentReply = {
-        id: `reply_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        commentId,
-        authorId: reply.authorId,
-        authorName: reply.authorName,
-        authorAvatar: reply.authorAvatar,
-        authorRole: reply.authorRole,
-        content: reply.content,
-        replyToUserName: reply.replyToUserName,
-        createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) + ', ' + new Date().toLocaleDateString([], { month: 'short', day: 'numeric' }),
-      };
-      parentComment.replies.push(newReply);
-      post.commentsCount = (post.commentsCount || 0) + 1;
-
-      saveToStorage(STORAGE_KEYS.POSTS, this.posts);
-
-      authFetch('/api/mongodb/newsFeed', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(post),
-      }).catch((err) => console.warn('MongoDB addCommentReply newsFeed sync error:', err));
-    }
-
-    return post;
-  }
-
   toggleLikePost(postId: string, userId: string): CommunityPost {
-    return this.setPostReaction(postId, userId, 'like');
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    const index = post.likedBy.indexOf(userId);
+    if (index > -1) {
+      post.likedBy.splice(index, 1);
+      post.likesCount = Math.max(0, post.likesCount - 1);
+    } else {
+      post.likedBy.push(userId);
+      post.likesCount += 1;
+    }
+
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch('/api/mongodb/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post),
+    }).catch((err) => console.warn('MongoDB toggleLikePost sync error:', err));
+
+    return post;
   }
 
   // Ride Logs
