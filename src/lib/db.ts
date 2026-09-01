@@ -513,6 +513,19 @@ export class DataStoreService {
     return this.users;
   }
 
+  /** Re-reads the `newsFeed` collection from MongoDB and updates local feed posts. */
+  async refreshNewsFeedFromServer(): Promise<CommunityPost[]> {
+    const dataPosts = await safeFetchJson('/api/mongodb/newsFeed');
+    if (dataPosts.success && Array.isArray(dataPosts.data)) {
+      this.posts = dataPosts.data;
+      saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bcc_newsfeed_updated', { detail: this.posts }));
+      }
+    }
+    return this.posts;
+  }
+
   /** Re-reads the `updates` collection and republishes announcements. */
   async refreshAnnouncementsFromServer(): Promise<Announcement[]> {
     const dataUpdates = await safeFetchJson('/api/mongodb/updates');
@@ -1224,13 +1237,31 @@ export class DataStoreService {
     this.posts.unshift(newPost);
     saveToStorage(STORAGE_KEYS.POSTS, this.posts);
 
-    authFetch('/api/mongodb/posts', {
+    authFetch('/api/mongodb/newsFeed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newPost),
-    }).catch((err) => console.warn('MongoDB createPost sync error:', err));
+    }).catch((err) => console.warn('MongoDB createPost newsFeed sync error:', err));
 
     return newPost;
+  }
+
+  updatePost(postId: string, updates: Partial<CommunityPost>): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    Object.assign(post, updates, {
+      updatedAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
+    });
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch('/api/mongodb/newsFeed', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post),
+    }).catch((err) => console.warn('MongoDB updatePost newsFeed sync error:', err));
+
+    return post;
   }
 
   deletePost(postId: string): void {
@@ -1238,9 +1269,9 @@ export class DataStoreService {
     if (index > -1) {
       this.posts.splice(index, 1);
       saveToStorage(STORAGE_KEYS.POSTS, this.posts);
-      authFetch(`/api/mongodb/posts/${postId}`, {
+      authFetch(`/api/mongodb/newsFeed/${postId}`, {
         method: 'DELETE',
-      }).catch((err) => console.warn('MongoDB deletePost error:', err));
+      }).catch((err) => console.warn('MongoDB deletePost newsFeed error:', err));
     }
   }
 
@@ -1282,11 +1313,11 @@ export class DataStoreService {
 
     saveToStorage(STORAGE_KEYS.POSTS, this.posts);
 
-    authFetch('/api/mongodb/posts', {
+    authFetch('/api/mongodb/newsFeed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(post),
-    }).catch((err) => console.warn('MongoDB setPostReaction sync error:', err));
+    }).catch((err) => console.warn('MongoDB setPostReaction newsFeed sync error:', err));
 
     return post;
   }
@@ -1317,11 +1348,11 @@ export class DataStoreService {
 
     saveToStorage(STORAGE_KEYS.POSTS, this.posts);
 
-    authFetch('/api/mongodb/posts', {
+    authFetch('/api/mongodb/newsFeed', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(post),
-    }).catch((err) => console.warn('MongoDB addPostComment sync error:', err));
+    }).catch((err) => console.warn('MongoDB addPostComment newsFeed sync error:', err));
 
     return post;
   }
@@ -1355,11 +1386,11 @@ export class DataStoreService {
 
       saveToStorage(STORAGE_KEYS.POSTS, this.posts);
 
-      authFetch('/api/mongodb/posts', {
+      authFetch('/api/mongodb/newsFeed', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(post),
-      }).catch((err) => console.warn('MongoDB addCommentReply sync error:', err));
+      }).catch((err) => console.warn('MongoDB addCommentReply newsFeed sync error:', err));
     }
 
     return post;

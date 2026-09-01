@@ -293,9 +293,62 @@ function getLastNameSlug(member: any): string {
   return rawLastName.toLowerCase().replace(/[^a-z0-9-_]/g, '');
 }
 
+// In-memory cache of created/verified Google Drive subfolder IDs
+const driveFolderCache = new Map<string, string>();
+
+async function getOrCreateDriveFolder(
+  drive: any,
+  parentFolderId: string,
+  folderName: string
+): Promise<string> {
+  if (!parentFolderId || !folderName) return parentFolderId;
+  const cacheKey = `${parentFolderId}::${folderName}`;
+  if (driveFolderCache.has(cacheKey)) {
+    return driveFolderCache.get(cacheKey)!;
+  }
+
+  try {
+    const safeFolderName = folderName.replace(/'/g, "\\'");
+    const query = `name = '${safeFolderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${parentFolderId}' in parents`;
+    const searchRes = await drive.files.list({
+      q: query,
+      fields: 'files(id, name)',
+      spaces: 'drive',
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+
+    if (searchRes.data.files && searchRes.data.files.length > 0) {
+      const existingId = searchRes.data.files[0].id;
+      driveFolderCache.set(cacheKey, existingId);
+      return existingId;
+    }
+
+    const createRes = await drive.files.create({
+      requestBody: {
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentFolderId],
+      },
+      fields: 'id, name',
+      supportsAllDrives: true,
+    });
+
+    const newFolderId = createRes.data.id;
+    if (newFolderId) {
+      driveFolderCache.set(cacheKey, newFolderId);
+      return newFolderId;
+    }
+  } catch (err) {
+    console.warn('[Google Drive] Subfolder check/create warning, defaulting to root parent folder:', err);
+  }
+  return parentFolderId;
+}
+
 async function uploadBase64ToGoogleDrive(
   base64Data: string,
-  fileNamePrefix: string = 'bcc_member_photo'
+  fileNamePrefix: string = 'bcc_member_photo',
+  targetFolder: string = ''
 ): Promise<{ url: string; fileId: string; webViewLink?: string } | null> {
   const driveInfo = getGoogleDriveClient();
   if (!driveInfo) {
@@ -333,11 +386,17 @@ async function uploadBase64ToGoogleDrive(
     stream.push(buffer);
     stream.push(null);
 
+    // Resolve target parent subfolder if specified
+    let targetParentId = folderId;
+    if (folderId && targetFolder) {
+      targetParentId = await getOrCreateDriveFolder(drive, folderId, targetFolder);
+    }
+
     const fileMetadata: any = {
       name: fileName,
     };
-    if (folderId) {
-      fileMetadata.parents = [folderId];
+    if (targetParentId) {
+      fileMetadata.parents = [targetParentId];
     }
 
     const media = {
@@ -3589,6 +3648,20 @@ app.post('/api/drive/upload', async (req, res) => {
   }
 
   try {
+    let targetFolder = '';
+    if (folder) {
+      const fLower = String(folder).toLowerCase();
+      if (fLower.includes('news') || fLower.includes('feed') || fLower.includes('community')) {
+        targetFolder = 'newsFeed';
+      } else if (fLower.includes('bike') || fLower.includes('moto')) {
+        targetFolder = 'motorcycles';
+      } else if (fLower.includes('avatar') || fLower.includes('profile')) {
+        targetFolder = 'avatars';
+      } else {
+        targetFolder = String(folder);
+      }
+    }
+
     let prefix = fileName;
     if (!prefix) {
       const nameSource = lastName || riderName || 'rider';
@@ -3597,7 +3670,7 @@ app.post('/api/drive/upload', async (req, res) => {
       const isVideo = payloadMedia.startsWith('data:video');
       prefix = `${slug}-${isVideo ? 'video' : isBike ? 'bike' : 'media'}_${Date.now()}`;
     }
-    const uploadRes = await uploadBase64ToGoogleDrive(payloadMedia, prefix);
+    const uploadRes = await uploadBase64ToGoogleDrive(payloadMedia, prefix, targetFolder);
     if (uploadRes && uploadRes.url) {
       return res.json({
         success: true,
@@ -5208,30 +5281,88 @@ app.post('/api/mongodb/payments', async (req, res) => {
   }
 });
 
-// COMMUNITY POSTS API
-app.get('/api/mongodb/posts', async (req, res) => {
+// NEWS FEED & COMMUNITY POSTS API ("newsFeed" MongoDB collection)
+// Stores text metadata, titles, content, categories, comments, replies, reactions in MongoDB 'newsFeed'
+// while offloading photos and videos to Google Shared Drive 'newsFeed' subfolder
+app.get(['/api/mongodb/newsFeed', '/api/mongodb/posts'], async (req, res) => {
   const database = await getMongoDb();
   if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
   try {
-    const docs = await database.collection('posts').find({}).sort({ timestamp: -1 }).toArray();
+    // 1. Query newsFeed collection
+    let docs = await database.collection('newsFeed').find({}).sort({ createdAt: -1, timestamp: -1 }).toArray();
+
+    // 2. Migration fallback: if newsFeed is empty, migrate from legacy posts collection
+    if (docs.length === 0) {
+      const legacyPosts = await database.collection('posts').find({}).toArray();
+      if (legacyPosts.length > 0) {
+        for (const lp of legacyPosts) {
+          const { _id, ...cleanDoc } = lp;
+          await database.collection('newsFeed').updateOne({ id: cleanDoc.id }, { $set: cleanDoc }, { upsert: true });
+        }
+        docs = await database.collection('newsFeed').find({}).sort({ createdAt: -1, timestamp: -1 }).toArray();
+      }
+    }
+
     const data = docs.map(({ _id, ...rest }) => rest);
-    res.json({ success: true, data });
+    res.json({ success: true, count: data.length, data });
   } catch (err: any) {
     res.status(500).json({ error: err.message, data: [] });
   }
 });
 
-app.post('/api/mongodb/posts', async (req, res) => {
+app.post(['/api/mongodb/newsFeed', '/api/mongodb/posts'], async (req, res) => {
   const database = await getMongoDb();
-  const post = req.body;
+  let post = req.body;
   if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
   try {
-    await database.collection('posts').updateOne(
+    // If post media contains bulky base64 data, offload image/video to Google Drive 'newsFeed' folder
+    if (post.mediaUrl && typeof post.mediaUrl === 'string' && post.mediaUrl.startsWith('data:')) {
+      if (isGoogleDriveConfigured()) {
+        const isVideo = post.mediaType === 'video' || post.mediaUrl.startsWith('data:video');
+        const slug = String(post.authorName || 'rider').toLowerCase().trim().split(/\s+/).pop()?.replace(/[^a-z0-9-_]/g, '') || 'rider';
+        const fileName = `newsfeed-${slug}-${isVideo ? 'video' : 'photo'}_${Date.now()}`;
+        const driveRes = await uploadBase64ToGoogleDrive(post.mediaUrl, fileName, 'newsFeed');
+        if (driveRes && driveRes.url) {
+          post.mediaUrl = driveRes.url;
+          post.driveFileId = driveRes.fileId;
+          post.driveWebViewLink = driveRes.webViewLink;
+        }
+      }
+    }
+
+    const documentToSave = {
+      ...post,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Store text document in dedicated 'newsFeed' MongoDB collection
+    await database.collection('newsFeed').updateOne(
       { id: post.id },
-      { $set: { ...post, updatedAt: new Date().toISOString() } },
+      { $set: documentToSave },
       { upsert: true }
     );
-    res.json({ success: true, id: post.id });
+
+    // Keep legacy collection in sync
+    await database.collection('posts').updateOne(
+      { id: post.id },
+      { $set: documentToSave },
+      { upsert: true }
+    ).catch(() => {});
+
+    res.json({ success: true, id: post.id, post: documentToSave });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete(['/api/mongodb/newsFeed/:id', '/api/mongodb/posts/:id'], async (req, res) => {
+  const database = await getMongoDb();
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const postId = req.params.id;
+    await database.collection('newsFeed').deleteOne({ id: postId });
+    await database.collection('posts').deleteOne({ id: postId }).catch(() => {});
+    res.json({ success: true, id: postId });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -5570,7 +5701,8 @@ app.post('/api/mongodb/seed', async (req, res) => {
       const ops = posts.map((p) => ({
         updateOne: { filter: { id: p.id }, update: { $set: p }, upsert: true },
       }));
-      await database.collection('posts').bulkWrite(ops);
+      await database.collection('newsFeed').bulkWrite(ops);
+      await database.collection('posts').bulkWrite(ops).catch(() => {});
     }
 
     res.json({ success: true, message: 'Database populated with initial BCC Riders data.' });

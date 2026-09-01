@@ -376,7 +376,7 @@ export interface CommunityPost {
   authorRole: UserRole;
   title: string;
   content: string;
-  category: 'Group Ride Setup' | 'Route Suggestion' | 'General Talk' | 'Equipment & Gear';
+  category: 'Group Ride Setup' | 'Route Suggestion' | 'General Talk' | 'Equipment & Gear' | 'Photos & Videos';
   paceLevel?: PaceLevel;
   distanceMiles?: number;
   meetingPoint?: string;
