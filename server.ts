@@ -4,7 +4,7 @@ import crypto from 'crypto';
 import path from 'path';
 import { Readable } from 'stream';
 import { google } from 'googleapis';
-import { MongoClient, Db, ChangeStream } from 'mongodb';
+import { MongoClient, Db, ChangeStream, ObjectId } from 'mongodb';
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { createServer as createViteServer } from 'vite';
 import { Resend } from 'resend';
@@ -2537,6 +2537,245 @@ app.post('/api/auth/verify-admin-password', requireAuth, async (req, res) => {
   }
 
   res.json({ success: true, verified: true });
+});
+
+// ==========================================
+// 4-DIGIT PIN AUTHENTICATION ENDPOINTS
+// ==========================================
+const pinAttemptLimits = new Map<string, { attempts: number; lockedUntil: number }>();
+
+// Periodic cleanup of expired PIN lockouts
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of pinAttemptLimits.entries()) {
+    if (now > entry.lockedUntil) {
+      pinAttemptLimits.delete(key);
+    }
+  }
+}, 5 * 60 * 1000);
+
+// Set / Register a 4-Digit Quick PIN for the authenticated user
+app.post('/api/auth/pin/register', requireAuth, async (req, res) => {
+  try {
+    const pin = String(req.body?.pin || '').trim();
+    if (!/^\d{4}$/.test(pin)) {
+      return res.status(400).json({ success: false, error: 'PIN must be exactly 4 numeric digits (0-9).' });
+    }
+
+    const userId = (req as any).auth?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized user session.' });
+    }
+
+    const hashedPin = hashPassword(pin);
+    const database = await getMongoDb();
+
+    if (database) {
+      const orFilter: any[] = [{ id: userId }, { username: userId }];
+      if (ObjectId.isValid(userId)) {
+        orFilter.push({ _id: new ObjectId(userId) });
+      }
+
+      const updateRes = await database.collection('members').updateOne(
+        { $or: orFilter },
+        {
+          $set: {
+            pinHash: hashedPin,
+            hasPin: true,
+            pinUpdatedAt: new Date().toISOString(),
+          },
+        }
+      );
+
+      if (updateRes.matchedCount === 0) {
+        await database.collection('registration').updateOne(
+          { $or: orFilter },
+          {
+            $set: {
+              pinHash: hashedPin,
+              hasPin: true,
+              pinUpdatedAt: new Date().toISOString(),
+            },
+          }
+        );
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: '4-digit PIN enrolled successfully on your account.',
+      enrolledAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('PIN registration error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to configure 4-digit PIN.' });
+  }
+});
+
+// Remove 4-digit PIN
+app.post('/api/auth/pin/remove', requireAuth, async (req, res) => {
+  try {
+    const userId = (req as any).auth?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized user session.' });
+    }
+
+    const database = await getMongoDb();
+    if (database) {
+      const orFilter: any[] = [{ id: userId }, { username: userId }];
+      if (ObjectId.isValid(userId)) {
+        orFilter.push({ _id: new ObjectId(userId) });
+      }
+
+      await database.collection('members').updateOne(
+        { $or: orFilter },
+        {
+          $unset: { pinHash: '' },
+          $set: { hasPin: false },
+        }
+      );
+
+      await database.collection('registration').updateOne(
+        { $or: orFilter },
+        {
+          $unset: { pinHash: '' },
+          $set: { hasPin: false },
+        }
+      );
+    }
+
+    return res.json({ success: true, message: '4-digit PIN removed successfully.' });
+  } catch (err: any) {
+    console.error('PIN removal error:', err);
+    return res.status(500).json({ success: false, error: 'Failed to remove 4-digit PIN.' });
+  }
+});
+
+// Verify 4-Digit PIN and issue signed session token
+app.post('/api/auth/pin/verify', async (req, res) => {
+  try {
+    const inputUsername = String(req.body?.username || '').trim();
+    const inputPin = String(req.body?.pin || '').trim();
+
+    if (!inputUsername || !inputPin) {
+      return res.status(400).json({ success: false, error: 'Username and 4-digit PIN are required.' });
+    }
+
+    if (!/^\d{4}$/.test(inputPin)) {
+      return res.status(400).json({ success: false, error: 'PIN must be exactly 4 digits.' });
+    }
+
+    const normalizedUsername = inputUsername.toLowerCase();
+    const rateLimitKey = `${req.ip || 'ip'}:${normalizedUsername}`;
+    const now = Date.now();
+    const limitEntry = pinAttemptLimits.get(rateLimitKey);
+
+    if (limitEntry && now < limitEntry.lockedUntil) {
+      const remainingSeconds = Math.ceil((limitEntry.lockedUntil - now) / 1000);
+      return res.status(429).json({
+        success: false,
+        error: `Too many incorrect PIN attempts. Please wait ${remainingSeconds} seconds or sign in with your password.`,
+        locked: true,
+      });
+    }
+
+    let matchedUser: any = null;
+    const database = await getMongoDb();
+
+    if (database) {
+      const escaped = normalizedUsername.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const orConditions: any[] = [
+        { username: { $regex: new RegExp(`^${escaped}$`, 'i') } },
+        { email: { $regex: new RegExp(`^${escaped}$`, 'i') } },
+        { id: inputUsername },
+      ];
+
+      if (ObjectId.isValid(inputUsername)) {
+        orConditions.push({ _id: new ObjectId(inputUsername) });
+      }
+
+      matchedUser = await database.collection('members').findOne({ $or: orConditions });
+      if (!matchedUser) {
+        matchedUser = await database.collection('registration').findOne({ $or: orConditions });
+      }
+    }
+
+    if (!matchedUser) {
+      matchedUser = INITIAL_SEED_MEMBERS.find((m) => {
+        const u = (m.username || '').toLowerCase();
+        const e = (m.email || '').toLowerCase();
+        return u === normalizedUsername || e === normalizedUsername || m.id === inputUsername;
+      });
+    }
+
+    if (!matchedUser) {
+      return res.status(404).json({ success: false, error: 'Account not found. Please check your username.' });
+    }
+
+    if (!matchedUser.pinHash) {
+      return res.status(400).json({
+        success: false,
+        error: 'No 4-digit PIN is configured for this account. Please sign in with your password and set up a PIN in Settings > Security.',
+        notConfigured: true,
+      });
+    }
+
+    const verification = verifyPassword(inputPin, matchedUser.pinHash);
+
+    if (!verification.valid) {
+      const currentAttempts = (limitEntry?.attempts || 0) + 1;
+      const maxAttempts = 5;
+      if (currentAttempts >= maxAttempts) {
+        pinAttemptLimits.set(rateLimitKey, {
+          attempts: currentAttempts,
+          lockedUntil: now + 5 * 60 * 1000, // 5 minutes lockout
+        });
+        return res.status(429).json({
+          success: false,
+          error: 'Maximum PIN attempts exceeded. This account is locked for 5 minutes. You may sign in with your password instead.',
+          locked: true,
+        });
+      } else {
+        pinAttemptLimits.set(rateLimitKey, {
+          attempts: currentAttempts,
+          lockedUntil: now + 30 * 1000,
+        });
+        const remaining = maxAttempts - currentAttempts;
+        return res.status(401).json({
+          success: false,
+          error: `Incorrect 4-digit PIN. ${remaining} attempt${remaining === 1 ? '' : 's'} remaining.`,
+          attemptsRemaining: remaining,
+        });
+      }
+    }
+
+    // Success: clear rate limit counter
+    pinAttemptLimits.delete(rateLimitKey);
+
+    const userId = matchedUser.id || matchedUser._id?.toString() || matchedUser.username;
+    const role = matchedUser.role || 'Member';
+    const token = generateSessionToken(userId, role);
+
+    const sanitized = {
+      id: userId,
+      username: matchedUser.username,
+      name: matchedUser.name || `${matchedUser.firstName || ''} ${matchedUser.lastName || ''}`.trim() || matchedUser.username,
+      email: matchedUser.email,
+      role: matchedUser.role,
+      avatar: matchedUser.avatar || '',
+      memberNumber: matchedUser.memberNumber || '',
+      hasPin: true,
+    };
+
+    return res.json({
+      success: true,
+      token,
+      user: sanitized,
+    });
+  } catch (err: any) {
+    console.error('PIN verification error:', err);
+    return res.status(500).json({ success: false, error: 'Internal server error verifying PIN.' });
+  }
 });
 
 // AUTH: Request Login Authorization OTP via Resend (strictly by registered Username)

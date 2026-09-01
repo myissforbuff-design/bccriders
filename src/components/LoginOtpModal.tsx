@@ -9,11 +9,13 @@ import {
   ArrowRight,
   Lock,
   Fingerprint,
+  KeyRound,
 } from 'lucide-react';
 import { OfficialDotSpinner } from './OfficialLoader';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
 import { authenticateBiometricCredential, getBiometricForUser } from '../lib/biometrics';
+import { getDevicePinForUser, verifyUserPin } from '../lib/pinAuth';
 import { formatApiUrl } from '../lib/db';
 
 interface LoginOtpModalProps {
@@ -45,13 +47,20 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
   const [countdown, setCountdown] = useState(60);
   const [expiryCountdown, setExpiryCountdown] = useState(300);
   const [hasBiometrics, setHasBiometrics] = useState(false);
+  const [hasPinEnrolled, setHasPinEnrolled] = useState(false);
   const [bioAuthenticating, setBioAuthenticating] = useState(false);
+  const [showPinEntry, setShowPinEntry] = useState(false);
+  const [quickPin, setQuickPin] = useState('');
+  const [pinVerifying, setPinVerifying] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   useEffect(() => {
     if (userId || usernameOrEmail) {
       const bio = getBiometricForUser(userId || usernameOrEmail);
       setHasBiometrics(Boolean(bio));
+
+      const pinCred = getDevicePinForUser(userId || usernameOrEmail);
+      setHasPinEnrolled(Boolean(pinCred));
     }
   }, [userId, usernameOrEmail]);
 
@@ -81,6 +90,34 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
       setError(err?.message || 'Biometric verification failed.');
     } finally {
       setBioAuthenticating(false);
+    }
+  };
+
+  const handleQuickPinSubmit = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (quickPin.length !== 4) {
+      setError('PIN must be 4 digits.');
+      return;
+    }
+
+    const targetUser = usernameOrEmail || userId || '';
+    if (!targetUser) return;
+
+    setError('');
+    setPinVerifying(true);
+    try {
+      const res = await verifyUserPin(targetUser, quickPin);
+      if (!res.success) {
+        setError(res.error || 'Invalid 4-digit PIN.');
+        setQuickPin('');
+        return;
+      }
+      const targetUserId = res.user?.id || userId || '';
+      onSuccess(targetUserId, res.token, res.user);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to verify PIN.');
+    } finally {
+      setPinVerifying(false);
     }
   };
 
@@ -421,6 +458,57 @@ export const LoginOtpModal: React.FC<LoginOtpModalProps> = ({
                     : 'Verify with Biometrics'}
                 </span>
               </button>
+            )}
+
+            {hasPinEnrolled && (
+              <div className="w-full space-y-2 -mt-1">
+                {showPinEntry ? (
+                  <div className="p-3 bg-[#f7f9f7] rounded-xl border border-[#b7e4c7] space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-[#1b4332] flex items-center gap-1.5">
+                        <KeyRound className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                        <span>Enter 4-Digit PIN:</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setShowPinEntry(false)}
+                        className="text-[10px] text-[#52605d] hover:text-[#1b4332] underline cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="password"
+                        maxLength={4}
+                        value={quickPin}
+                        onChange={(e) => setQuickPin(e.target.value.replace(/\D/g, ''))}
+                        placeholder="••••"
+                        className="flex-1 px-3 py-2 bg-white border border-[#e2ece2] rounded-lg text-center tracking-widest font-black text-sm text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleQuickPinSubmit()}
+                        disabled={pinVerifying || quickPin.length !== 4}
+                        className="px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black rounded-lg transition-colors cursor-pointer disabled:opacity-40"
+                      >
+                        {pinVerifying ? 'Verifying...' : 'Submit'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowPinEntry(true)}
+                    disabled={loading || bioAuthenticating}
+                    className="w-full py-2.5 px-3 rounded-xl bg-[#f0f9f1] hover:bg-[#d8f3dc] text-[#1b4332] font-extrabold text-xs border border-[#74c69d] transition-all cursor-pointer flex items-center justify-center gap-2 shadow-xs active:scale-[0.99]"
+                  >
+                    <KeyRound className="w-4 h-4 text-[#2d6a4f]" />
+                    <span>Verify with 4-Digit PIN</span>
+                  </button>
+                )}
+              </div>
             )}
 
             <p className="resendNote">

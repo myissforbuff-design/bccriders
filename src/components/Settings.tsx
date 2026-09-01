@@ -73,6 +73,7 @@ import {
   Upload,
   Fingerprint,
   Smartphone,
+  KeyRound,
 } from 'lucide-react';
 import {
   isBiometricsSupported,
@@ -82,6 +83,13 @@ import {
   getDeviceDescription,
   BiometricCredentialInfo,
 } from '../lib/biometrics';
+import {
+  getDevicePinForUser,
+  removeUserPin,
+  DevicePinInfo,
+  getPinDeviceName,
+} from '../lib/pinAuth';
+import { PinSetupModal } from './PinSetupModal';
 
 const MONTH_OPTIONS = [
   'January',
@@ -187,6 +195,14 @@ export const Settings: React.FC = () => {
   const [userBioCredential, setUserBioCredential] = useState<BiometricCredentialInfo | null>(null);
   const [bioSuccess, setBioSuccess] = useState<string | null>(null);
   const [bioError, setBioError] = useState<string | null>(null);
+
+  // 4-Digit PIN Authentication State
+  const [showPinSetupModal, setShowPinSetupModal] = useState(false);
+  const [userPinCredential, setUserPinCredential] = useState<DevicePinInfo | null>(null);
+  const [pinSuccess, setPinSuccess] = useState<string | null>(null);
+  const [pinError, setPinError] = useState<string | null>(null);
+  const [isRemovingPin, setIsRemovingPin] = useState(false);
+
   const [settingsNoticeModal, setSettingsNoticeModal] = useState<{ title: string; message: string; isError?: boolean } | null>(null);
 
   useEffect(() => {
@@ -197,8 +213,11 @@ export const Settings: React.FC = () => {
     if (currentUser?.id) {
       const cred = getBiometricForUser(currentUser.id);
       setUserBioCredential(cred);
+
+      const pinCred = getDevicePinForUser(currentUser.id) || getDevicePinForUser(currentUser.username);
+      setUserPinCredential(pinCred);
     }
-  }, [currentUser?.id]);
+  }, [currentUser?.id, currentUser?.username]);
 
   const handleRegisterBiometrics = async () => {
     if (!currentUser) return;
@@ -235,6 +254,22 @@ export const Settings: React.FC = () => {
       setBioError(null);
     } catch (err: any) {
       setBioError('Failed to remove biometric credential.');
+    }
+  };
+
+  const handleRemovePin = async () => {
+    if (!currentUser) return;
+    setIsRemovingPin(true);
+    setPinSuccess(null);
+    setPinError(null);
+    try {
+      await removeUserPin(currentUser.id, currentUser.username);
+      setUserPinCredential(null);
+      setPinSuccess('4-Digit PIN login removed successfully.');
+    } catch (err: any) {
+      setPinError('Failed to remove PIN.');
+    } finally {
+      setIsRemovingPin(false);
     }
   };
 
@@ -3800,6 +3835,103 @@ export const Settings: React.FC = () => {
             </div>
           </div>
 
+          {/* Card 3: 4-Digit Quick PIN Login (For Devices without Fingerprint) */}
+          <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#1b4332] text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5 sm:mt-0">
+                  <KeyRound className="w-5 h-5 text-[#74c69d]" />
+                </div>
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-heading font-black text-xs sm:text-sm md:text-base text-[#1b4332] leading-snug">
+                      4-Digit Quick PIN Login
+                    </h3>
+                    {userPinCredential ? (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1 shrink-0">
+                        <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                        Active on Device
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-stone-200 text-stone-700 border border-stone-300 flex items-center gap-1 shrink-0">
+                        Not Enrolled
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
+                    Set up a fast 4-digit security PIN for instant sign-in on devices or phones without a biometric fingerprint scanner.
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-[#e2ece2] shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPinSuccess(null);
+                    setPinError(null);
+                    setShowPinSetupModal(true);
+                  }}
+                  className="px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black rounded-xl transition-all shadow-xs flex items-center gap-2 cursor-pointer"
+                >
+                  <KeyRound className="w-3.5 h-3.5" />
+                  <span>
+                    {userPinCredential ? 'Change 4-Digit PIN' : 'Set Up 4-Digit PIN'}
+                  </span>
+                </button>
+                {userPinCredential && (
+                  <button
+                    type="button"
+                    onClick={handleRemovePin}
+                    disabled={isRemovingPin}
+                    className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-xl transition-colors cursor-pointer border border-rose-200 disabled:opacity-50"
+                  >
+                    {isRemovingPin ? 'Removing...' : 'Remove'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Live Feedback */}
+            {pinSuccess && (
+              <div className="p-3 bg-[#f0f9f1] border border-[#74c69d] rounded-xl flex items-center gap-2 text-[#1b4332] text-xs font-bold animate-fade-in">
+                <CheckCircle2 className="w-4 h-4 text-[#2d6a4f] shrink-0" />
+                <span>{pinSuccess}</span>
+              </div>
+            )}
+
+            {pinError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-center gap-2 text-rose-700 text-xs font-semibold animate-fade-in">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{pinError}</span>
+              </div>
+            )}
+
+            {/* Device Info */}
+            <div className="p-3 sm:p-3.5 rounded-xl bg-white border border-[#e2ece2] space-y-1.5 text-[11px] sm:text-xs">
+              <div className="flex items-center gap-1.5 font-extrabold text-[#1b4332]">
+                <Smartphone className="w-3.5 h-3.5 text-[#2d6a4f] shrink-0" />
+                <span>Device Enrolled Status</span>
+              </div>
+              <p className="text-[#52605d] leading-relaxed text-[11px]">
+                {userPinCredential
+                  ? `Configured for fast 4-digit PIN authentication on this browser (${userPinCredential.deviceName || getPinDeviceName()}).`
+                  : `Compatible with all desktop and mobile web browsers on ${getPinDeviceName()}.`}
+              </p>
+              {userPinCredential && (
+                <div className="pt-1.5 border-t border-[#f0f4f0] grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-[10px] sm:text-[11px] text-[#52605d]">
+                  <div>
+                    Enrolled username: <strong>@{userPinCredential.username}</strong>
+                  </div>
+                  <div>
+                    Configured on: <strong>{userPinCredential.createdAt ? new Date(userPinCredential.createdAt).toLocaleDateString() : 'Active'}</strong>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Section 3: Official Club Roles Management */}
           <div className="pt-2 border-t border-[#e2ece2]">
             <RolesSettings />
@@ -4493,6 +4625,27 @@ export const Settings: React.FC = () => {
       />
 
       <OfficialLoader isLoading={isProcessing} message="Deleting..." />
+
+      {/* 4-Digit PIN Setup / Update Modal */}
+      {currentUser && (
+        <PinSetupModal
+          isOpen={showPinSetupModal}
+          onClose={() => setShowPinSetupModal(false)}
+          currentUser={{
+            id: currentUser.id,
+            username: currentUser.username,
+            name: currentUser.name || currentUser.username,
+            avatar: currentUser.avatar,
+          }}
+          hasExistingPin={Boolean(userPinCredential)}
+          onSuccess={(msg) => {
+            setPinSuccess(msg);
+            setPinError(null);
+            const pinCred = getDevicePinForUser(currentUser.id) || getDevicePinForUser(currentUser.username);
+            setUserPinCredential(pinCred);
+          }}
+        />
+      )}
 
       {/* Settings Action / Error Notice Modal */}
       <ModalPortal>

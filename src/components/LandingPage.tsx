@@ -22,9 +22,12 @@ import {
   Clock,
   Facebook,
   Fingerprint,
+  KeyRound,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { authenticateBiometricCredential, getStoredBiometrics, isBiometricsSupported, isMobileDevice } from '../lib/biometrics';
+import { getStoredDevicePins, getDevicePinForUser } from '../lib/pinAuth';
+import { PinLoginModal } from './PinLoginModal';
 
 interface LandingPageProps {
   onLoginSuccess: () => void;
@@ -37,6 +40,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   const [showPassword, setShowPassword] = useState(false);
   const [showForgotPasswordModal, setShowForgotPasswordModal] = useState(false);
   const [showLoginOtpModal, setShowLoginOtpModal] = useState(false);
+  const [showPinLoginModal, setShowPinLoginModal] = useState(false);
   const [loginOtpData, setLoginOtpData] = useState<{ email: string; maskedEmail: string; userId?: string; user?: any }>({
     email: '',
     maskedEmail: '',
@@ -46,6 +50,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasStoredBiometrics, setHasStoredBiometrics] = useState(false);
+  const [hasStoredPins, setHasStoredPins] = useState(false);
   const [isBioLoading, setIsBioLoading] = useState(false);
   const [isMobileUser, setIsMobileUser] = useState(false);
 
@@ -67,6 +72,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
         setHasStoredBiometrics(creds.length > 0);
       }
     });
+
+    const pins = getStoredDevicePins();
+    setHasStoredPins(pins.length > 0);
   }, []);
 
   const handleBiometricLogin = async () => {
@@ -605,21 +613,50 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                     </button>
                   </div>
 
-                  {/* Fingerprint Biometric Button centered below (Mobile view only: visible on mobile screens, hidden on desktop md+ screens) */}
-                  <div className="flex md:hidden flex-col items-center justify-center pt-3 gap-1 animate-fade-in">
-                    <button
-                      type="button"
-                      id="biometric-icon-btn"
-                      onClick={handleBiometricLogin}
-                      disabled={loading || isBioLoading}
-                      title="Sign in with Fingerprint"
-                      aria-label="Sign in with Fingerprint"
-                      className="w-12 h-12 rounded-full bg-[#f0f9f1] hover:bg-[#d8f3dc] active:bg-[#b7e4c7] text-[#1b4332] border border-[#74c69d] transition-all cursor-pointer flex items-center justify-center shadow-xs hover:shadow-md active:scale-95 disabled:opacity-50 group"
-                    >
-                      <Fingerprint className={`w-6 h-6 text-[#1b4332] group-hover:scale-110 transition-transform ${isBioLoading ? 'animate-pulse text-[#2d6a4f]' : ''}`} />
-                    </button>
-                    <span className="text-[10px] text-[#52605d] font-semibold">
-                      Fingerprint Sign-in
+                  {/* Quick Access Actions (Fingerprint & 4-Digit PIN) */}
+                  <div className="flex flex-col items-center justify-center pt-3 gap-2 animate-fade-in border-t border-[#e2ece2]/60 mt-2">
+                    <div className="flex items-center justify-center gap-6">
+                      {/* Fingerprint Biometric Button */}
+                      <div className="flex flex-col items-center gap-1">
+                        <button
+                          type="button"
+                          id="biometric-icon-btn"
+                          onClick={handleBiometricLogin}
+                          disabled={loading || isBioLoading}
+                          title="Sign in with Fingerprint"
+                          aria-label="Sign in with Fingerprint"
+                          className="w-12 h-12 rounded-full bg-[#f0f9f1] hover:bg-[#d8f3dc] active:bg-[#b7e4c7] text-[#1b4332] border border-[#74c69d] transition-all cursor-pointer flex items-center justify-center shadow-xs hover:shadow-md active:scale-95 disabled:opacity-50 group"
+                        >
+                          <Fingerprint className={`w-6 h-6 text-[#1b4332] group-hover:scale-110 transition-transform ${isBioLoading ? 'animate-pulse text-[#2d6a4f]' : ''}`} />
+                        </button>
+                        <span className="text-[10px] text-[#52605d] font-semibold">
+                          Fingerprint
+                        </span>
+                      </div>
+
+                      {/* 4-Digit PIN Sign-in Button */}
+                      <div className="flex flex-col items-center gap-1">
+                        <button
+                          type="button"
+                          id="pin-login-icon-btn"
+                          onClick={() => {
+                            setError('');
+                            setShowPinLoginModal(true);
+                          }}
+                          disabled={loading || isBioLoading}
+                          title="Sign in with 4-Digit PIN"
+                          aria-label="Sign in with 4-Digit PIN"
+                          className="w-12 h-12 rounded-full bg-[#f0f9f1] hover:bg-[#d8f3dc] active:bg-[#b7e4c7] text-[#1b4332] border border-[#74c69d] transition-all cursor-pointer flex items-center justify-center shadow-xs hover:shadow-md active:scale-95 disabled:opacity-50 group"
+                        >
+                          <KeyRound className="w-5 h-5 text-[#1b4332] group-hover:scale-110 transition-transform" />
+                        </button>
+                        <span className="text-[10px] text-[#52605d] font-semibold">
+                          4-Digit PIN
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-[9px] text-[#52605d]/80">
+                      Quick sign-in with Fingerprint or 4-Digit PIN
                     </span>
                   </div>
                 </form>
@@ -645,6 +682,20 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
             usernameOrEmail={username.trim()}
             passwordAttempt={password.trim()}
             onSuccess={handleLoginOtpSuccess}
+          />
+
+          <PinLoginModal
+            isOpen={showPinLoginModal}
+            onClose={() => setShowPinLoginModal(false)}
+            initialUsername={username.trim()}
+            onSuccess={(user, token) => {
+              setShowPinLoginModal(false);
+              loginWithUserId(user, token);
+              onLoginSuccess();
+            }}
+            onFallbackToPassword={() => {
+              setShowPinLoginModal(false);
+            }}
           />
 
           <OfficialLoader
