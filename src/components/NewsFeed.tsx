@@ -745,13 +745,20 @@ export const NewsFeed: React.FC = () => {
                 {/* Media Attachment (Photo or Video with Google Drive integration) */}
                 {post.mediaUrl && (
                   <div className="mt-2.5 rounded-lg sm:rounded-xl overflow-hidden border border-[#e2ece2] bg-[#0c1a14] relative group">
-                    {post.mediaType === 'video' || post.mediaUrl.includes('.mp4') || post.mediaUrl.startsWith('data:video') ? (
+                    {post.mediaType === 'video' || post.mediaUrl.includes('.mp4') || post.mediaUrl.startsWith('data:video') || (post.driveFileId && post.mediaType === 'video') ? (
                       <div className="relative">
                         <video
-                          src={post.mediaUrl}
+                          src={
+                            post.driveFileId
+                              ? `/api/drive/file/${post.driveFileId}`
+                              : post.mediaUrl.startsWith('https://lh3.googleusercontent.com/d/')
+                              ? `/api/drive/file/${post.mediaUrl.replace('https://lh3.googleusercontent.com/d/', '')}`
+                              : post.mediaUrl
+                          }
                           controls
                           playsInline
-                          className="w-full max-h-[320px] object-contain mx-auto bg-black"
+                          preload="metadata"
+                          className="w-full max-h-[340px] object-contain mx-auto bg-black"
                         />
                         <div className="absolute top-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-xs text-white text-[9.5px] font-bold flex items-center gap-1">
                           <VideoIcon className="w-2.5 h-2.5 text-[#74c69d]" />
@@ -1655,13 +1662,23 @@ export const NewsFeed: React.FC = () => {
             onClick={() => setLightboxMedia(null)}
             className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex items-center justify-center p-4 cursor-zoom-out"
           >
-            <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center">
-              <img
-                src={lightboxMedia.url}
-                alt="Full preview"
-                className="max-h-[80vh] max-w-full rounded-lg object-contain"
-                referrerPolicy="no-referrer"
-              />
+            <div className="relative max-w-4xl max-h-[90vh] flex flex-col items-center" onClick={(e) => e.stopPropagation()}>
+              {lightboxMedia.type === 'video' ? (
+                <video
+                  src={lightboxMedia.url}
+                  controls
+                  autoPlay
+                  playsInline
+                  className="max-h-[80vh] max-w-full rounded-lg object-contain bg-black shadow-2xl"
+                />
+              ) : (
+                <img
+                  src={lightboxMedia.url}
+                  alt="Full preview"
+                  className="max-h-[80vh] max-w-full rounded-lg object-contain"
+                  referrerPolicy="no-referrer"
+                />
+              )}
               <button
                 type="button"
                 onClick={() => setLightboxMedia(null)}

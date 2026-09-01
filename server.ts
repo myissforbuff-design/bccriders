@@ -198,7 +198,7 @@ function getGoogleDriveClient() {
     process.env.DRIVE_FOLDER_ID ||
     process.env.GOOGLE_FOLDER_ID ||
     process.env.SHARED_DRIVE_FOLDER_ID ||
-    ''
+    '0AGPGJ8Knm3Y7Uk9PVA'
   ).trim();
   const folderId = cleanDriveFolderId(rawFolderId);
 
@@ -428,10 +428,12 @@ async function uploadBase64ToGoogleDrive(
       console.warn('[Google Drive] Permission set warning (parent folder may already be shared):', permErr);
     }
 
-    // Direct Google CDN thumbnail/stream URL (ultra-fast, globally cached, no auth required)
-    const directUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
+    // For video files, provide the proxy streaming URL (/api/drive/file/{fileId}) to support HTML5 video player Range requests
+    const isVideo = mimeType.startsWith('video/') || extension === 'mp4' || extension === 'mov' || extension === 'webm';
+    const streamUrl = isVideo ? `/api/drive/file/${fileId}` : `https://lh3.googleusercontent.com/d/${fileId}`;
+
     return {
-      url: directUrl,
+      url: streamUrl,
       fileId,
       webViewLink: res.data.webViewLink || `https://drive.google.com/file/d/${fileId}/view`,
     };
@@ -3603,7 +3605,7 @@ app.post('/api/drive/test-connection', async (req, res) => {
   }
 });
 
-// Proxy stream to serve Google Drive images even if external domain permissions are strict
+// Proxy stream to serve Google Drive images and videos with Range streaming support
 app.get('/api/drive/file/:fileId', async (req, res) => {
   const { fileId } = req.params;
   if (!fileId || typeof fileId !== 'string') {
@@ -3617,14 +3619,36 @@ app.get('/api/drive/file/:fileId', async (req, res) => {
 
   try {
     const { drive } = driveInfo;
+    
+    // Get file metadata for proper content type and streaming headers
+    const metaRes = await drive.files.get({
+      fileId,
+      fields: 'id, name, mimeType, size',
+      supportsAllDrives: true,
+    }).catch(() => null);
+
+    const mimeType = metaRes?.data?.mimeType || 'application/octet-stream';
+    const range = req.headers.range;
+
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', mimeType);
+    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+
     const fileRes = await drive.files.get(
       { fileId, alt: 'media', supportsAllDrives: true },
-      { responseType: 'stream' }
+      {
+        responseType: 'stream',
+        headers: range ? { Range: range } : undefined,
+      }
     );
-    res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
+
+    if (range && metaRes?.data?.size) {
+      res.status(206);
+    }
+
     fileRes.data.pipe(res);
   } catch (err: any) {
-    // Redirect to public CDN URL as fallback
+    // Redirect to public preview stream as fallback
     res.redirect(`https://lh3.googleusercontent.com/d/${fileId}`);
   }
 });
