@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import { useLoader } from '../context/LoaderContext';
-import { store, authFetch } from '../lib/db';
+import { store, authFetch, safeFetchJson, setCachedData } from '../lib/db';
 import { loadFromSession, saveToSession } from '../lib/storageSecurity';
 import { CustomSelect } from './CustomSelect';
 import { useModalDismiss } from '../hooks/useModalDismiss';
@@ -600,15 +600,17 @@ export const Settings: React.FC = () => {
     setReportUsers(uList);
 
     // Payments & Dues (Include Membership Fees, Dues, and all Finance Records, Exclude Admin)
-    let finList: any[] = [];
-    try {
-      const item = localStorage.getItem('bcc_finance_records_v3');
-      if (item) {
-        const parsed = JSON.parse(item);
-        if (Array.isArray(parsed)) finList = parsed;
+    let finList: any[] = store.getFinanceRecords();
+    if (!Array.isArray(finList) || finList.length === 0) {
+      try {
+        const item = localStorage.getItem('bcc_finance_records_v3');
+        if (item) {
+          const parsed = JSON.parse(item);
+          if (Array.isArray(parsed)) finList = parsed;
+        }
+      } catch (e) {
+        console.error(e);
       }
-    } catch (e) {
-      console.error(e);
     }
 
     // Combine with store payments if any missing
@@ -657,12 +659,37 @@ export const Settings: React.FC = () => {
 
     setReportPayments(filterNonAdminPayments(combinedPayments));
 
-    authFetch('/api/mongodb/financeLogs')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.data)) {
-          setReportPayments(filterNonAdminPayments(data.data));
-          localStorage.setItem('bcc_finance_records_v3', JSON.stringify(data.data));
+    Promise.all([
+      safeFetchJson('/api/mongodb/financeLogs'),
+      safeFetchJson('/api/mongodb/monthlyDueLogs'),
+    ])
+      .then(([finData, mdData]) => {
+        let combined: any[] = [];
+        let deletedRecordIds: string[] = [];
+        try {
+          deletedRecordIds = loadFromSession<string[]>('bcc_deleted_finance_record_ids', []);
+        } catch (e) {}
+
+        if (finData.success && Array.isArray(finData.data)) {
+          combined = [...combined, ...finData.data];
+        }
+        if (mdData.success && Array.isArray(mdData.data)) {
+          const seen = new Set(combined.map((r: any) => r.id));
+          mdData.data.forEach((r: any) => {
+            if (!seen.has(r.id)) {
+              combined.push(r);
+              seen.add(r.id);
+            }
+          });
+        }
+        if (combined.length > 0) {
+          if (deletedRecordIds.length > 0) {
+            combined = combined.filter((r: any) => !deletedRecordIds.includes(r.id));
+          }
+          setReportPayments(filterNonAdminPayments(combined));
+          localStorage.setItem('bcc_finance_records_v3', JSON.stringify(combined));
+          saveToSession('bcc_finance_records_v3', combined);
+          setCachedData('bcc_finance_records_v3', combined);
         }
       })
       .catch(() => {});
@@ -924,7 +951,7 @@ export const Settings: React.FC = () => {
     return { headers, rows };
   };
 
-  const getFinancialStatementReportData = () => {
+  const calculateFinancialStatementMetrics = () => {
     const pFiltered = reportPayments.filter((p) =>
       isRecordInPeriod(
         [p.paidDate, p.createdAt, p.coveredMonth, p.dueDate],
@@ -941,7 +968,11 @@ export const Settings: React.FC = () => {
       )
     );
 
-    const paidPayments = pFiltered.filter((p) => p.status === 'Paid');
+    const paidPayments = pFiltered.filter(
+      (p) =>
+        p.status === 'Paid' &&
+        (!p.notes?.includes('Satisfied by Annual Upfront Promo Package') || p.itemType !== 'Monthly Due')
+    );
     const pendingPayments = pFiltered.filter(
       (p) => p.status === 'Pending' || p.status === 'Overdue'
     );
@@ -955,10 +986,61 @@ export const Settings: React.FC = () => {
       0
     );
     const netSurplus = totalIncome - totalExpenses;
-    const totalReceivables = pendingPayments.reduce(
+
+    // Accounts Receivable: Calculate remaining monthly dues that haven't been collected across approved members
+    const activeMembers = reportUsers.filter(
+      (u) =>
+        u.role !== 'admin' &&
+        u.role?.toLowerCase() !== 'admin' &&
+        u.id !== 'usr_admin' &&
+        u.id !== 'admin' &&
+        (u.approvalStatus === 'Approved' || (!u.approvalStatus && u.role !== 'admin'))
+    );
+
+    const activeDues = store.getMonthlyDues().filter((d) => {
+      const coveredMonthStr = `${d.month} ${d.year}`;
+      return isRecordInPeriod([d.createdAt, coveredMonthStr, String(d.year)], reportYearFilter, reportMonthFilter);
+    });
+
+    let uncollectedMonthlyDuesTotal = 0;
+    activeMembers.forEach((member) => {
+      const memberPayments = reportPayments.filter((p) => p.userId === member.id);
+      activeDues.forEach((due) => {
+        const coveredMonthStr = `${due.month} ${due.year}`;
+        const hasPromo = memberPayments.some(
+          (p) =>
+            p.itemType === 'Annual Upfront Promo' &&
+            p.status === 'Paid' &&
+            (p.coveredMonth?.includes(String(due.year)) || p.customItemName?.includes(String(due.year)) || !p.coveredMonth)
+        );
+        if (hasPromo) return;
+
+        const isPaidOrWaived = memberPayments.some(
+          (p) =>
+            p.itemType === 'Monthly Due' &&
+            (p.status === 'Paid' || p.status === 'Waived') &&
+            (p.coveredMonth === coveredMonthStr || p.customItemName === due.title || p.id === `rec_md_${due.id}_${member.id}` || p.id === `rec_md_${due.id.replace(/^md_/, '')}_${member.id}`)
+        );
+        if (isPaidOrWaived) return;
+
+        const hasExplicitPending = pendingPayments.some(
+          (p) =>
+            p.userId === member.id &&
+            p.itemType === 'Monthly Due' &&
+            (p.coveredMonth === coveredMonthStr || p.customItemName === due.title || p.id.includes(due.id))
+        );
+
+        if (!hasExplicitPending) {
+          uncollectedMonthlyDuesTotal += Number(due.amount) || 0;
+        }
+      });
+    });
+
+    const explicitPendingTotal = pendingPayments.reduce(
       (acc, p) => acc + (Number(p.amount) || 0),
       0
     );
+    const totalReceivables = explicitPendingTotal + uncollectedMonthlyDuesTotal;
     const totalDiscount = paidPayments.filter((p) => p.itemType === 'Annual Upfront Promo').length * 200;
 
     const incomeByType: Record<string, number> = {};
@@ -970,9 +1052,34 @@ export const Settings: React.FC = () => {
     const expenseByCategory: Record<string, number> = {};
     eFiltered.forEach((e) => {
       const key = e.category || 'General Expense';
-      expenseByCategory[key] =
-        (expenseByCategory[key] || 0) + (Number(e.amount) || 0);
+      expenseByCategory[key] = (expenseByCategory[key] || 0) + (Number(e.amount) || 0);
     });
+
+    return {
+      pFiltered,
+      eFiltered,
+      paidPayments,
+      pendingPayments,
+      totalIncome,
+      totalExpenses,
+      netSurplus,
+      totalReceivables,
+      totalDiscount,
+      incomeByType,
+      expenseByCategory,
+    };
+  };
+
+  const getFinancialStatementReportData = () => {
+    const {
+      totalIncome,
+      totalExpenses,
+      netSurplus,
+      totalReceivables,
+      totalDiscount,
+      incomeByType,
+      expenseByCategory,
+    } = calculateFinancialStatementMetrics();
 
     const headers = ['Account / Line Item', 'Amount (PHP)'];
 
@@ -1019,54 +1126,15 @@ export const Settings: React.FC = () => {
   };
 
   const exportFinancialStatementPDF = () => {
-    const pFiltered = reportPayments.filter((p) =>
-      isRecordInPeriod(
-        [p.paidDate, p.createdAt, p.coveredMonth, p.dueDate],
-        reportYearFilter,
-        reportMonthFilter
-      )
-    );
-
-    const eFiltered = reportExpenses.filter((e) =>
-      isRecordInPeriod(
-        [e.date, e.createdAt],
-        reportYearFilter,
-        reportMonthFilter
-      )
-    );
-
-    const paidPayments = pFiltered.filter((p) => p.status === 'Paid');
-    const pendingPayments = pFiltered.filter(
-      (p) => p.status === 'Pending' || p.status === 'Overdue'
-    );
-
-    const totalIncome = paidPayments.reduce(
-      (acc, p) => acc + (Number(p.amount) || 0),
-      0
-    );
-    const totalExpenses = eFiltered.reduce(
-      (acc, e) => acc + (Number(e.amount) || 0),
-      0
-    );
-    const netSurplus = totalIncome - totalExpenses;
-    const totalReceivables = pendingPayments.reduce(
-      (acc, p) => acc + (Number(p.amount) || 0),
-      0
-    );
-    const totalDiscount = paidPayments.filter((p) => p.itemType === 'Annual Upfront Promo').length * 200;
-
-    const incomeByType: Record<string, number> = {};
-    paidPayments.forEach((p) => {
-      const key = p.itemType || p.type || 'Other Funds';
-      incomeByType[key] = (incomeByType[key] || 0) + (Number(p.amount) || 0);
-    });
-
-    const expenseByCategory: Record<string, number> = {};
-    eFiltered.forEach((e) => {
-      const key = e.category || 'General Expense';
-      expenseByCategory[key] =
-        (expenseByCategory[key] || 0) + (Number(e.amount) || 0);
-    });
+    const {
+      totalIncome,
+      totalExpenses,
+      netSurplus,
+      totalReceivables,
+      totalDiscount,
+      incomeByType,
+      expenseByCategory,
+    } = calculateFinancialStatementMetrics();
 
     const doc = new jsPDF({
       orientation: 'portrait',
@@ -2146,48 +2214,50 @@ export const Settings: React.FC = () => {
         {/* SIGN OUT CONFIRMATION MODAL FOR MEMBER */}
         <AnimatePresence>
           {showLogoutModal && (
-            <div className="fixed inset-0 z-[100] bg-black/70 backdrop-blur-md flex items-center justify-center p-3.5 sm:p-4">
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full text-center space-y-4 border border-[#e2ece2] shadow-2xl relative"
-              >
-                <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
-                  <LogOut className="w-6 h-6" />
-                </div>
+            <ModalPortal>
+              <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3.5 sm:p-4">
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  className="bg-white rounded-2xl sm:rounded-3xl p-5 sm:p-6 max-w-sm w-full text-center space-y-4 border border-[#e2ece2] shadow-2xl relative"
+                >
+                  <div className="w-12 h-12 bg-rose-100 rounded-full flex items-center justify-center mx-auto text-rose-600 shadow-inner">
+                    <LogOut className="w-6 h-6" />
+                  </div>
 
-                <div className="space-y-1">
-                  <h3 className="font-heading text-base font-extrabold text-[#1b4332]">
-                    Sign Out of Account?
-                  </h3>
-                  <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
-                    Are you sure you want to sign out of your account? You will need to log in again to access the BCC Riders Club app.
-                  </p>
-                </div>
+                  <div className="space-y-1">
+                    <h3 className="font-heading text-base font-extrabold text-[#1b4332]">
+                      Sign Out of Account?
+                    </h3>
+                    <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
+                      Are you sure you want to sign out of your account? You will need to log in again to access the BCC Riders Club app.
+                    </p>
+                  </div>
 
-                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#e2ece2]">
-                  <button
-                    type="button"
-                    onClick={() => setShowLogoutModal(false)}
-                    className="flex-1 px-3.5 py-2 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowLogoutModal(false);
-                      logout();
-                    }}
-                    className="flex-1 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
-                  >
-                    <LogOut className="w-3.5 h-3.5" />
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-              </motion.div>
-            </div>
+                  <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#e2ece2]">
+                    <button
+                      type="button"
+                      onClick={() => setShowLogoutModal(false)}
+                      className="flex-1 px-3.5 py-2 rounded-xl border border-[#e2ece2] text-[#52605d] hover:bg-[#f7f9f7] font-extrabold text-xs transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowLogoutModal(false);
+                        logout();
+                      }}
+                      className="flex-1 px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs transition-colors shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out</span>
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            </ModalPortal>
           )}
         </AnimatePresence>
         {/* 4-Digit PIN Setup / Update Modal for Member */}
@@ -2979,6 +3049,7 @@ export const Settings: React.FC = () => {
                   {reportPayments
                     .filter((p) =>
                       p.status === 'Paid' &&
+                      (!p.notes?.includes('Satisfied by Annual Upfront Promo Package') || p.itemType !== 'Monthly Due') &&
                       isRecordInPeriod([p.paidDate, p.createdAt, p.coveredMonth, p.dueDate], reportYearFilter, reportMonthFilter)
                     )
                     .reduce((acc, p) => acc + (Number(p.amount) || 0), 0)
@@ -3017,6 +3088,7 @@ export const Settings: React.FC = () => {
                     reportPayments
                       .filter((p) =>
                         p.status === 'Paid' &&
+                        (!p.notes?.includes('Satisfied by Annual Upfront Promo Package') || p.itemType !== 'Monthly Due') &&
                         isRecordInPeriod([p.paidDate, p.createdAt, p.coveredMonth, p.dueDate], reportYearFilter, reportMonthFilter)
                       )
                       .reduce((acc, p) => acc + (Number(p.amount) || 0), 0) -
@@ -3560,141 +3632,143 @@ export const Settings: React.FC = () => {
           {/* Interactive Report Data Preview Modal */}
           <AnimatePresence>
             {previewModal && (
-              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="bg-white rounded-3xl max-w-4xl w-full max-h-[85vh] flex flex-col border border-[#e2ece2] shadow-2xl overflow-hidden"
-                >
-                  {/* Modal Header */}
-                  <div className="p-4 sm:p-6 bg-[#f7f9f7] border-b border-[#e2ece2] flex items-center justify-between gap-4">
-                    <div>
-                      <h3 className="font-heading font-black text-base sm:text-lg text-[#1b4332] flex items-center gap-2">
-                        <Table className="w-5 h-5 text-[#2d6a4f]" />
-                        {previewModal.title}
-                      </h3>
-                      <p className="text-xs text-[#52605d] mt-0.5">{previewModal.subtitle}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewModal(null)}
-                      className="p-2 rounded-full hover:bg-stone-200 text-stone-600 transition-colors cursor-pointer"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-
-                  {/* Modal Scrollable Table Body */}
-                  <div className="p-4 sm:p-6 overflow-auto flex-1">
-                    {previewModal.rows.length === 0 ? (
-                      <div className="text-center py-12 text-xs text-[#52605d] font-bold">
-                        No records found for the selected period filter.
+              <ModalPortal>
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 md:p-6 bg-black/70 backdrop-blur-md overflow-y-auto">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="bg-white rounded-2xl sm:rounded-3xl max-w-4xl w-full max-h-[88vh] flex flex-col border border-[#e2ece2] shadow-2xl overflow-hidden my-auto"
+                  >
+                    {/* Modal Header */}
+                    <div className="p-4 sm:p-6 bg-[#f7f9f7] border-b border-[#e2ece2] flex items-center justify-between gap-4">
+                      <div>
+                        <h3 className="font-heading font-black text-base sm:text-lg text-[#1b4332] flex items-center gap-2">
+                          <Table className="w-5 h-5 text-[#2d6a4f]" />
+                          {previewModal.title}
+                        </h3>
+                        <p className="text-xs text-[#52605d] mt-0.5">{previewModal.subtitle}</p>
                       </div>
-                    ) : (
-                      <div
-                        ref={modalScrollRef}
-                        onMouseDown={handleModalMouseDown}
-                        onMouseLeave={handleModalMouseLeaveOrUp}
-                        onMouseUp={handleModalMouseLeaveOrUp}
-                        onMouseMove={handleModalMouseMove}
-                        className={`border border-[#e2ece2] rounded-2xl overflow-x-auto shadow-xs select-none touch-pan-x ${
-                          isDraggingModal ? 'cursor-grabbing' : 'cursor-grab'
-                        }`}
-                      >
-                          <table className="w-full text-left text-xs min-w-max">
-                            <thead className="bg-[#1b4332] text-white font-extrabold uppercase text-[10px] tracking-wider">
-                              <tr>
-                                {previewModal.headers.map((h, i) => (
-                                  <th key={i} className="px-3.5 py-2.5 whitespace-nowrap">
-                                    {h}
-                                  </th>
-                                ))}
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-[#e2ece2] bg-white font-medium text-[#1b4332]">
-                              {previewModal.rows.slice(0, 100).map((row, rIdx) => {
-                                const firstCell = String(row[0] || '').trim();
-                                if (firstCell.startsWith('---') || firstCell.startsWith('===')) {
-                                  return null;
-                                }
-                                const isHeaderRow = ['FUNDS', 'EXPENSES', 'SUPPLEMENTARY ACCOUNTS', 'BCC RIDERS CLUB - FINANCIAL STATEMENT'].includes(firstCell);
-                                const isTotalRow = firstCell.startsWith('Total') || firstCell.startsWith('NET INCOME');
-
-                                return (
-                                  <tr
-                                    key={rIdx}
-                                    className={`hover:bg-[#f7f9f7] transition-colors ${
-                                      isHeaderRow ? 'bg-[#e8f5e9] font-black text-[#1b4332]' : ''
-                                    } ${isTotalRow ? 'bg-[#f0f7f4] font-black text-[#1b4332]' : ''}`}
-                                  >
-                                    {row.map((cell, cIdx) => (
-                                      <td
-                                        key={cIdx}
-                                        className={`px-3.5 py-2 whitespace-nowrap max-w-sm truncate ${
-                                          cIdx === 1 ? 'text-right font-mono font-bold' : ''
-                                        }`}
-                                      >
-                                        {String(cell)}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                );
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    {previewModal.rows.length > 50 && (
-                      <p className="text-[11px] text-[#52605d] italic text-center mt-3">
-                        Showing first 50 rows of {previewModal.rows.length} total records. Download .xlsx to view full dataset.
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Modal Footer */}
-                  <div className="p-4 bg-[#f7f9f7] border-t border-[#e2ece2] flex items-center justify-between gap-3">
-                    <span className="text-xs font-bold text-[#52605d]">
-                      {previewModal.rows.length} Total Rows Recorded
-                    </span>
-                    <div className="flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => setPreviewModal(null)}
-                        className="px-4 py-2 rounded-xl border border-[#e2ece2] text-xs font-bold text-[#52605d] hover:bg-white cursor-pointer"
+                        className="p-2 rounded-full hover:bg-stone-200 text-stone-600 transition-colors cursor-pointer"
                       >
-                        Close
+                        <X className="w-5 h-5" />
                       </button>
-                      {previewModal.onPdfDownload && (
+                    </div>
+
+                    {/* Modal Scrollable Table Body */}
+                    <div className="p-4 sm:p-6 overflow-auto flex-1">
+                      {previewModal.rows.length === 0 ? (
+                        <div className="text-center py-12 text-xs text-[#52605d] font-bold">
+                          No records found for the selected period filter.
+                        </div>
+                      ) : (
+                        <div
+                          ref={modalScrollRef}
+                          onMouseDown={handleModalMouseDown}
+                          onMouseLeave={handleModalMouseLeaveOrUp}
+                          onMouseUp={handleModalMouseLeaveOrUp}
+                          onMouseMove={handleModalMouseMove}
+                          className={`border border-[#e2ece2] rounded-2xl overflow-x-auto shadow-xs select-none touch-pan-x ${
+                            isDraggingModal ? 'cursor-grabbing' : 'cursor-grab'
+                          }`}
+                        >
+                            <table className="w-full text-left text-xs min-w-max">
+                              <thead className="bg-[#1b4332] text-white font-extrabold uppercase text-[10px] tracking-wider">
+                                <tr>
+                                  {previewModal.headers.map((h, i) => (
+                                    <th key={i} className="px-3.5 py-2.5 whitespace-nowrap">
+                                      {h}
+                                    </th>
+                                  ))}
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-[#e2ece2] bg-white font-medium text-[#1b4332]">
+                                {previewModal.rows.slice(0, 100).map((row, rIdx) => {
+                                  const firstCell = String(row[0] || '').trim();
+                                  if (firstCell.startsWith('---') || firstCell.startsWith('===')) {
+                                    return null;
+                                  }
+                                  const isHeaderRow = ['FUNDS', 'EXPENSES', 'SUPPLEMENTARY ACCOUNTS', 'BCC RIDERS CLUB - FINANCIAL STATEMENT'].includes(firstCell);
+                                  const isTotalRow = firstCell.startsWith('Total') || firstCell.startsWith('NET INCOME');
+
+                                  return (
+                                    <tr
+                                      key={rIdx}
+                                      className={`hover:bg-[#f7f9f7] transition-colors ${
+                                        isHeaderRow ? 'bg-[#e8f5e9] font-black text-[#1b4332]' : ''
+                                      } ${isTotalRow ? 'bg-[#f0f7f4] font-black text-[#1b4332]' : ''}`}
+                                    >
+                                      {row.map((cell, cIdx) => (
+                                        <td
+                                          key={cIdx}
+                                          className={`px-3.5 py-2 whitespace-nowrap max-w-sm truncate ${
+                                            cIdx === 1 ? 'text-right font-mono font-bold' : ''
+                                          }`}
+                                        >
+                                          {String(cell)}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      {previewModal.rows.length > 50 && (
+                        <p className="text-[11px] text-[#52605d] italic text-center mt-3">
+                          Showing first 50 rows of {previewModal.rows.length} total records. Download .xlsx to view full dataset.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Modal Footer */}
+                    <div className="p-4 bg-[#f7f9f7] border-t border-[#e2ece2] flex items-center justify-between gap-3">
+                      <span className="text-xs font-bold text-[#52605d]">
+                        {previewModal.rows.length} Total Rows Recorded
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setPreviewModal(null)}
+                          className="px-4 py-2 rounded-xl border border-[#e2ece2] text-xs font-bold text-[#52605d] hover:bg-white cursor-pointer"
+                        >
+                          Close
+                        </button>
+                        {previewModal.onPdfDownload && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              previewModal.onPdfDownload!();
+                              setPreviewModal(null);
+                            }}
+                            className="px-4 py-2 rounded-xl bg-purple-900 hover:bg-purple-950 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                            title="Export PDF"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>PDF</span>
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={() => {
-                            previewModal.onPdfDownload!();
+                            previewModal.onDownload();
                             setPreviewModal(null);
                           }}
-                          className="px-4 py-2 rounded-xl bg-purple-900 hover:bg-purple-950 text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
-                          title="Export PDF"
+                          className="px-4 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
+                          title="Export Excel (.xlsx)"
                         >
-                          <FileText className="w-3.5 h-3.5" />
-                          <span>PDF</span>
+                          <Download className="w-3.5 h-3.5" />
+                          <span>.xlsx</span>
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          previewModal.onDownload();
-                          setPreviewModal(null);
-                        }}
-                        className="px-4 py-2 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black shadow-xs flex items-center gap-1.5 cursor-pointer"
-                        title="Export Excel (.xlsx)"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        <span>.xlsx</span>
-                      </button>
+                      </div>
                     </div>
-                  </div>
-                </motion.div>
-              </div>
+                  </motion.div>
+                </div>
+              </ModalPortal>
             )}
           </AnimatePresence>
         </div>

@@ -483,7 +483,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
               </div>
 
               <p className="text-[#52605d] text-base sm:text-lg leading-relaxed max-w-2xl">
-                Revelation 19:11 &ensp;"Then I saw heaven opened, and suddenly a white horse appeared. The name of the one riding it was Faithful and True, and with pure righteousness he judges and rides to battle."
+                <strong className="text-black font-semibold">Revelation 19:11</strong> &ensp;"Then I saw heaven opened, and suddenly a white horse appeared. The name of the one riding it was Faithful and True, and with pure righteousness he judges and rides to battle."
               </p>
 
               <div className="pt-2 flex flex-wrap items-center gap-2">

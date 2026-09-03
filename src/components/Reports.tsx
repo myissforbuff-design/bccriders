@@ -6,6 +6,7 @@ import {
   Download,
   Users,
   DollarSign,
+  Coins,
   Trophy,
   Calendar,
   CheckCircle2,
@@ -28,9 +29,10 @@ export const Reports: React.FC = () => {
   const activeMembers = members.filter((m) => m.approvalStatus === 'Approved' || m.approvalStatus !== 'Pending').length;
   const pendingMembers = members.filter((m) => m.approvalStatus === 'Pending').length;
 
-  const duesRevenue = payments
-    .filter((p) => p.status === 'Paid')
-    .reduce((sum, p) => sum + p.amount, 0);
+  const financeRecords = store.getFinanceRecords();
+  const duesRevenue = financeRecords
+    .filter((p) => p.status === 'Paid' && (!p.notes?.includes('Satisfied by Annual Upfront Promo Package') || p.itemType !== 'Monthly Due'))
+    .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
   const totalMiles = members.reduce((sum, m) => sum + (m.totalMiles || 0), 0);
 
@@ -125,15 +127,15 @@ export const Reports: React.FC = () => {
           <div className="space-y-1">
             <span className="text-xs text-[#52605d] font-semibold">Annual Dues Revenue</span>
             <p className="font-heading text-2xl font-extrabold text-[#1b4332]">
-              ${duesRevenue.toLocaleString()}
+              ₱{duesRevenue.toLocaleString(undefined, { minimumFractionDigits: 2 })}
             </p>
             <span className="text-[11px] text-[#2d6a4f] font-medium flex items-center gap-1">
               <CheckCircle2 className="w-3 h-3 text-[#2d6a4f]" />
-              {payments.filter((p) => p.status === 'Paid').length} paid receipts
+              {financeRecords.filter((p) => p.status === 'Paid').length} paid receipts
             </span>
           </div>
           <div className="p-3 rounded-2xl bg-[#d8f3dc] text-[#1b4332]">
-            <DollarSign className="w-6 h-6" />
+            <Coins className="w-6 h-6" />
           </div>
         </div>
 

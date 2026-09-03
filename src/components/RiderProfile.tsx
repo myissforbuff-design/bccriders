@@ -400,21 +400,21 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
 
       {/* Admin Inspector Notice Header */}
       {isUserAdmin && (
-        <div className="p-3.5 sm:p-4 rounded-2xl bg-[#1b4332] border border-[#2d6a4f] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs max-w-sm sm:max-w-md mx-auto">
+        <div className="p-3.5 sm:p-4 lg:p-5 rounded-2xl lg:rounded-3xl bg-[#1b4332] border border-[#2d6a4f] text-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs max-w-sm sm:max-w-md lg:max-w-4xl xl:max-w-5xl mx-auto">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="p-2 rounded-xl bg-[#2d6a4f] text-[#74c69d] shrink-0">
               <ShieldCheck className="w-4 h-4 sm:w-5 sm:h-5" />
             </div>
             <div className="min-w-0">
-              <h3 className="font-heading font-bold text-xs sm:text-sm text-white truncate">Admin Inspector</h3>
-              <p className="text-[10.5px] text-[#d8f3dc]/80 truncate">
+              <h3 className="font-heading font-bold text-xs sm:text-sm lg:text-base text-white truncate">Admin Inspector</h3>
+              <p className="text-[10.5px] lg:text-xs text-[#d8f3dc]/80 truncate">
                 Select a rider to inspect their profile card & details.
               </p>
             </div>
           </div>
 
           {riderMembers.length > 0 && (
-            <div className="w-full sm:w-auto min-w-[170px]">
+            <div className="w-full sm:w-auto min-w-[170px] lg:min-w-[240px]">
               <CustomSelect
                 value={activeRider.id}
                 onChange={(riderId) => {
@@ -442,11 +442,11 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
       )}
 
       {/* Profile Card Container Matching Provided Design */}
-      <div className="w-full max-w-sm sm:max-w-md mx-auto">
-        <div className="relative bg-white rounded-[24px] sm:rounded-[28px] overflow-hidden border border-[#e2ece2] shadow-xl text-[#1b4332] pb-5">
+      <div className="w-full max-w-sm sm:max-w-md lg:max-w-4xl xl:max-w-5xl mx-auto">
+        <div className="relative bg-white rounded-[24px] sm:rounded-[28px] lg:rounded-[32px] overflow-hidden border border-[#e2ece2] shadow-xl text-[#1b4332] pb-5 lg:pb-8">
           
           {/* Top Banner: Motorcycle Photo Background */}
-          <div className="relative w-full h-44 sm:h-52 bg-[#7d988a] overflow-hidden">
+          <div className="relative w-full h-44 sm:h-52 lg:h-64 xl:h-72 bg-[#7d988a] overflow-hidden">
             {activeRider.bikeInfo?.photoUrl ? (
               <img
                 src={activeRider.bikeInfo.photoUrl}
@@ -456,53 +456,53 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
               />
             ) : (
               <div className="w-full h-full bg-gradient-to-r from-[#1b4332] via-[#2d6a4f] to-[#7d988a] flex items-center justify-center relative">
-                <Bike className="w-20 h-20 text-white/20 absolute -right-2 -bottom-2 rotate-[-10deg]" />
+                <Bike className="w-20 h-20 lg:w-32 lg:h-32 text-white/20 absolute -right-2 -bottom-2 rotate-[-10deg]" />
               </div>
             )}
 
             {/* Quick Edit Profile, Push Notification Settings & Cover Photo Buttons */}
-            <div className="absolute top-2 right-2 flex items-center gap-1.5 z-2">
+            <div className="absolute top-2 right-2 lg:top-4 lg:right-4 flex items-center gap-1.5 lg:gap-2.5 z-2">
               <button
                 type="button"
                 onClick={() => setPushModalOpen(true)}
                 title="Push Notification Settings"
-                className="py-0.5 px-2 rounded-full bg-black/45 hover:bg-black/75 text-white text-[9.5px] font-bold backdrop-blur-xs flex items-center gap-1 border border-white/20 transition-all cursor-pointer shadow-xs"
+                className="py-0.5 px-2 lg:py-1.5 lg:px-3 rounded-full bg-black/45 hover:bg-black/75 text-white text-[9.5px] lg:text-xs font-bold backdrop-blur-xs flex items-center gap-1 lg:gap-1.5 border border-white/20 transition-all cursor-pointer shadow-xs hover:scale-105"
               >
-                <Bell className="w-2.5 h-2.5 text-[#74c69d]" />
+                <Bell className="w-2.5 h-2.5 lg:w-3.5 lg:h-3.5 text-[#74c69d]" />
                 <span>Push Alerts</span>
               </button>
               <button
                 type="button"
                 onClick={() => quickBikePhotoInputRef.current?.click()}
                 title="Change Motorcycle Cover"
-                className="py-0.5 px-2 rounded-full bg-black/45 hover:bg-black/75 text-white text-[9.5px] font-bold backdrop-blur-xs flex items-center gap-1 border border-white/20 transition-all cursor-pointer shadow-xs"
+                className="py-0.5 px-2 lg:py-1.5 lg:px-3 rounded-full bg-black/45 hover:bg-black/75 text-white text-[9.5px] lg:text-xs font-bold backdrop-blur-xs flex items-center gap-1 lg:gap-1.5 border border-white/20 transition-all cursor-pointer shadow-xs hover:scale-105"
               >
-                <ImageIcon className="w-2.5 h-2.5" />
+                <ImageIcon className="w-2.5 h-2.5 lg:w-3.5 lg:h-3.5" />
                 <span>Cover</span>
               </button>
               <button
                 type="button"
                 onClick={handleOpenEditModal}
                 title="Edit Profile Details"
-                className="py-0.5 px-2 rounded-full bg-black/45 hover:bg-black/75 text-white text-[9.5px] font-bold backdrop-blur-xs flex items-center gap-1 border border-white/20 transition-all cursor-pointer shadow-xs"
+                className="py-0.5 px-2 lg:py-1.5 lg:px-3 rounded-full bg-black/45 hover:bg-black/75 text-white text-[9.5px] lg:text-xs font-bold backdrop-blur-xs flex items-center gap-1 lg:gap-1.5 border border-white/20 transition-all cursor-pointer shadow-xs hover:scale-105"
               >
-                <Edit3 className="w-2.5 h-2.5" />
+                <Edit3 className="w-2.5 h-2.5 lg:w-3.5 lg:h-3.5" />
                 <span>Edit</span>
               </button>
             </div>
 
             {/* Bottom-Right Cover Photo Pill: Breadcrumb (HONDA - RS125 > 125cc > 123-ABC) */}
-            <div className="absolute bottom-2 right-0 z-1 select-none pointer-events-none max-w-[85%]">
-              <div className="bg-white/98 backdrop-blur-xs px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-l-full shadow-sm flex items-center gap-1 sm:gap-1.5 border-l border-y border-stone-200/60">
-                <span className="font-heading font-bold text-[9px] sm:text-[10.5px] text-stone-900 tracking-tight whitespace-nowrap">
+            <div className="absolute bottom-2 lg:bottom-3 right-0 z-1 select-none pointer-events-none max-w-[85%]">
+              <div className="bg-white/98 backdrop-blur-xs px-2.5 sm:px-3 lg:px-4 py-0.5 sm:py-1 lg:py-1.5 rounded-l-full shadow-sm flex items-center gap-1 sm:gap-1.5 lg:gap-2 border-l border-y border-stone-200/60">
+                <span className="font-heading font-bold text-[9px] sm:text-[10.5px] lg:text-xs text-stone-900 tracking-tight whitespace-nowrap">
                   {rawMake.toUpperCase()} - {rawModel.toUpperCase()}
                 </span>
                 <ChevronRight className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-stone-400 shrink-0" />
-                <span className="font-heading font-medium text-[9px] sm:text-[10.5px] text-stone-700 whitespace-nowrap">
+                <span className="font-heading font-medium text-[9px] sm:text-[10.5px] lg:text-xs text-stone-700 whitespace-nowrap">
                   {rawCc}
                 </span>
                 <ChevronRight className="w-2.5 h-2.5 sm:w-3 sm:h-3 text-stone-400 shrink-0" />
-                <span className="font-mono font-bold text-[9px] sm:text-[10.5px] text-stone-900 tracking-wide whitespace-nowrap">
+                <span className="font-mono font-bold text-[9px] sm:text-[10.5px] lg:text-xs text-stone-900 tracking-wide whitespace-nowrap">
                   {rawPlate.toUpperCase()}
                 </span>
               </div>
@@ -510,10 +510,10 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
           </div>
 
           {/* Avatar & Rider Header Row (Avatar midpoint aligned to cover photo bottom edge) */}
-          <div className="relative px-3.5 sm:px-5 -mt-10 sm:-mt-12 flex items-start gap-2.5 sm:gap-3.5 z-2 mb-3 sm:mb-4">
+          <div className="relative px-3.5 sm:px-5 lg:px-8 -mt-10 sm:-mt-12 lg:-mt-16 flex items-start gap-2.5 sm:gap-3.5 lg:gap-5 z-2 mb-3 sm:mb-4 lg:mb-6">
             {/* Circular Avatar */}
             <div className="relative group shrink-0">
-              <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full bg-stone-100 border-[3px] sm:border-4 border-white shadow-md overflow-hidden flex items-center justify-center">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 lg:w-32 lg:h-32 rounded-full bg-stone-100 border-[3px] sm:border-4 lg:border-[5px] border-white shadow-md lg:shadow-xl overflow-hidden flex items-center justify-center">
                 {activeRider.avatar ? (
                   <img
                     src={activeRider.avatar}
@@ -526,7 +526,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                     fill="#000000"
                     xmlSpace="preserve"
                     viewBox="0 0 64 64"
-                    className="w-14 h-14 sm:w-16 sm:h-16"
+                    className="w-14 h-14 sm:w-16 sm:h-16 lg:w-20 lg:h-20"
                     xmlns="http://www.w3.org/2000/svg"
                   >
                     <g>
@@ -553,11 +553,11 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                 )}
               </div>
 
-              {/* Official Role / Officer Avatar Badge */}
+              {/* Official Role / Officer Avatar Badge - tightly anchored to the circular avatar perimeter */}
               <RoleAvatarBadge
                 role={activeRider.role || 'Member'}
-                size="md"
-                className="bottom-0 right-0 ring-2 ring-white shadow-md z-1"
+                size="xl"
+                className="bottom-1 right-1 sm:bottom-1.5 sm:right-1.5 lg:bottom-2 lg:right-2 w-5 h-5 sm:w-6 sm:h-6 lg:w-7.5 lg:h-7.5 text-[8.5px] sm:text-[9.5px] lg:text-[11px] ring-2 sm:ring-[2.5px] ring-white shadow-md z-10 pointer-events-none"
               />
 
               {/* Camera Icon Overlay */}
@@ -567,171 +567,470 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                 title="Change Avatar Photo"
                 className="absolute inset-0 rounded-full bg-black/45 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center transition-opacity text-white cursor-pointer z-2"
               >
-                <Camera className="w-3.5 h-3.5 text-white drop-shadow-sm" />
-                <span className="text-[7.5px] font-bold mt-0.5">Change</span>
+                <Camera className="w-3.5 h-3.5 lg:w-5 lg:h-5 text-white drop-shadow-sm" />
+                <span className="text-[7.5px] lg:text-[10px] font-bold mt-0.5">Change</span>
               </button>
             </div>
 
-            {/* Member Name, ID & Network - Adjusted down slightly with avatar in place */}
-            <div className="min-w-0 pt-11 sm:pt-13 flex-1 overflow-hidden">
-              <div className="flex items-center gap-1.5 min-w-0 flex-nowrap">
-                <h2
-                  className={`font-heading font-black text-stone-900 tracking-tight leading-tight truncate ${nameFontSizeClass}`}
-                  title={activeRider.name}
-                >
-                  {activeRider.name}
-                </h2>
-                <span className="text-stone-300 font-light text-[11px] sm:text-xs shrink-0">|</span>
-                <span className="font-mono font-bold text-[10px] sm:text-xs text-stone-800 shrink-0 whitespace-nowrap">
-                  {activeRider.memberNumber || 'BRC-0002'}
+            {/* Member Name, ID & Network */}
+            <div className="min-w-0 pt-11 sm:pt-13 lg:pt-16 flex-1 overflow-hidden flex flex-col md:flex-row md:items-center md:justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 min-w-0 flex-nowrap">
+                  <h2
+                    className={`font-heading font-black text-stone-900 tracking-tight leading-tight truncate ${nameFontSizeClass} lg:text-2xl xl:text-3xl`}
+                    title={activeRider.name}
+                  >
+                    {activeRider.name}
+                  </h2>
+                  <span className="text-stone-300 font-light text-[11px] sm:text-xs shrink-0 lg:hidden">|</span>
+                  <span className="font-mono font-bold text-[10px] sm:text-xs text-stone-800 shrink-0 whitespace-nowrap lg:hidden">
+                    {activeRider.memberNumber || 'BRC-0002'}
+                  </span>
+                  <span className="hidden lg:inline-flex font-mono font-bold text-xs lg:text-sm px-2.5 py-0.5 rounded-lg bg-[#f0f9f1] text-[#1b4332] border border-[#74c69d]/40 shrink-0 ml-1">
+                    {activeRider.memberNumber || 'BRC-0002'}
+                  </span>
+                </div>
+                <p className="text-[10.5px] sm:text-xs lg:text-sm font-semibold text-stone-600 truncate mt-0.5">
+                  {activeRider.network || 'Speaking Hammers'}
+                </p>
+                {activeRider.bio && (
+                  <p className="hidden lg:block text-xs text-stone-500 italic mt-1 line-clamp-1">
+                    "{activeRider.bio}"
+                  </p>
+                )}
+              </div>
+
+              {/* Desktop Status Badges */}
+              <div className="hidden lg:flex items-center gap-2 shrink-0">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-[#d8f3dc] text-[#1b4332] border border-[#74c69d]/40 shadow-2xs">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                  <span>Active Member</span>
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-stone-100 text-stone-700 border border-stone-200 shadow-2xs">
+                  <ShieldCheck className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                  <span>{activeRider.role || 'Member'}</span>
                 </span>
               </div>
-              <p className="text-[10.5px] sm:text-xs font-semibold text-stone-600 truncate mt-0.5">
-                {activeRider.network || 'Speaking Hammers'}
-              </p>
             </div>
           </div>
 
-          {/* Member QR Code Section with Hide/Unhide Toggle Button */}
-          <div className="px-3.5 sm:px-6 mb-3 sm:mb-4 text-center">
-            {/* Toggle Button named "QR Code" */}
-            <div className="flex justify-center mb-1.5">
-              <button
-                type="button"
-                id="btn-toggle-qr-code"
-                onClick={toggleQrCode}
-                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer shadow-2xs border ${
-                  showQrCode
-                    ? 'bg-[#f0f9f1] hover:bg-[#d8f3dc] text-[#1b4332] border-[#74c69d]/60'
-                    : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
-                }`}
-                title={showQrCode ? 'Hide QR Code' : 'Show QR Code'}
-              >
-                <QrCode className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                <span>QR Code</span>
-                {showQrCode ? (
-                  <ChevronUp className="w-3.5 h-3.5 text-stone-500" />
-                ) : (
-                  <ChevronDown className="w-3.5 h-3.5 text-stone-500" />
-                )}
-              </button>
-            </div>
-
-            <AnimatePresence initial={false}>
-              {showQrCode && (
-                <motion.div
-                  initial={{ opacity: 0, height: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, height: 'auto', scale: 1 }}
-                  exit={{ opacity: 0, height: 0, scale: 0.95 }}
-                  transition={{ duration: 0.2 }}
-                  className="overflow-hidden"
+          {/* MOBILE VIEW (< lg): 100% Preserved exact layout */}
+          <div className="lg:hidden">
+            {/* Member QR Code Section with Hide/Unhide Toggle Button */}
+            <div className="px-3.5 sm:px-6 mb-3 sm:mb-4 text-center">
+              {/* Toggle Button named "QR Code" */}
+              <div className="flex justify-center mb-1.5">
+                <button
+                  type="button"
+                  id="btn-toggle-qr-code"
+                  onClick={toggleQrCode}
+                  className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer shadow-2xs border ${
+                    showQrCode
+                      ? 'bg-[#f0f9f1] hover:bg-[#d8f3dc] text-[#1b4332] border-[#74c69d]/60'
+                      : 'bg-stone-100 hover:bg-stone-200 text-stone-700 border-stone-300'
+                  }`}
+                  title={showQrCode ? 'Hide QR Code' : 'Show QR Code'}
                 >
-                  {/* QR Code Container */}
-                  <div className="flex justify-center pt-1 pb-1">
-                    <div className="bg-white p-3 sm:p-4 rounded-[20px] sm:rounded-[24px] border border-[#e2ece2] shadow-xs inline-block">
-                      <div className="relative inline-block">
-                        <QRCodeSVG
-                          value={qrValue}
-                          size={145}
-                          level="H"
-                          bgColor="#FFFFFF"
-                          fgColor="#1b4332"
-                        />
-                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                          <img
-                            src="/logo.png"
-                            alt="BCC"
-                            className="w-8 h-8 object-contain bg-white rounded-full p-0.5 shadow-2xs"
+                  <QrCode className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                  <span>QR Code</span>
+                  {showQrCode ? (
+                    <ChevronUp className="w-3.5 h-3.5 text-stone-500" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-stone-500" />
+                  )}
+                </button>
+              </div>
+
+              <AnimatePresence initial={false}>
+                {showQrCode && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, height: 'auto', scale: 1 }}
+                    exit={{ opacity: 0, height: 0, scale: 0.95 }}
+                    transition={{ duration: 0.2 }}
+                    className="overflow-hidden"
+                  >
+                    {/* QR Code Container */}
+                    <div className="flex justify-center pt-1 pb-1">
+                      <div className="bg-white p-3 sm:p-4 rounded-[20px] sm:rounded-[24px] border border-[#e2ece2] shadow-xs inline-block">
+                        <div className="relative inline-block">
+                          <QRCodeSVG
+                            value={qrValue}
+                            size={145}
+                            level="H"
+                            bgColor="#FFFFFF"
+                            fgColor="#1b4332"
                           />
+                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                            <img
+                              src="/logo.png"
+                              alt="BCC"
+                              className="w-8 h-8 object-contain bg-white rounded-full p-0.5 shadow-2xs"
+                            />
+                          </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-
-          {/* Contributions Section */}
-          <div className="px-3.5 sm:px-6 mb-1 space-y-2">
-            {/* Header: Title + Total Paid */}
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-[#1b4332] text-[#74c69d] flex items-center justify-center shrink-0 shadow-2xs">
-                  <Wallet className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
-                </div>
-                <h4 className="font-heading font-bold text-xs sm:text-sm text-stone-900">
-                  Contributions
-                </h4>
-              </div>
-              <div className="text-right">
-                <span className="text-[8px] sm:text-[9px] font-extrabold uppercase text-stone-400 block tracking-wider">
-                  TOTAL PAID
-                </span>
-                <span className="font-heading text-xs sm:text-sm font-black text-[#1b4332]">
-                  ₱{totalPaidFromJoining.toLocaleString()}.00
-                </span>
-              </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* 4 Clean Stats Cards Row */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2">
-              {/* Membership Fee */}
-              <div className="bg-white p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] space-y-0.5 shadow-2xs">
-                <span className="text-[8px] sm:text-[9px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
-                  MEMBERSHIP
-                </span>
-                <p className="text-[11px] sm:text-xs font-black text-stone-900 truncate">
-                  ₱{mfPaid.toLocaleString()}
-                </p>
-                <span className="text-[8px] sm:text-[9px] font-bold text-stone-500 block truncate">
-                  {mfPaid > 0 ? '✓ Paid' : 'Pending'}
-                </span>
+            {/* Contributions Section */}
+            <div className="px-3.5 sm:px-6 mb-1 space-y-2">
+              {/* Header: Title + Total Paid */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-lg bg-[#1b4332] text-[#74c69d] flex items-center justify-center shrink-0 shadow-2xs">
+                    <Wallet className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
+                  </div>
+                  <h4 className="font-heading font-bold text-xs sm:text-sm text-stone-900">
+                    Contributions
+                  </h4>
+                </div>
+                <div className="text-right">
+                  <span className="text-[8px] sm:text-[9px] font-extrabold uppercase text-stone-400 block tracking-wider">
+                    TOTAL PAID
+                  </span>
+                  <span className="font-heading text-xs sm:text-sm font-black text-[#1b4332]">
+                    ₱{totalPaidFromJoining.toLocaleString()}.00
+                  </span>
+                </div>
               </div>
 
-              {/* Monthly Dues */}
-              <div className="bg-white p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] space-y-0.5 shadow-2xs">
-                <span className="text-[8px] sm:text-[9px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
-                  DUES
-                </span>
-                <p className="text-[11px] sm:text-xs font-black text-stone-900 truncate">
-                  ₱{duesPaid.toLocaleString()}
-                </p>
-                <span className="text-[8px] sm:text-[9px] font-bold text-stone-500 block truncate">
-                  {paidDuesMonths > 0 && waivedDuesMonths > 0
-                    ? `${paidDuesMonths} paid · ${waivedDuesMonths} waived`
-                    : paidDuesMonths > 0
-                    ? `${paidDuesMonths} mo paid`
-                    : waivedDuesMonths > 0
-                    ? `${waivedDuesMonths} mo waived`
-                    : '0 mo paid'}
-                </span>
+              {/* 4 Clean Stats Cards Row */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2">
+                {/* Membership Fee */}
+                <div className="bg-white p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] space-y-0.5 shadow-2xs">
+                  <span className="text-[8px] sm:text-[9px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
+                    MEMBERSHIP
+                  </span>
+                  <p className="text-[11px] sm:text-xs font-black text-stone-900 truncate">
+                    ₱{mfPaid.toLocaleString()}
+                  </p>
+                  <span className="text-[8px] sm:text-[9px] font-bold text-stone-500 block truncate">
+                    {mfPaid > 0 ? '✓ Paid' : 'Pending'}
+                  </span>
+                </div>
+
+                {/* Monthly Dues */}
+                <div className="bg-white p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] space-y-0.5 shadow-2xs">
+                  <span className="text-[8px] sm:text-[9px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
+                    DUES
+                  </span>
+                  <p className="text-[11px] sm:text-xs font-black text-stone-900 truncate">
+                    ₱{duesPaid.toLocaleString()}
+                  </p>
+                  <span className="text-[8px] sm:text-[9px] font-bold text-stone-500 block truncate">
+                    {paidDuesMonths > 0 && waivedDuesMonths > 0
+                      ? `${paidDuesMonths} paid · ${waivedDuesMonths} waived`
+                      : paidDuesMonths > 0
+                      ? `${paidDuesMonths} mo paid`
+                      : waivedDuesMonths > 0
+                      ? `${waivedDuesMonths} mo waived`
+                      : '0 mo paid'}
+                  </span>
+                </div>
+
+                {/* Other Collections */}
+                <div className="bg-white p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] space-y-0.5 shadow-2xs">
+                  <span className="text-[8px] sm:text-[9px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
+                    OTHER
+                  </span>
+                  <p className="text-[11px] sm:text-xs font-black text-stone-900 truncate">
+                    ₱{otherPaid.toLocaleString()}
+                  </p>
+                  <span className="text-[8px] sm:text-[9px] font-medium text-stone-500 block truncate">
+                    Special fees
+                  </span>
+                </div>
+
+                {/* Balance */}
+                <div className="bg-white p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] space-y-0.5 shadow-2xs">
+                  <span className="text-[8px] sm:text-[9px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
+                    BALANCE
+                  </span>
+                  <p className={`text-[11px] sm:text-xs font-black ${pendingDuesAmount > 0 ? 'text-amber-800' : 'text-emerald-700'} truncate`}>
+                    ₱{pendingDuesAmount.toLocaleString()}
+                  </p>
+                  <span className="text-[8px] sm:text-[9px] font-bold text-stone-600 block truncate">
+                    {pendingDuesAmount > 0 ? 'Unsettled' : '✓ Clear'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* DESKTOP VIEW (lg:block): Scaled Executive 2-Column Bento Layout */}
+          <div className="hidden lg:block px-8 pt-2 space-y-6">
+            <div className="grid grid-cols-12 gap-6 items-start">
+              {/* Left Column (5 cols): Official Attendance QR Pass & Rider Quick Credentials */}
+              <div className="col-span-5 space-y-4">
+                {/* Attendance QR Pass Card */}
+                <div className="bg-[#f7f9f7] p-5 rounded-2xl border border-[#e2ece2] shadow-2xs space-y-4 text-center">
+                  <div className="flex items-center justify-between pb-3 border-b border-[#e2ece2]">
+                    <div className="flex items-center gap-2 text-left">
+                      <div className="w-8 h-8 rounded-xl bg-[#1b4332] text-[#74c69d] flex items-center justify-center shrink-0 shadow-2xs">
+                        <QrCode className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-heading font-bold text-sm text-stone-900 leading-tight">
+                          Attendance QR Pass
+                        </h4>
+                        <p className="text-[11px] text-stone-500 font-medium">Official Digital Pass</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={toggleQrCode}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer border bg-white hover:bg-stone-100 text-stone-700 border-stone-300 shadow-2xs"
+                    >
+                      <span>{showQrCode ? 'Hide QR' : 'Show QR'}</span>
+                      {showQrCode ? (
+                        <ChevronUp className="w-3.5 h-3.5 text-stone-500" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5 text-stone-500" />
+                      )}
+                    </button>
+                  </div>
+
+                  <AnimatePresence initial={false}>
+                    {showQrCode && (
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.95 }}
+                        transition={{ duration: 0.2 }}
+                        className="space-y-3"
+                      >
+                        <div className="bg-white p-4.5 rounded-2xl border border-[#e2ece2] shadow-xs inline-block mx-auto">
+                          <div className="relative inline-block">
+                            <QRCodeSVG
+                              value={qrValue}
+                              size={165}
+                              level="H"
+                              bgColor="#FFFFFF"
+                              fgColor="#1b4332"
+                            />
+                            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                              <img
+                                src="/logo.png"
+                                alt="BCC"
+                                className="w-9 h-9 object-contain bg-white rounded-full p-0.5 shadow-2xs"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-xs text-stone-600 leading-relaxed max-w-xs mx-auto">
+                          Present this digital pass during roll calls, official convoy marshaling, and club assemblies.
+                        </p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Rider Credentials & Verification Box */}
+                <div className="bg-white p-5 rounded-2xl border border-[#e2ece2] shadow-2xs space-y-3">
+                  <div className="flex items-center gap-2 pb-2.5 border-b border-[#e2ece2]">
+                    <ShieldCheck className="w-4 h-4 text-[#2d6a4f]" />
+                    <span className="font-heading font-bold text-xs uppercase tracking-wider text-stone-800">
+                      Rider Records
+                    </span>
+                  </div>
+                  <div className="space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="text-stone-500 font-medium">Life Group / Network</span>
+                      <span className="font-bold text-stone-900">{activeRider.network || 'Speaking Hammers'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-stone-500 font-medium">Contact Phone</span>
+                      <span className="font-mono font-bold text-stone-900">{activeRider.phone || 'None listed'}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-stone-500 font-medium">Member Since</span>
+                      <span className="font-medium text-stone-800">
+                        {activeRider.joinDate
+                          ? new Date(activeRider.joinDate).toLocaleDateString(undefined, {
+                              year: 'numeric',
+                              month: 'short',
+                              day: 'numeric',
+                            })
+                          : 'Official Member'}
+                      </span>
+                    </div>
+                    {activeRider.emergencyContact?.name && (
+                      <div className="flex items-center justify-between pt-1.5 border-t border-stone-100">
+                        <span className="text-stone-500 font-medium">Emergency Contact</span>
+                        <span className="font-semibold text-stone-800">
+                          {activeRider.emergencyContact.name} ({activeRider.emergencyContact.phone})
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
 
-              {/* Other Collections */}
-              <div className="bg-white p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] space-y-0.5 shadow-2xs">
-                <span className="text-[8px] sm:text-[9px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
-                  OTHER
-                </span>
-                <p className="text-[11px] sm:text-xs font-black text-stone-900 truncate">
-                  ₱{otherPaid.toLocaleString()}
-                </p>
-                <span className="text-[8px] sm:text-[9px] font-medium text-stone-500 block truncate">
-                  Special fees
-                </span>
-              </div>
+              {/* Right Column (7 cols): Contributions & Registered Motorcycle */}
+              <div className="col-span-7 space-y-4">
+                {/* Contributions & Treasury Standing Section */}
+                <div className="bg-[#f7f9f7] p-5 rounded-2xl border border-[#e2ece2] shadow-2xs space-y-4">
+                  {/* Header */}
+                  <div className="flex items-center justify-between gap-2 pb-3 border-b border-[#e2ece2]">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-[#1b4332] text-[#74c69d] flex items-center justify-center shrink-0 shadow-2xs">
+                        <Wallet className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="font-heading font-bold text-sm text-stone-900">
+                          Contributions & Dues
+                        </h4>
+                        <p className="text-[11px] text-stone-500 font-medium">
+                          Verified club ledger records & active balance
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <span className="text-[9px] font-extrabold uppercase text-stone-400 block tracking-wider">
+                        TOTAL PAID
+                      </span>
+                      <span className="font-heading text-lg font-black text-[#1b4332]">
+                        ₱{totalPaidFromJoining.toLocaleString()}.00
+                      </span>
+                    </div>
+                  </div>
 
-              {/* Balance */}
-              <div className="bg-white p-2 rounded-lg sm:rounded-xl border border-[#e2ece2] space-y-0.5 shadow-2xs">
-                <span className="text-[8px] sm:text-[9px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
-                  BALANCE
-                </span>
-                <p className={`text-[11px] sm:text-xs font-black ${pendingDuesAmount > 0 ? 'text-amber-800' : 'text-emerald-700'} truncate`}>
-                  ₱{pendingDuesAmount.toLocaleString()}
-                </p>
-                <span className="text-[8px] sm:text-[9px] font-bold text-stone-600 block truncate">
-                  {pendingDuesAmount > 0 ? 'Unsettled' : '✓ Clear'}
-                </span>
+                  {/* 4 Stats Cards Grid */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    {/* Membership Fee */}
+                    <div className="bg-white p-3.5 rounded-xl border border-[#e2ece2] space-y-1 shadow-2xs flex flex-col justify-between">
+                      <span className="text-[10px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
+                        MEMBERSHIP
+                      </span>
+                      <p className="text-base font-black text-stone-900 truncate">
+                        ₱{mfPaid.toLocaleString()}
+                      </p>
+                      <span
+                        className={`inline-flex items-center gap-1 text-[10px] font-bold ${
+                          mfPaid > 0 ? 'text-[#2d6a4f]' : 'text-stone-500'
+                        }`}
+                      >
+                        {mfPaid > 0 ? '✓ Paid' : 'Pending'}
+                      </span>
+                    </div>
+
+                    {/* Monthly Dues */}
+                    <div className="bg-white p-3.5 rounded-xl border border-[#e2ece2] space-y-1 shadow-2xs flex flex-col justify-between">
+                      <span className="text-[10px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
+                        DUES
+                      </span>
+                      <p className="text-base font-black text-stone-900 truncate">
+                        ₱{duesPaid.toLocaleString()}
+                      </p>
+                      <span
+                        className="text-[10px] font-bold text-stone-600 block truncate"
+                        title={
+                          paidDuesMonths > 0 && waivedDuesMonths > 0
+                            ? `${paidDuesMonths} paid · ${waivedDuesMonths} waived`
+                            : `${paidDuesMonths} mo paid`
+                        }
+                      >
+                        {paidDuesMonths > 0 && waivedDuesMonths > 0
+                          ? `${paidDuesMonths} paid · ${waivedDuesMonths} waived`
+                          : paidDuesMonths > 0
+                          ? `${paidDuesMonths} mo paid`
+                          : waivedDuesMonths > 0
+                          ? `${waivedDuesMonths} mo waived`
+                          : '0 mo paid'}
+                      </span>
+                    </div>
+
+                    {/* Other Collections */}
+                    <div className="bg-white p-3.5 rounded-xl border border-[#e2ece2] space-y-1 shadow-2xs flex flex-col justify-between">
+                      <span className="text-[10px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
+                        OTHER
+                      </span>
+                      <p className="text-base font-black text-stone-900 truncate">
+                        ₱{otherPaid.toLocaleString()}
+                      </p>
+                      <span className="text-[10px] font-medium text-stone-500 block truncate">
+                        Special fees
+                      </span>
+                    </div>
+
+                    {/* Balance */}
+                    <div className="bg-white p-3.5 rounded-xl border border-[#e2ece2] space-y-1 shadow-2xs flex flex-col justify-between">
+                      <span className="text-[10px] font-extrabold text-stone-500 uppercase block tracking-wider truncate">
+                        BALANCE
+                      </span>
+                      <p
+                        className={`text-base font-black ${
+                          pendingDuesAmount > 0 ? 'text-amber-800' : 'text-emerald-700'
+                        } truncate`}
+                      >
+                        ₱{pendingDuesAmount.toLocaleString()}
+                      </p>
+                      <span
+                        className={`text-[10px] font-bold ${
+                          pendingDuesAmount > 0 ? 'text-amber-700' : 'text-emerald-700'
+                        } block truncate`}
+                      >
+                        {pendingDuesAmount > 0 ? 'Unsettled' : '✓ Clear'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Registered Motorcycle Specifications Card */}
+                <div className="bg-white p-5 rounded-2xl border border-[#e2ece2] shadow-2xs space-y-3.5">
+                  <div className="flex items-center justify-between pb-2.5 border-b border-[#e2ece2]">
+                    <div className="flex items-center gap-2">
+                      <div className="w-8 h-8 rounded-xl bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0 shadow-2xs">
+                        <Bike className="w-4 h-4 text-[#2d6a4f]" />
+                      </div>
+                      <div>
+                        <h4 className="font-heading font-bold text-sm text-stone-900">
+                          Registered Motorcycle
+                        </h4>
+                        <p className="text-[11px] text-stone-500 font-medium">Official club vehicle details</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleOpenEditModal}
+                      className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-[#f0f9f1] hover:bg-[#d8f3dc] text-[#1b4332] text-xs font-bold transition-colors cursor-pointer border border-[#74c69d]/40"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-[#2d6a4f]" />
+                      <span>Edit Specs</span>
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="bg-[#f7f9f7] p-3.5 rounded-xl border border-[#e2ece2]">
+                      <span className="text-[10px] font-extrabold text-stone-500 uppercase block tracking-wider">
+                        MAKE & MODEL
+                      </span>
+                      <p className="text-sm font-black text-stone-900 mt-0.5 truncate">
+                        {rawMake.toUpperCase()} - {rawModel.toUpperCase()}
+                      </p>
+                    </div>
+                    <div className="bg-[#f7f9f7] p-3.5 rounded-xl border border-[#e2ece2]">
+                      <span className="text-[10px] font-extrabold text-stone-500 uppercase block tracking-wider">
+                        DISPLACEMENT
+                      </span>
+                      <p className="text-sm font-black text-stone-900 mt-0.5 truncate">
+                        {rawCc}
+                      </p>
+                    </div>
+                    <div className="bg-[#f7f9f7] p-3.5 rounded-xl border border-[#e2ece2]">
+                      <span className="text-[10px] font-extrabold text-stone-500 uppercase block tracking-wider">
+                        PLATE NUMBER
+                      </span>
+                      <p className="text-sm font-mono font-black text-stone-900 mt-0.5 truncate">
+                        {rawPlate.toUpperCase()}
+                      </p>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -739,15 +1038,16 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
       </div>
 
       {/* Profile Edit Modal */}
-      <AnimatePresence>
-        {editModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-sm sm:max-w-md rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] p-4 sm:p-6 space-y-4 shadow-2xl max-h-[88vh] overflow-y-auto text-[#2d3a3a]"
-            >
+      <ModalPortal>
+        <AnimatePresence>
+          {editModalOpen && (
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-md">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="w-full max-w-sm sm:max-w-md lg:max-w-xl rounded-2xl sm:rounded-3xl bg-white border border-[#e2ece2] p-4 sm:p-6 space-y-4 shadow-2xl max-h-[88vh] overflow-y-auto text-[#2d3a3a]"
+              >
               <div className="flex items-center justify-between pb-2.5 border-b border-[#e2ece2]">
                 <h3 className="font-heading font-bold text-[#1b4332] text-sm sm:text-base">
                   Edit Rider Profile
@@ -955,6 +1255,7 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
           </div>
         )}
       </AnimatePresence>
+    </ModalPortal>
 
       {/* Avatar & Bike Photo Image Cropper Modal */}
       <ImageCropperModal

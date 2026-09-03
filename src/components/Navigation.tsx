@@ -353,7 +353,10 @@ export const Navigation: React.FC<NavigationProps> = ({
             {!isInstalled && (
               <div className="pt-2">
                 <button
-                  onClick={() => triggerInstall()}
+                  onClick={async () => {
+                    window.dispatchEvent(new CustomEvent('bcc_open_pwa_install'));
+                    await triggerInstall();
+                  }}
                   title={isCollapsed ? 'Install Desktop App' : undefined}
                   className={`w-full flex items-center ${
                     isCollapsed ? 'justify-center px-0' : 'justify-between px-3.5'
