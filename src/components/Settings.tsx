@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { jsPDF } from 'jspdf';
 import * as XLSX from 'xlsx';
 import { motion, AnimatePresence } from 'motion/react';
@@ -114,7 +114,7 @@ const SUB_TAB_OPTIONS = [
   { id: 'finance', label: 'Finances & Fees', icon: Wallet, description: 'Fees, monthly dues & drives' },
   { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet, description: 'Export member & financial ledgers' },
   { id: 'security', label: 'System Security & Biometrics', icon: Shield, description: 'Fingerprint, Face ID & Admin 2FA' },
-  { id: 'inbound', label: 'Receiving Email', icon: Mail, description: 'Resend webhook & contact@bccriders.cc inbox' },
+  { id: 'inbound', label: 'Email', icon: Mail, description: 'Email dispatcher, broadcast & contact@bccriders.cc inbox' },
 ] as const;
 
 export const Settings: React.FC = () => {
@@ -146,7 +146,7 @@ export const Settings: React.FC = () => {
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  const getApprovedNonAdminMembers = (): User[] => {
+  const getApprovedNonAdminMembers = useCallback((): User[] => {
     const allUsers = store.getUsers();
     return allUsers.filter((u) => {
       const isUserAdmin =
@@ -156,11 +156,16 @@ export const Settings: React.FC = () => {
         u.id === 'usr_admin' ||
         u.id === 'admin' ||
         u.username?.toLowerCase() === 'admin' ||
-        u.email?.toLowerCase().includes('admin@');
+        u.email?.toLowerCase().includes('admin@') ||
+        u.email?.toLowerCase().startsWith('admin@') ||
+        u.email?.toLowerCase() === 'admin@bccriders.org' ||
+        u.email?.toLowerCase() === 'admin@bccriders.cc' ||
+        u.name?.toLowerCase() === 'admin' ||
+        u.name?.toLowerCase().includes('(admin)');
       if (isUserAdmin) return false;
       return u.approvalStatus === 'Approved';
     });
-  };
+  }, []);
 
   // Database States
   const [financeSettings, setFinanceSettings] = useState<FinanceSettings>(() =>
@@ -722,9 +727,9 @@ export const Settings: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!currentUser) return;
+    if (!currentUser?.id) return;
     loadReportsData();
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   const downloadXLSXFile = (filename: string, headers: string[], rows: (string | number)[][], sheetName = 'Sheet1') => {
     const wb = XLSX.utils.book_new();
@@ -1459,8 +1464,21 @@ export const Settings: React.FC = () => {
 
   useEffect(() => {
     // Load approved members for collection calculations (strictly excluding admin accounts)
-    setApprovedMembers(getApprovedNonAdminMembers());
-  }, []);
+    const approved = getApprovedNonAdminMembers();
+    setApprovedMembers(approved);
+
+    const handleUsersUpdated = () => {
+      const updated = getApprovedNonAdminMembers();
+      setApprovedMembers((prev) => {
+        if (prev.length === updated.length && prev.every((m, idx) => m.id === updated[idx]?.id)) {
+          return prev;
+        }
+        return updated;
+      });
+    };
+    window.addEventListener('bcc_users_updated', handleUsersUpdated);
+    return () => window.removeEventListener('bcc_users_updated', handleUsersUpdated);
+  }, [getApprovedNonAdminMembers]);
 
   const refreshFinanceData = () => {
     setFinanceSettings(store.getFinanceSettings());
@@ -4130,13 +4148,13 @@ export const Settings: React.FC = () => {
         </div>
       )}
 
-      {/* SUB TAB 4: RECEIVING & SENDING EMAIL VIA RESEND */}
+      {/* SUB TAB 4: EMAIL (SENDING & INBOUND INBOX) */}
       {activeSubTab === 'inbound' && (
         <div className="space-y-4 sm:space-y-6">
           {/* Section 1: Sending Email via Resend */}
-          <EmailSender members={getApprovedNonAdminMembers()} />
+          <EmailSender members={approvedMembers} />
 
-          {/* Section 2: Receiving Email (Inbound Webhook Inbox) */}
+          {/* Section 2: Inbound Email Webhook Inbox */}
           <InboundEmailViewer />
         </div>
       )}

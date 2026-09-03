@@ -36,7 +36,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const handleUsersUpdated = () => {
       const activeUser = store.getCurrentUser();
       if (activeUser) {
-        setCurrentUser({ ...activeUser });
+        setCurrentUser((prev) => {
+          if (!prev) return { ...activeUser };
+          if (
+            prev.id === activeUser.id &&
+            prev.role === activeUser.role &&
+            prev.name === activeUser.name &&
+            prev.username === activeUser.username &&
+            prev.email === activeUser.email &&
+            prev.approvalStatus === activeUser.approvalStatus &&
+            prev.avatar === activeUser.avatar
+          ) {
+            return prev;
+          }
+          return { ...activeUser };
+        });
       }
     };
 

@@ -158,18 +158,45 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent, members: 
     }
   };
 
-  // Members list for quick selection - initialized immediately with local store or props
+  // Helper to ensure admin accounts and admin email addresses are never included in member picker or broadcasts
+  const isNonAdminApprovedMember = (m: UserType | undefined | null): boolean => {
+    if (!m) return false;
+    if (m.approvalStatus === 'Pending' || m.approvalStatus === 'Rejected') return false;
+    if (!m.email || !m.email.includes('@')) return false;
+
+    const role = (m.role || '').toLowerCase().trim();
+    const email = (m.email || '').toLowerCase().trim();
+    const username = (m.username || '').toLowerCase().trim();
+    const id = (m.id || '').toLowerCase().trim();
+    const name = (m.name || '').toLowerCase().trim();
+
+    if (
+      role === 'admin' ||
+      role === 'administrator' ||
+      id === 'usr_admin' ||
+      id === 'admin' ||
+      username === 'admin' ||
+      email.startsWith('admin@') ||
+      email.includes('admin@') ||
+      email === 'admin@bccriders.org' ||
+      email === 'admin@bccriders.cc' ||
+      name === 'admin' ||
+      name.includes('(admin)') ||
+      name.toLowerCase().includes('bcc riders (admin)')
+    ) {
+      return false;
+    }
+
+    return true;
+  };
+
+  // Members list for quick selection - initialized immediately with local store or props (excluding admins)
   const [membersList, setMembersList] = useState<UserType[]>(() => {
     if (initialPropMembers && initialPropMembers.length > 0) {
-      return initialPropMembers.filter((m) => m.email && m.email.includes('@'));
+      return initialPropMembers.filter(isNonAdminApprovedMember);
     }
     const localUsers = store.getUsers() || [];
-    return localUsers.filter(
-      (m) =>
-        m.approvalStatus !== 'Pending' &&
-        m.email &&
-        m.email.includes('@')
-    );
+    return localUsers.filter(isNonAdminApprovedMember);
   });
 
   // Quick Templates
@@ -191,67 +218,67 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent, members: 
     },
   ];
 
-  // Fetch registered members for autocomplete dropdown and broadcast count
+  // Synchronize members list when initialPropMembers prop changes
   useEffect(() => {
-    const fetchMembers = async () => {
-      // 1. Immediately hydrate from local store
+    if (initialPropMembers && initialPropMembers.length > 0) {
+      const validProps = initialPropMembers.filter(isNonAdminApprovedMember);
+      setMembersList((prev) => {
+        if (
+          prev.length === validProps.length &&
+          prev.every((m, idx) => m.id === validProps[idx]?.id)
+        ) {
+          return prev;
+        }
+        return validProps;
+      });
+    }
+  }, [initialPropMembers]);
+
+  // Initial mount hydration and real-time event listener
+  useEffect(() => {
+    // 1. If we don't have members from props, hydrate from local store
+    if (!initialPropMembers || initialPropMembers.length === 0) {
       const local = store.getUsers() || [];
-      const validLocal = local.filter(
-        (m: UserType) => m.approvalStatus !== 'Pending' && m.email && m.email.includes('@')
-      );
+      const validLocal = local.filter(isNonAdminApprovedMember);
       if (validLocal.length > 0) {
-        setMembersList(validLocal);
+        setMembersList((prev) => (prev.length === 0 ? validLocal : prev));
+      } else {
+        // Fallback single silent fetch if store is completely empty on mount
+        safeFetchJson('/api/mongodb/members')
+          .then((res) => {
+            if (res.success && Array.isArray(res.data) && res.data.length > 0) {
+              const validRemote = res.data.filter(isNonAdminApprovedMember);
+              if (validRemote.length > 0) {
+                setMembersList(validRemote);
+              }
+            }
+          })
+          .catch(() => {});
       }
+    }
 
-      // 2. Fetch fresh members from MongoDB
-      try {
-        await store.refreshUsersFromServer();
-        const fresh = store.getUsers() || [];
-        const validFresh = fresh.filter(
-          (m: UserType) => m.approvalStatus !== 'Pending' && m.email && m.email.includes('@')
-        );
-        if (validFresh.length > 0) {
-          setMembersList(validFresh);
-        }
-      } catch (err) {
-        console.warn('Could not refresh users from server:', err);
-      }
-
-      // 3. Fallback direct fetch to /api/mongodb/members
-      try {
-        const res = await authFetch('/api/mongodb/members');
-        const data = await res.json();
-        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
-          const validRemote = data.data.filter(
-            (m: UserType) => m.approvalStatus !== 'Pending' && m.email && m.email.includes('@')
-          );
-          if (validRemote.length > 0) {
-            setMembersList(validRemote);
-          }
-        }
-      } catch (err) {
-        console.warn('Could not load members for email picker:', err);
-      }
-    };
-
-    fetchMembers();
-
-    // Listen to real-time member updates
+    // 2. Listen to real-time member updates
     const handleUsersUpdated = (e: Event) => {
       const updated = ((e as CustomEvent).detail || store.getUsers()) as UserType[];
       if (Array.isArray(updated)) {
-        const valid = updated.filter(
-          (m: UserType) => m.approvalStatus !== 'Pending' && m.email && m.email.includes('@')
-        );
+        const valid = updated.filter(isNonAdminApprovedMember);
         if (valid.length > 0) {
-          setMembersList(valid);
+          setMembersList((prev) => {
+            if (
+              prev.length === valid.length &&
+              prev.every((m, idx) => m.id === valid[idx]?.id)
+            ) {
+              return prev;
+            }
+            return valid;
+          });
         }
       }
     };
 
     window.addEventListener('bcc_users_updated', handleUsersUpdated);
     return () => window.removeEventListener('bcc_users_updated', handleUsersUpdated);
-  }, [initialPropMembers]);
+  }, []);
 
   // Filtered members for interactive search dropdown
   const filteredMembers = useMemo(() => {
@@ -334,9 +361,20 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent, members: 
         });
         return;
       }
+      const matchedMember = membersList.find(
+        (m) => (m.email || '').toLowerCase() === selectedMemberEmail.toLowerCase()
+      );
+      if (!matchedMember || !isNonAdminApprovedMember(matchedMember)) {
+        setStatusFeedback({
+          type: 'error',
+          message: 'Admin email addresses cannot be selected as recipient.',
+        });
+        return;
+      }
       targetRecipients = [selectedMemberEmail];
     } else if (recipientMode === 'all_members') {
       targetRecipients = membersList
+        .filter(isNonAdminApprovedMember)
         .map((m) => (m.email || '').trim())
         .filter((e) => e && e.includes('@'));
       if (targetRecipients.length === 0) {
