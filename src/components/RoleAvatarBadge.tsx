@@ -48,7 +48,11 @@ export const RoleAvatarBadge: React.FC<RoleAvatarBadgeProps> = ({
             (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
           }}
           referrerPolicy="no-referrer"
-          className="w-full h-full rounded-full object-cover border border-stone-200 shadow-xs bg-stone-100"
+          className={`w-full h-full rounded-full border border-stone-200 shadow-xs ${
+            avatarUrl?.includes('bcc-logo.png')
+              ? 'object-contain p-0.5 bg-white'
+              : 'object-cover bg-stone-100'
+          }`}
         />
         <RoleAvatarBadge role={role} size={size === 'xl' ? 'lg' : size} />
       </div>

@@ -513,13 +513,17 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
           <div className="relative px-3.5 sm:px-5 lg:px-8 -mt-10 sm:-mt-12 lg:-mt-16 flex items-start gap-2.5 sm:gap-3.5 lg:gap-5 z-2 mb-3 sm:mb-4 lg:mb-6">
             {/* Circular Avatar */}
             <div className="relative group shrink-0">
-              <div className="w-20 h-20 sm:w-24 sm:h-24 lg:w-32 lg:h-32 rounded-full bg-stone-100 border-[3px] sm:border-4 lg:border-[5px] border-white shadow-md lg:shadow-xl overflow-hidden flex items-center justify-center">
+              <div className="w-20 h-20 sm:w-24 sm:h-24 lg:w-32 lg:h-32 rounded-full bg-white border-[3px] sm:border-4 lg:border-[5px] border-white shadow-md lg:shadow-xl overflow-hidden flex items-center justify-center">
                 {activeRider.avatar ? (
                   <img
                     src={activeRider.avatar}
                     alt={activeRider.name}
                     referrerPolicy="no-referrer"
-                    className="w-full h-full object-cover"
+                    className={`w-full h-full bg-white ${
+                      activeRider.avatar.includes('bcc-logo.png')
+                        ? 'object-contain p-2 sm:p-2.5 lg:p-3'
+                        : 'object-cover'
+                    }`}
                   />
                 ) : (
                   <svg
@@ -1075,7 +1079,11 @@ export const RiderProfile: React.FC<RiderProfileProps> = () => {
                             src={avatar || activeRider.avatar}
                             alt="Avatar Preview"
                             referrerPolicy="no-referrer"
-                            className="w-full h-full object-cover"
+                            className={`w-full h-full bg-white ${
+                              (avatar || activeRider.avatar)?.includes('bcc-logo.png')
+                                ? 'object-contain p-1'
+                                : 'object-cover'
+                            }`}
                           />
                         ) : (
                           <Camera className="w-4 h-4 text-[#52605d]" />

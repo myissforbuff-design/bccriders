@@ -342,21 +342,92 @@ export interface Payment {
   receiptUrl?: string;
 }
 
+export type SocialReactionType = 'like' | 'heart' | 'care' | 'blessed';
+
+export interface ReactionRecord {
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  userRole?: string;
+  type: SocialReactionType;
+  createdAt?: string;
+}
+
+export interface CommentReply {
+  id: string;
+  commentId: string;
+  postId: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string;
+  authorRole?: string;
+  replyToUserName?: string;
+  content: string;
+  createdAt: string;
+  reactions?: {
+    like?: string[];
+    heart?: string[];
+    care?: string[];
+    blessed?: string[];
+  };
+  reactionsDetails?: ReactionRecord[];
+}
+
+export interface PostComment {
+  id: string;
+  postId: string;
+  authorId: string;
+  authorName: string;
+  authorAvatar?: string;
+  authorRole?: string;
+  content: string;
+  createdAt: string;
+  reactions?: {
+    like?: string[];
+    heart?: string[];
+    care?: string[];
+    blessed?: string[];
+  };
+  reactionsDetails?: ReactionRecord[];
+  replies?: CommentReply[];
+}
+
+export interface PostMediaItem {
+  id: string;
+  type: 'photo' | 'video';
+  url: string;
+  fileId?: string;
+  webViewLink?: string;
+  thumbnailUrl?: string;
+  caption?: string;
+}
+
 export interface CommunityPost {
   id: string;
   authorId: string;
   authorName: string;
   authorAvatar: string;
-  authorRole: UserRole;
+  authorRole: UserRole | string;
   title: string;
   content: string;
-  category: 'Group Ride Setup' | 'Route Suggestion' | 'General Talk' | 'Equipment & Gear';
+  category: 'Group Ride Setup' | 'Route Suggestion' | 'General Talk' | 'Equipment & Gear' | 'General' | 'Ride Experience' | 'Shoutout' | 'Question' | string;
   paceLevel?: PaceLevel;
   distanceMiles?: number;
   meetingPoint?: string;
   meetingTime?: string;
   likesCount: number;
   likedBy: string[];
+  photos?: string[];
+  videoUrl?: string;
+  media?: PostMediaItem[];
+  reactions?: {
+    like?: string[];
+    heart?: string[];
+    care?: string[];
+    blessed?: string[];
+  };
+  reactionsDetails?: ReactionRecord[];
+  comments?: PostComment[];
   commentsCount: number;
   createdAt: string;
   routeId?: string;

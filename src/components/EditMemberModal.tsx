@@ -569,7 +569,11 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                     onError={(e) => {
                       (e.currentTarget as HTMLImageElement).src = '/avatar.svg';
                     }}
-                    className="w-16 h-16 sm:w-20 sm:h-20 rounded-full object-cover border-2 border-[#2d6a4f] shadow-md bg-stone-100"
+                    className={`w-16 h-16 sm:w-20 sm:h-20 rounded-full border-2 border-[#2d6a4f] shadow-md ${
+                      (avatar || '').includes('bcc-logo.png')
+                        ? 'object-contain p-1 bg-white'
+                        : 'object-cover bg-stone-100'
+                    }`}
                   />
                   <RoleAvatarBadge role={role} size="md" />
                 </div>

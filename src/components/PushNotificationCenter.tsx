@@ -221,11 +221,11 @@ export const PushNotificationCenter: React.FC<PushNotificationCenterProps> = ({
 
       if (avatarUrl) {
         return (
-          <div className="relative w-9 h-9 rounded-full overflow-hidden shrink-0 border border-emerald-300 shadow-xs bg-stone-100 flex items-center justify-center mt-0.5">
+          <div className={`relative w-9 h-9 rounded-full overflow-hidden shrink-0 border border-emerald-300 shadow-xs flex items-center justify-center mt-0.5 ${avatarUrl.includes('bcc-logo.png') ? 'bg-white' : 'bg-stone-100'}`}>
             <img
               src={avatarUrl}
               alt={cleanDisplayName}
-              className="w-full h-full object-cover"
+              className={`w-full h-full ${avatarUrl.includes('bcc-logo.png') ? 'object-contain p-0.5 bg-white' : 'object-cover'}`}
               referrerPolicy="no-referrer"
               onError={(e) => {
                 const target = e.currentTarget;

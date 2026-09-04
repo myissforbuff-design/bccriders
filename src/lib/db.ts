@@ -17,6 +17,10 @@ import {
   Event,
   Payment,
   CommunityPost,
+  SocialReactionType,
+  ReactionRecord,
+  PostComment,
+  CommentReply,
   RideLog,
   RouteMap,
   NotificationItem,
@@ -149,8 +153,12 @@ export async function authFetch(url: string, options?: RequestInit): Promise<Res
   // Catch a dead session here rather than at each call site — most mutation
   // callers end in `.catch(() => {})` and would otherwise fail silently,
   // leaving the rider looking at a screen that quietly stopped saving.
+  // Note: Only trigger session expiration for core BCC app endpoints, not external service integrations.
   if (res.status === 401 || res.status === 403) {
-    handleUnauthorizedResponse(url);
+    const isExternalServiceEndpoint = url.includes('/drive/') || url.includes('/google/');
+    if (!isExternalServiceEndpoint) {
+      handleUnauthorizedResponse(url);
+    }
   }
 
   return res;
@@ -387,7 +395,13 @@ export class DataStoreService {
 
   constructor() {
     this.events = loadFromStorage(STORAGE_KEYS.EVENTS, INITIAL_EVENTS);
-    this.posts = loadFromStorage(STORAGE_KEYS.POSTS, INITIAL_POSTS);
+    const storedPosts = loadFromStorage(STORAGE_KEYS.POSTS, INITIAL_POSTS);
+    this.posts = Array.isArray(storedPosts)
+      ? storedPosts.filter(
+          (p: CommunityPost) => !p.id?.startsWith('post_feed_') && p.id !== 'post_feed_01' && p.id !== 'post_feed_02'
+        )
+      : [];
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
     this.logs = loadFromStorage(STORAGE_KEYS.LOGS, INITIAL_RIDE_LOGS);
     this.routes = loadFromStorage(STORAGE_KEYS.ROUTES, INITIAL_ROUTES);
     this.notifications = loadFromStorage(
@@ -399,7 +413,20 @@ export class DataStoreService {
       INITIAL_ANNOUNCEMENTS
     );
     this.currentUserId = loadFromStorage(STORAGE_KEYS.CURRENT_USER, '');
-    this.users = loadFromStorage(STORAGE_KEYS.USERS, INITIAL_USERS);
+    this.users = loadFromStorage(STORAGE_KEYS.USERS, INITIAL_USERS).map((u) => {
+      if (u.id === 'usr_admin' || u.role?.toLowerCase() === 'admin' || u.username?.toLowerCase() === 'admin') {
+        if (!u.avatar || u.avatar.includes('unsplash.com') || u.avatar === '/avatar.svg') {
+          return { ...u, avatar: '/bcc-logo.png' };
+        }
+      }
+      return u;
+    });
+    const cachedProfile = loadFromStorage<User | null>(STORAGE_KEYS.USER_PROFILE, null);
+    if (cachedProfile && (cachedProfile.id === 'usr_admin' || cachedProfile.role?.toLowerCase() === 'admin' || cachedProfile.username?.toLowerCase() === 'admin')) {
+      if (!cachedProfile.avatar || cachedProfile.avatar.includes('unsplash.com') || cachedProfile.avatar === '/avatar.svg') {
+        saveToStorage(STORAGE_KEYS.USER_PROFILE, { ...cachedProfile, avatar: '/bcc-logo.png' });
+      }
+    }
     this.payments = loadFromStorage(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS);
     this.financeSettings = loadFromStorage(
       STORAGE_KEYS.FINANCE_SETTINGS,
@@ -438,6 +465,7 @@ export class DataStoreService {
         await Promise.allSettled([
           this.refreshUsersFromServer({ seedIfEmpty: true }),
           this.refreshAnnouncementsFromServer(),
+          this.refreshPostsFromServer(),
           this.refreshSettingsFromServer(),
           this.refreshMonthlyDuesFromServer(),
         ]);
@@ -521,6 +549,43 @@ export class DataStoreService {
       }
     }
     return this.announcements;
+  }
+
+  /** Re-reads the `posts` collection and republishes posts. */
+  async refreshPostsFromServer(): Promise<CommunityPost[]> {
+    const dataPosts = await safeFetchJson('/api/mongodb/posts');
+    if (dataPosts.success && Array.isArray(dataPosts.data)) {
+      this.posts = dataPosts.data
+        .filter(
+          (p: CommunityPost) => !p.id?.startsWith('post_feed_') && p.id !== 'post_feed_01' && p.id !== 'post_feed_02'
+        )
+        .map((p: CommunityPost) => {
+          const isAdminPost = p.authorId === 'usr_admin' || p.authorRole?.toLowerCase() === 'admin';
+          const authorAvatar = (isAdminPost && (!p.authorAvatar || p.authorAvatar.includes('unsplash.com') || p.authorAvatar === '/avatar.svg'))
+            ? '/bcc-logo.png'
+            : p.authorAvatar;
+          const comments = (p.comments || []).map((c) => {
+            const isAdminComment = c.authorId === 'usr_admin' || c.authorRole?.toLowerCase() === 'admin';
+            const cAvatar = (isAdminComment && (!c.authorAvatar || c.authorAvatar.includes('unsplash.com') || c.authorAvatar === '/avatar.svg'))
+              ? '/bcc-logo.png'
+              : c.authorAvatar;
+            const replies = (c.replies || []).map((r) => {
+              const isAdminReply = r.authorId === 'usr_admin' || r.authorRole?.toLowerCase() === 'admin';
+              const rAvatar = (isAdminReply && (!r.authorAvatar || r.authorAvatar.includes('unsplash.com') || r.authorAvatar === '/avatar.svg'))
+                ? '/bcc-logo.png'
+                : r.authorAvatar;
+              return { ...r, authorAvatar: rAvatar };
+            });
+            return { ...c, authorAvatar: cAvatar, replies };
+          });
+          return { ...p, authorAvatar, comments };
+        });
+      saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+      }
+    }
+    return this.posts;
   }
 
   /** Re-reads the `settings` collection (finance config, dues, collections, security). */
@@ -728,9 +793,14 @@ export class DataStoreService {
     const fallbackUsername = emailStr ? emailStr.split('@')[0] : `rider_${String(user.id || Date.now()).slice(-4)}`;
     const rawUsername = (user.username || '').trim();
     const cleanUsername = rawUsername || fallbackUsername;
+    const isAdmin = user.id === 'usr_admin' || user.role?.toLowerCase() === 'admin' || user.username?.toLowerCase() === 'admin';
+    const avatar = (isAdmin && (!user.avatar || user.avatar.includes('unsplash.com') || user.avatar === '/avatar.svg'))
+      ? '/bcc-logo.png'
+      : (user.avatar || '/avatar.svg');
 
     return {
       ...user,
+      avatar,
       username: cleanUsername,
       email: emailStr,
       approvalStatus: user.approvalStatus || 'Approved',
@@ -1204,15 +1274,32 @@ export class DataStoreService {
   }
 
   createPost(
-    post: Omit<CommunityPost, 'id' | 'likesCount' | 'likedBy' | 'commentsCount' | 'createdAt'>
+    post: Omit<CommunityPost, 'id' | 'likesCount' | 'likedBy' | 'commentsCount' | 'createdAt'> & {
+      id?: string;
+      createdAt?: string;
+      likesCount?: number;
+      likedBy?: string[];
+      commentsCount?: number;
+      reactions?: CommunityPost['reactions'];
+      reactionsDetails?: ReactionRecord[];
+      comments?: PostComment[];
+    }
   ): CommunityPost {
     const newPost: CommunityPost = {
       ...post,
-      id: `post_${Date.now()}`,
-      likesCount: 0,
-      likedBy: [],
-      commentsCount: 0,
-      createdAt: new Date().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }),
+      id: post.id || `post_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      likesCount: post.likesCount || 0,
+      likedBy: post.likedBy || [],
+      reactions: post.reactions || {
+        like: [],
+        heart: [],
+        care: [],
+        blessed: [],
+      },
+      reactionsDetails: post.reactionsDetails || [],
+      comments: post.comments || [],
+      commentsCount: post.comments ? post.comments.length : (post.commentsCount || 0),
+      createdAt: post.createdAt || new Date().toISOString(),
     };
 
     this.posts.unshift(newPost);
@@ -1224,7 +1311,373 @@ export class DataStoreService {
       body: JSON.stringify(newPost),
     }).catch((err) => console.warn('MongoDB createPost sync error:', err));
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
     return newPost;
+  }
+
+  deletePost(postId: string): boolean {
+    const initialLen = this.posts.length;
+    this.posts = this.posts.filter((p) => p.id !== postId);
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch(`/api/mongodb/posts/${encodeURIComponent(postId)}`, {
+      method: 'DELETE',
+    }).catch((err) => console.warn('MongoDB deletePost error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    return this.posts.length < initialLen;
+  }
+
+  reactToPost(
+    postId: string,
+    userId: string,
+    userName: string,
+    reactionType: SocialReactionType,
+    userRole?: string,
+    userAvatar?: string
+  ): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    if (!post.reactions) {
+      post.reactions = { like: [], heart: [], care: [], blessed: [] };
+    }
+    if (!post.reactions.like) post.reactions.like = [];
+    if (!post.reactions.heart) post.reactions.heart = [];
+    if (!post.reactions.care) post.reactions.care = [];
+    if (!post.reactions.blessed) post.reactions.blessed = [];
+    if (!post.reactionsDetails) post.reactionsDetails = [];
+
+    const existingReaction = post.reactionsDetails.find((r) => r.userId === userId);
+
+    if (existingReaction && existingReaction.type === reactionType) {
+      // Toggle off
+      post.reactions[reactionType] = (post.reactions[reactionType] || []).filter((id) => id !== userId);
+      post.reactionsDetails = post.reactionsDetails.filter((r) => r.userId !== userId);
+    } else {
+      // Remove previous reaction if any
+      if (existingReaction) {
+        const prevType = existingReaction.type;
+        post.reactions[prevType] = (post.reactions[prevType] || []).filter((id) => id !== userId);
+        post.reactionsDetails = post.reactionsDetails.filter((r) => r.userId !== userId);
+      }
+      // Add new reaction
+      if (!post.reactions[reactionType].includes(userId)) {
+        post.reactions[reactionType].push(userId);
+      }
+      post.reactionsDetails.push({
+        userId,
+        userName,
+        userRole,
+        userAvatar,
+        type: reactionType,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    // Keep likedBy and likesCount aligned with all unique reactors
+    const allReactors = new Set<string>();
+    Object.values(post.reactions).forEach((arr) => arr?.forEach((uid) => allReactors.add(uid)));
+    post.likedBy = Array.from(allReactors);
+    post.likesCount = allReactors.size;
+
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch('/api/mongodb/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post),
+    }).catch((err) => console.warn('MongoDB reactToPost sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    return post;
+  }
+
+  addCommentToPost(
+    postId: string,
+    commentData: {
+      authorId: string;
+      authorName: string;
+      authorAvatar?: string;
+      authorRole?: string;
+      content: string;
+    }
+  ): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    if (!post.comments) post.comments = [];
+
+    const newComment: PostComment = {
+      id: `comment_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      postId,
+      authorId: commentData.authorId,
+      authorName: commentData.authorName,
+      authorAvatar: commentData.authorAvatar,
+      authorRole: commentData.authorRole,
+      content: commentData.content.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    post.comments.push(newComment);
+    post.commentsCount = post.comments.length;
+
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch('/api/mongodb/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post),
+    }).catch((err) => console.warn('MongoDB addCommentToPost sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    return post;
+  }
+
+  deleteCommentFromPost(postId: string, commentId: string): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    if (post.comments) {
+      post.comments = post.comments.filter((c) => c.id !== commentId);
+      post.commentsCount = (post.comments || []).reduce((acc, c) => acc + 1 + (c.replies?.length || 0), 0);
+
+      saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+      authFetch('/api/mongodb/posts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(post),
+      }).catch((err) => console.warn('MongoDB deleteCommentFromPost sync error:', err));
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+      }
+    }
+
+    return post;
+  }
+
+  reactToComment(
+    postId: string,
+    commentId: string,
+    userId: string,
+    userName: string,
+    reactionType: SocialReactionType,
+    userRole?: string,
+    userAvatar?: string
+  ): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    const comment = post.comments?.find((c) => c.id === commentId);
+    if (!comment) throw new Error('Comment not found');
+
+    if (!comment.reactions) {
+      comment.reactions = { like: [], heart: [], care: [], blessed: [] };
+    }
+    if (!comment.reactions.like) comment.reactions.like = [];
+    if (!comment.reactions.heart) comment.reactions.heart = [];
+    if (!comment.reactions.care) comment.reactions.care = [];
+    if (!comment.reactions.blessed) comment.reactions.blessed = [];
+    if (!comment.reactionsDetails) comment.reactionsDetails = [];
+
+    const existingReaction = comment.reactionsDetails.find((r) => r.userId === userId);
+
+    if (existingReaction && existingReaction.type === reactionType) {
+      // Toggle off
+      comment.reactions[reactionType] = (comment.reactions[reactionType] || []).filter((id) => id !== userId);
+      comment.reactionsDetails = comment.reactionsDetails.filter((r) => r.userId !== userId);
+    } else {
+      if (existingReaction) {
+        const prevType = existingReaction.type;
+        comment.reactions[prevType] = (comment.reactions[prevType] || []).filter((id) => id !== userId);
+        comment.reactionsDetails = comment.reactionsDetails.filter((r) => r.userId !== userId);
+      }
+      if (!comment.reactions[reactionType].includes(userId)) {
+        comment.reactions[reactionType].push(userId);
+      }
+      comment.reactionsDetails.push({
+        userId,
+        userName,
+        userRole,
+        userAvatar,
+        type: reactionType,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch('/api/mongodb/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post),
+    }).catch((err) => console.warn('MongoDB reactToComment sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    return post;
+  }
+
+  addReplyToComment(
+    postId: string,
+    commentId: string,
+    replyData: {
+      authorId: string;
+      authorName: string;
+      authorAvatar?: string;
+      authorRole?: string;
+      replyToUserName?: string;
+      content: string;
+    }
+  ): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    const comment = post.comments?.find((c) => c.id === commentId);
+    if (!comment) throw new Error('Comment not found');
+
+    if (!comment.replies) comment.replies = [];
+
+    const newReply: CommentReply = {
+      id: `reply_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      commentId,
+      postId,
+      authorId: replyData.authorId,
+      authorName: replyData.authorName,
+      authorAvatar: replyData.authorAvatar,
+      authorRole: replyData.authorRole,
+      replyToUserName: replyData.replyToUserName,
+      content: replyData.content.trim(),
+      createdAt: new Date().toISOString(),
+      reactions: { like: [], heart: [], care: [], blessed: [] },
+      reactionsDetails: [],
+    };
+
+    comment.replies.push(newReply);
+    post.commentsCount = (post.comments || []).reduce((acc, c) => acc + 1 + (c.replies?.length || 0), 0);
+
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch('/api/mongodb/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post),
+    }).catch((err) => console.warn('MongoDB addReplyToComment sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    return post;
+  }
+
+  deleteReplyFromComment(postId: string, commentId: string, replyId: string): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    const comment = post.comments?.find((c) => c.id === commentId);
+    if (!comment || !comment.replies) return post;
+
+    comment.replies = comment.replies.filter((r) => r.id !== replyId);
+    post.commentsCount = (post.comments || []).reduce((acc, c) => acc + 1 + (c.replies?.length || 0), 0);
+
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch('/api/mongodb/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post),
+    }).catch((err) => console.warn('MongoDB deleteReplyFromComment sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    return post;
+  }
+
+  reactToReply(
+    postId: string,
+    commentId: string,
+    replyId: string,
+    userId: string,
+    userName: string,
+    reactionType: SocialReactionType,
+    userRole?: string,
+    userAvatar?: string
+  ): CommunityPost {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) throw new Error('Post not found');
+
+    const comment = post.comments?.find((c) => c.id === commentId);
+    if (!comment || !comment.replies) throw new Error('Comment not found');
+
+    const reply = comment.replies.find((r) => r.id === replyId);
+    if (!reply) throw new Error('Reply not found');
+
+    if (!reply.reactions) {
+      reply.reactions = { like: [], heart: [], care: [], blessed: [] };
+    }
+    if (!reply.reactions.like) reply.reactions.like = [];
+    if (!reply.reactions.heart) reply.reactions.heart = [];
+    if (!reply.reactions.care) reply.reactions.care = [];
+    if (!reply.reactions.blessed) reply.reactions.blessed = [];
+    if (!reply.reactionsDetails) reply.reactionsDetails = [];
+
+    const existingReaction = reply.reactionsDetails.find((r) => r.userId === userId);
+
+    if (existingReaction && existingReaction.type === reactionType) {
+      // Toggle off
+      reply.reactions[reactionType] = (reply.reactions[reactionType] || []).filter((id) => id !== userId);
+      reply.reactionsDetails = reply.reactionsDetails.filter((r) => r.userId !== userId);
+    } else {
+      if (existingReaction) {
+        const prevType = existingReaction.type;
+        reply.reactions[prevType] = (reply.reactions[prevType] || []).filter((id) => id !== userId);
+        reply.reactionsDetails = reply.reactionsDetails.filter((r) => r.userId !== userId);
+      }
+      if (!reply.reactions[reactionType].includes(userId)) {
+        reply.reactions[reactionType].push(userId);
+      }
+      reply.reactionsDetails.push({
+        userId,
+        userName,
+        userRole,
+        userAvatar,
+        type: reactionType,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+
+    authFetch('/api/mongodb/posts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(post),
+    }).catch((err) => console.warn('MongoDB reactToReply sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    return post;
   }
 
   toggleLikePost(postId: string, userId: string): CommunityPost {
@@ -1247,6 +1700,10 @@ export class DataStoreService {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(post),
     }).catch((err) => console.warn('MongoDB toggleLikePost sync error:', err));
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
 
     return post;
   }

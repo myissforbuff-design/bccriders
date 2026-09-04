@@ -49,8 +49,10 @@ app.use((req, res, next) => {
     'Content-Security-Policy',
     "default-src 'self' https: data: blob: 'unsafe-inline' 'unsafe-eval'; " +
     "img-src 'self' https: data: blob: https://images.unsplash.com https://*.resend.com https://*.googleusercontent.com https://drive.google.com https://*.google.com; " +
+    "media-src 'self' https: data: blob: https://*.googlevideo.com https://drive.google.com; " +
+    "frame-src 'self' https://drive.google.com https://accounts.google.com; " +
     "font-src 'self' https: data:; " +
-    "connect-src 'self' https: wss: http: data: blob:; " +
+    "connect-src 'self' https: wss: http: data: blob: https://www.googleapis.com https://accounts.google.com; " +
     "frame-ancestors 'self' https://aistudio.google.com https://*.google.com;"
   );
   next();
@@ -108,9 +110,9 @@ interface OtpEntry {
 }
 const otpCache = new Map<string, OtpEntry>();
 
-// Increase payload limit for avatar image base64 uploads or large documents
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Increase payload limit for avatar image base64 uploads, feed photos, and video uploads
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
 // MongoDB Connection Setup
 const mongoUri = process.env.MONGODB_URI || '';
@@ -198,9 +200,9 @@ function getGoogleDriveClient() {
     process.env.DRIVE_FOLDER_ID ||
     process.env.GOOGLE_FOLDER_ID ||
     process.env.SHARED_DRIVE_FOLDER_ID ||
-    ''
+    '0AGPGJ8Knm3Y7Uk9PVA'
   ).trim();
-  const folderId = cleanDriveFolderId(rawFolderId);
+  const folderId = cleanDriveFolderId(rawFolderId) || '0AGPGJ8Knm3Y7Uk9PVA';
 
   // Check for full JSON credentials string
   const jsonCredentials = (
@@ -295,14 +297,16 @@ function getLastNameSlug(member: any): string {
 
 async function uploadBase64ToGoogleDrive(
   base64Data: string,
-  fileNamePrefix: string = 'bcc_member_photo'
+  fileNamePrefix: string = 'bcc_member_photo',
+  customFolderId?: string
 ): Promise<{ url: string; fileId: string; webViewLink?: string } | null> {
   const driveInfo = getGoogleDriveClient();
   if (!driveInfo) {
     return null;
   }
 
-  const { drive, folderId } = driveInfo;
+  const { drive } = driveInfo;
+  const targetFolderId = customFolderId ? cleanDriveFolderId(customFolderId) : (driveInfo.folderId || '0AGPGJ8Knm3Y7Uk9PVA');
 
   try {
     let mimeType = 'image/jpeg';
@@ -317,7 +321,10 @@ async function uploadBase64ToGoogleDrive(
     }
 
     const buffer = Buffer.from(base64String, 'base64');
-    const extension = mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg';
+    const isVideo = mimeType.startsWith('video/');
+    const extension = isVideo
+      ? (mimeType.includes('webm') ? 'webm' : mimeType.includes('quicktime') || mimeType.includes('mov') ? 'mov' : 'mp4')
+      : (mimeType.includes('png') ? 'png' : mimeType.includes('webp') ? 'webp' : 'jpg');
     // Format as lastname-avatar.jpg or lastname-bike.jpg as requested (e.g. bangcailan-avatar.jpg)
     const fileName = fileNamePrefix.includes('.') ? fileNamePrefix : `${fileNamePrefix}.${extension}`;
 
@@ -328,8 +335,8 @@ async function uploadBase64ToGoogleDrive(
     const fileMetadata: any = {
       name: fileName,
     };
-    if (folderId) {
-      fileMetadata.parents = [folderId];
+    if (targetFolderId) {
+      fileMetadata.parents = [targetFolderId];
     }
 
     const media = {
@@ -361,8 +368,8 @@ async function uploadBase64ToGoogleDrive(
       console.warn('[Google Drive] Permission set warning (parent folder may already be shared):', permErr);
     }
 
-    // Direct Google CDN thumbnail/stream URL (ultra-fast, globally cached, no auth required)
-    const directUrl = `https://lh3.googleusercontent.com/d/${fileId}`;
+    // Direct Google CDN / proxy URL (ultra-fast, globally cached, no auth required)
+    const directUrl = isVideo ? `/api/drive/file/${fileId}` : `https://lh3.googleusercontent.com/d/${fileId}`;
     return {
       url: directUrl,
       fileId,
@@ -472,7 +479,7 @@ const INITIAL_SEED_MEMBERS = [
     memberNumber: 'BRC-0000',
     password: ADMIN_BOOTSTRAP_PASSWORD,
     phone: '+63 917 123 4567',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
+    avatar: '/bcc-logo.png',
     bio: 'Founder & Club President. Honda Africa Twin enthusiast.',
     joinDate: '2026-01-01',
     emergencyContact: { name: 'Helen Vance', relationship: 'Spouse', phone: '+63 917 987 6543' },
@@ -601,6 +608,8 @@ async function initMongoIndexes() {
     await database.collection('monthlyDueLogs').createIndex({ id: 1 }, { unique: true });
     await database.collection('monthlyDueLogs').createIndex({ userId: 1 });
     await database.collection('activities').createIndex({ id: 1 }, { unique: true });
+    await database.collection('posts').createIndex({ id: 1 }, { unique: true });
+    await database.collection('posts').createIndex({ createdAt: -1 });
 
     // Clean up 'avatar' and 'photoUrl' columns/fields from 'activities' (and any legacy 'activites') collections
     await cleanupActivitiesCollection(database);
@@ -619,6 +628,72 @@ async function initMongoIndexes() {
         },
       }
     );
+
+    // Update admin avatar to /bcc-logo.png with white background
+    try {
+      await database.collection('members').updateMany(
+        {
+          $or: [
+            { id: 'usr_admin' },
+            { username: { $regex: /^admin$/i } },
+            { role: { $regex: /^admin$/i } },
+          ],
+        },
+        { $set: { avatar: '/bcc-logo.png' } }
+      );
+      // Also update any posts/comments/replies created by admin
+      const postsWithAdmin = await database.collection('posts').find({
+        $or: [
+          { authorId: 'usr_admin' },
+          { authorRole: { $regex: /^admin$/i } },
+          { 'comments.authorId': 'usr_admin' },
+          { 'comments.authorRole': { $regex: /^admin$/i } },
+        ],
+      }).toArray();
+
+      for (const p of postsWithAdmin) {
+        let modified = false;
+        let newAuthorAvatar = p.authorAvatar;
+        if (p.authorId === 'usr_admin' || (p.authorRole && /^admin$/i.test(p.authorRole))) {
+          if (newAuthorAvatar !== '/bcc-logo.png') {
+            newAuthorAvatar = '/bcc-logo.png';
+            modified = true;
+          }
+        }
+        const newComments = (p.comments || []).map((c: any) => {
+          let cMod = false;
+          let cAvatar = c.authorAvatar;
+          if (c.authorId === 'usr_admin' || (c.authorRole && /^admin$/i.test(c.authorRole))) {
+            if (cAvatar !== '/bcc-logo.png') {
+              cAvatar = '/bcc-logo.png';
+              cMod = true;
+            }
+          }
+          const newReplies = (c.replies || []).map((r: any) => {
+            if (r.authorId === 'usr_admin' || (r.authorRole && /^admin$/i.test(r.authorRole))) {
+              if (r.authorAvatar !== '/bcc-logo.png') {
+                cMod = true;
+                return { ...r, authorAvatar: '/bcc-logo.png' };
+              }
+            }
+            return r;
+          });
+          if (cMod) {
+            modified = true;
+            return { ...c, authorAvatar: cAvatar, replies: newReplies };
+          }
+          return c;
+        });
+        if (modified) {
+          await database.collection('posts').updateOne(
+            { _id: p._id },
+            { $set: { authorAvatar: newAuthorAvatar, comments: newComments } }
+          );
+        }
+      }
+    } catch (migErr) {
+      console.warn('[Migration] Admin avatar update error:', migErr);
+    }
 
     // Ensure all existing documents in 'members' collection have non-empty, trimmed username
     const membersWithoutUsername = await database.collection('members').find({
@@ -3550,10 +3625,25 @@ app.get('/api/drive/file/:fileId', async (req, res) => {
 
   try {
     const { drive } = driveInfo;
+    // Get file metadata for accurate Content-Type and sizing
+    let contentType = 'application/octet-stream';
+    try {
+      const meta = await drive.files.get({
+        fileId,
+        fields: 'mimeType, size, name',
+        supportsAllDrives: true,
+      });
+      if (meta.data.mimeType) {
+        contentType = meta.data.mimeType;
+      }
+    } catch {}
+
     const fileRes = await drive.files.get(
       { fileId, alt: 'media', supportsAllDrives: true },
       { responseType: 'stream' }
     );
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Cache-Control', 'public, max-age=86400, stale-while-revalidate=604800');
     fileRes.data.pipe(res);
   } catch (err: any) {
@@ -3563,7 +3653,7 @@ app.get('/api/drive/file/:fileId', async (req, res) => {
 });
 
 app.post('/api/drive/upload', async (req, res) => {
-  const { image, fileName, folder, userId, lastName, riderName } = req.body || {};
+  const { image, fileName, folder, userId, lastName, riderName, folderId } = req.body || {};
   if (!image || typeof image !== 'string') {
     return res.status(400).json({ error: 'image base64 string or dataUrl is required' });
   }
@@ -3585,9 +3675,11 @@ app.post('/api/drive/upload', async (req, res) => {
       const nameSource = lastName || riderName || 'rider';
       const slug = String(nameSource).toLowerCase().trim().split(/\s+/).pop()?.replace(/[^a-z0-9-_]/g, '') || 'rider';
       const isBike = folder?.includes('bike') || folder?.includes('cover') || folder?.includes('moto');
-      prefix = `${slug}-${isBike ? 'bike' : 'avatar'}`;
+      const isFeed = folder?.includes('feed') || folder?.includes('post') || folder?.includes('news');
+      prefix = `${slug}-${isFeed ? 'feed' : isBike ? 'bike' : 'avatar'}`;
     }
-    const uploadRes = await uploadBase64ToGoogleDrive(image, prefix);
+    const targetFolderId = folderId || '0AGPGJ8Knm3Y7Uk9PVA';
+    const uploadRes = await uploadBase64ToGoogleDrive(image, prefix, targetFolderId);
     if (uploadRes && uploadRes.url) {
       return res.json({
         success: true,
@@ -5203,6 +5295,14 @@ app.get('/api/mongodb/posts', async (req, res) => {
   const database = await getMongoDb();
   if (!database) return res.status(503).json({ error: 'MongoDB not connected', data: [] });
   try {
+    await database.collection('posts').deleteMany({
+      $or: [
+        { id: { $regex: '^post_feed_' } },
+        { id: 'post_feed_01' },
+        { id: 'post_feed_02' }
+      ]
+    }).catch(() => {});
+
     const docs = await database.collection('posts').find({}).sort({ timestamp: -1 }).toArray();
     const data = docs.map(({ _id, ...rest }) => rest);
     res.json({ success: true, data });
@@ -5222,6 +5322,18 @@ app.post('/api/mongodb/posts', async (req, res) => {
       { upsert: true }
     );
     res.json({ success: true, id: post.id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/mongodb/posts/:id', async (req, res) => {
+  const database = await getMongoDb();
+  const { id } = req.params;
+  if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+  try {
+    const result = await database.collection('posts').deleteOne({ id });
+    res.json({ success: true, deletedCount: result.deletedCount });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

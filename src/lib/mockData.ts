@@ -24,7 +24,7 @@ export const INITIAL_USERS: User[] = [
     memberNumber: 'BRC-0000',
     password: 'bccriders123',
     phone: '+63 917 123 4567',
-    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
+    avatar: '/bcc-logo.png',
     bio: 'BCC Riders Club Administrator.',
     joinDate: '2026-01-01',
     approvalStatus: 'Approved',

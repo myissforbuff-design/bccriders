@@ -6,8 +6,10 @@ import { store } from '../lib/db';
 import { Announcement, AnnouncementPriority } from '../types';
 import { useModalDismiss } from '../hooks/useModalDismiss';
 import { ModalPortal } from './ModalPortal';
+import { NewsFeed } from './NewsFeed';
 import {
   Megaphone,
+  MessageSquare,
   Plus,
   Pin,
   Search,
@@ -89,6 +91,9 @@ export const AnnouncementsView: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
   
+  // Sub-tab Navigation: Updates vs News Feed
+  const [activeSubTab, setActiveSubTab] = useState<'updates' | 'feed'>('updates');
+
   // Modal State
   const [showModal, setShowModal] = useState(false);
   const [editingAnn, setEditingAnn] = useState<Announcement | null>(null);
@@ -268,13 +273,50 @@ export const AnnouncementsView: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header Row */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-      
-        {/* Admin Action Button */}
-        {isAdmin && (
+      {/* Sub-tab Navigation Bar: Updates vs News Feed */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-[#e2ece2]">
+        <div className="flex items-center gap-1.5 p-1 bg-[#f0f4f0] rounded-2xl border border-[#e2ece2] w-full sm:w-auto">
           <button
             type="button"
+            id="subtab-updates-btn"
+            onClick={() => setActiveSubTab('updates')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-heading font-extrabold text-xs transition-all cursor-pointer ${
+              activeSubTab === 'updates'
+                ? 'bg-[#1b4332] text-white shadow-xs'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-white/60'
+            }`}
+          >
+            <Megaphone className="w-4 h-4 text-[#74c69d]" />
+            <span>Updates</span>
+            <span
+              className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                activeSubTab === 'updates' ? 'bg-white/20 text-white' : 'bg-[#e2ece2] text-[#52605d]'
+              }`}
+            >
+              {announcements.length}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            id="subtab-newsfeed-btn"
+            onClick={() => setActiveSubTab('feed')}
+            className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-heading font-extrabold text-xs transition-all cursor-pointer ${
+              activeSubTab === 'feed'
+                ? 'bg-[#1b4332] text-white shadow-xs'
+                : 'text-[#52605d] hover:text-[#1b4332] hover:bg-white/60'
+            }`}
+          >
+            <MessageSquare className="w-4 h-4 text-[#74c69d]" />
+            <span>News Feed</span>
+          </button>
+        </div>
+
+        {/* Admin Action Button (Only in Updates sub-tab) */}
+        {activeSubTab === 'updates' && isAdmin && (
+          <button
+            type="button"
+            id="create-news-update-btn"
             onClick={handleOpenCreate}
             className="px-4 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-xs transition-all cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98] shrink-0"
           >
@@ -284,7 +326,10 @@ export const AnnouncementsView: React.FC = () => {
         )}
       </div>
 
-      {/* Filter & Search Bar */}
+      {/* SUB-TAB CONTENT */}
+      {activeSubTab === 'updates' ? (
+        <div className="space-y-6">
+          {/* Filter & Search Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3.5 sm:p-4 rounded-2xl border border-[#e2ece2] shadow-xs">
         {/* Search */}
         <div className="relative w-full sm:w-80">
@@ -543,6 +588,10 @@ export const AnnouncementsView: React.FC = () => {
           </div>
         )}
       </div>
+      </div>
+      ) : (
+        <NewsFeed />
+      )}
 
       {/* Modal: Create / Edit Announcement */}
       <ModalPortal>

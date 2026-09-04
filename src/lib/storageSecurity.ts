@@ -57,6 +57,7 @@ export function isSensitiveStorageKey(key: string): boolean {
   if (PERSISTENT_STORAGE_KEYS.includes(key)) return false;
   if (key.includes('biometric')) return false;
   if (key.includes('pin_credential')) return false;
+  if (key.includes('firebase')) return false;
 
   const lower = key.toLowerCase();
   return (

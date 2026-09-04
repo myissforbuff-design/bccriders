@@ -749,7 +749,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                                   onError={(e) => {
                                     (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
                                   }}
-                                  className="w-9 h-9 rounded-full object-cover border-2 border-amber-400"
+                                  className={`w-9 h-9 rounded-full border-2 border-amber-400 ${
+                                    (m.avatar || DEFAULT_AVATAR).includes('bcc-logo.png')
+                                      ? 'object-contain p-0.5 bg-white'
+                                      : 'object-cover'
+                                  }`}
                                 />
                                 <RoleAvatarBadge role={m.role} size="sm" />
                               </div>
@@ -874,7 +878,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                                 onError={(e) => {
                                   (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
                                 }}
-                                className="w-9 h-9 rounded-full object-cover border-2 border-[#2d6a4f]"
+                                className={`w-9 h-9 rounded-full border-2 border-[#2d6a4f] ${
+                                  (m.avatar || DEFAULT_AVATAR).includes('bcc-logo.png')
+                                    ? 'object-contain p-0.5 bg-white'
+                                    : 'object-cover'
+                                }`}
                               />
                               <RoleAvatarBadge role={m.role} size="sm" />
                             </div>
@@ -1026,8 +1034,12 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
                         }}
-                        className={`w-12 h-12 rounded-full object-cover border-2 ${
+                        className={`w-12 h-12 rounded-full border-2 ${
                           isPending ? 'border-amber-400' : 'border-[#2d6a4f]'
+                        } ${
+                          (m.avatar || DEFAULT_AVATAR).includes('bcc-logo.png')
+                            ? 'object-contain p-0.5 bg-white'
+                            : 'object-cover'
                         }`}
                       />
                       <RoleAvatarBadge role={m.role} size="sm" />
@@ -1141,7 +1153,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         onError={(e) => {
                           (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
                         }}
-                        className="w-9 h-9 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-[#2d6a4f]"
+                        className={`w-9 h-9 sm:w-11 sm:h-11 rounded-full border-2 border-[#2d6a4f] ${
+                          (selectedMember.avatar || DEFAULT_AVATAR).includes('bcc-logo.png')
+                            ? 'object-contain p-0.5 bg-white'
+                            : 'object-cover'
+                        }`}
                       />
                       <RoleAvatarBadge role={selectedMember.role} size="md" />
                     </div>
@@ -1660,7 +1676,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     onError={(e) => {
                       (e.currentTarget as HTMLImageElement).src = DEFAULT_AVATAR;
                     }}
-                    className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover border-2 border-[#2d6a4f] shrink-0"
+                    className={`w-10 h-10 sm:w-11 sm:h-11 rounded-full border-2 border-[#2d6a4f] shrink-0 ${
+                      (confirmModal.member.avatar || DEFAULT_AVATAR).includes('bcc-logo.png')
+                        ? 'object-contain p-0.5 bg-white'
+                        : 'object-cover'
+                    }`}
                   />
                   <div className="min-w-0 flex-1">
                     <h4 className="font-bold text-[#1b4332] text-xs sm:text-sm truncate">

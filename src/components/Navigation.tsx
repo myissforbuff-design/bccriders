@@ -386,8 +386,16 @@ export const Navigation: React.FC<NavigationProps> = ({
               >
                 {currentUser.role === 'admin' ? (
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-9 h-9 rounded-full bg-[#2d6a4f]/50 border border-[#74c69d]/40 flex items-center justify-center shrink-0 text-[#74c69d]" title="Administrator">
-                      <ShieldCheck className="w-5 h-5" />
+                    <div className="w-9 h-9 rounded-full bg-white border-2 border-[#74c69d] flex items-center justify-center shrink-0 overflow-hidden shadow-xs" title="Administrator">
+                      <img
+                        src={currentUser.avatar || '/bcc-logo.png'}
+                        alt="Admin"
+                        title="Administrator"
+                        className="w-full h-full object-contain p-0.5 bg-white"
+                        onError={(e) => {
+                          (e.currentTarget as HTMLImageElement).src = '/bcc-logo.png';
+                        }}
+                      />
                     </div>
                     {!isCollapsed && (
                       <div className="min-w-0">
