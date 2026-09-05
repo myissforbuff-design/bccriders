@@ -9,6 +9,7 @@ import { CustomSelect } from './CustomSelect';
 import { useFormAutoSave } from '../hooks/useFormAutoSave';
 import { BirthdateDropdownPicker } from './BirthdateDropdownPicker';
 import { InteractiveDatePicker } from './InteractiveDatePicker';
+import { calculateMemberAge } from '../lib/birthdayUtils';
 import {
   User as UserIcon,
   Phone,
@@ -365,20 +366,12 @@ export const RegistrationPageFlow: React.FC<RegistrationPageFlowProps> = ({
     dismissDraftNotification();
   };
 
-  // Auto-calculate Age when birthdate changes
+  // Auto-calculate Age when birthdate changes respecting GMT+8
   useEffect(() => {
     if (birthdate) {
-      const birthDate = new Date(birthdate);
-      const today = new Date();
-      if (!isNaN(birthDate.getTime())) {
-        let calculatedAge = today.getFullYear() - birthDate.getFullYear();
-        const monthDiff = today.getMonth() - birthDate.getMonth();
-        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-          calculatedAge--;
-        }
-        if (calculatedAge >= 0 && calculatedAge <= 120) {
-          setAge(String(calculatedAge));
-        }
+      const calculatedAge = calculateMemberAge(birthdate);
+      if (calculatedAge !== undefined && calculatedAge >= 0 && calculatedAge <= 120) {
+        setAge(String(calculatedAge));
       }
     }
   }, [birthdate]);

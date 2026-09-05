@@ -101,13 +101,21 @@ export const Navigation: React.FC<NavigationProps> = ({
           { id: 'settings', label: 'Settings', icon: Settings },
         ];
 
-  let navItems = rawNavItems;
+  let desktopNavItems = rawNavItems;
   if (isMember) {
-    navItems = navItems.filter((item) => item.id !== 'qr');
+    desktopNavItems = desktopNavItems.filter((item) => item.id !== 'qr');
   }
   if (!canAccessFinances) {
-    navItems = navItems.filter((item) => item.id !== 'finances');
+    desktopNavItems = desktopNavItems.filter((item) => item.id !== 'finances');
   }
+
+  // Mobile bottom navigation: Exclude document tab for admin on mobile while keeping in desktop sidebar
+  const mobileNavItems = desktopNavItems.filter((item) => {
+    if ((isAdmin || currentUser?.role === 'admin') && item.id === 'document') {
+      return false;
+    }
+    return true;
+  });
 
   return (
     <>
@@ -235,7 +243,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         >
           <div className="relative bg-white/98 backdrop-blur-xl rounded-[28px] shadow-2xl shadow-[#1b4332]/15 border border-[#e2ece2] px-2 pt-3 pb-1.5">
             <div className="flex items-center justify-between relative px-2">
-              {navItems.map((item) => {
+              {mobileNavItems.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.id;
                 const isCenter = item.id === 'qr';
@@ -323,7 +331,7 @@ export const Navigation: React.FC<NavigationProps> = ({
 
           {/* Navigation Items */}
           <nav className="mt-6 flex-1 space-y-1.5">
-            {navItems.map((item) => {
+            {desktopNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (

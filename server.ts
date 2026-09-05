@@ -1571,6 +1571,16 @@ io.on('connection', (socket: Socket) => {
   const authenticated = Boolean(socket.data.authenticated);
   // With REALTIME_REQUIRE_AUTH on (the default) only verified sockets get this far.
   socket.join(ROOM_AUTHENTICATED);
+  if (socket.data.userId) {
+    socket.join(`user:${socket.data.userId}`);
+  }
+
+  socket.on('user:identify', (userId: string) => {
+    if (userId) {
+      socket.data.userId = userId;
+      socket.join(`user:${userId}`);
+    }
+  });
 
   // Clients treat `db:ready` as "do a full resync now" — it fires on first connect AND on
   // every reconnect, which is what closes the gap for changes missed while disconnected.
@@ -1630,20 +1640,23 @@ if (webpush && typeof webpush.setVapidDetails === 'function') {
 export interface PushNotificationBroadcastPayload {
   title: string;
   body: string;
-  category: 'finance' | 'memberApprovals' | 'activities' | 'announcements' | 'sos' | string;
+  category: 'finance' | 'memberApprovals' | 'activities' | 'announcements' | 'sos' | 'newsFeed' | string;
   icon?: string;
   badge?: string;
   url?: string;
   tab?: string;
   tag?: string;
   requireInteraction?: boolean;
+  targetUserIds?: string[];
+  senderUserId?: string;
   customData?: Record<string, any>;
 }
 
 /**
- * Broadcasts a push notification to:
- * 1. All connected Socket.io clients across mobile and desktop (immediate active screen delivery)
- * 2. All stored Web Push service worker subscriptions in MongoDB (OS-level notification delivery)
+ * Broadcasts or targets a push notification to:
+ * 1. Target or all connected Socket.io clients across mobile and desktop (immediate active screen delivery)
+ * 2. Target or all stored Web Push service worker subscriptions in MongoDB (OS-level notification delivery)
+ * 3. Saves to MongoDB notification_history with user targeting support
  */
 async function broadcastPushNotification(
   payload: PushNotificationBroadcastPayload,
@@ -1653,10 +1666,21 @@ async function broadcastPushNotification(
     return { socketsNotified: 0, webPushSent: 0, webPushErrors: 0 };
   }
 
-  // 1. Socket.io broadcast to all active sessions & mobile tabs
+  const isTargeted = Boolean(payload.targetUserIds && payload.targetUserIds.length > 0);
+  const targetIds = isTargeted
+    ? (payload.targetUserIds || []).filter((id) => Boolean(id) && id !== payload.senderUserId)
+    : [];
+
+  // 1. Socket.io delivery: targeted rooms or authenticated broadcast
   try {
-    io.to(ROOM_AUTHENTICATED).emit('push:notification', payload);
-    io.emit('push:notification', payload);
+    if (isTargeted) {
+      targetIds.forEach((uid) => {
+        io.to(`user:${uid}`).emit('push:notification', payload);
+      });
+    } else {
+      io.to(ROOM_AUTHENTICATED).emit('push:notification', payload);
+      io.emit('push:notification', payload);
+    }
   } catch (sockErr) {
     console.warn('[WebPush] Socket emission notice:', sockErr);
   }
@@ -1665,11 +1689,12 @@ async function broadcastPushNotification(
   let webPushSent = 0;
   let webPushErrors = 0;
 
-  // 2. Background OS Web Push delivery to all registered device subscriptions
+  // 2. Background OS Web Push delivery to registered device subscriptions
   const database = await getMongoDb();
   if (database) {
     try {
-      const subscriptions = await database.collection('push_subscriptions').find({}).toArray();
+      const subQuery: any = isTargeted ? { userId: { $in: targetIds } } : {};
+      const subscriptions = await database.collection('push_subscriptions').find(subQuery).toArray();
       if (webpush && typeof webpush.sendNotification === 'function' && subscriptions.length > 0) {
         const payloadString = JSON.stringify({
           title: payload.title,
@@ -1677,7 +1702,7 @@ async function broadcastPushNotification(
           icon: payload.icon || '/logo.png',
           badge: payload.badge || '/badge-b.svg',
           category: payload.category,
-          tab: payload.tab || 'finances',
+          tab: payload.tab || 'announcements',
           url: payload.url || '/',
           tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
           vibrate: [200, 100, 200],
@@ -1732,25 +1757,51 @@ async function broadcastPushNotification(
   if (database) {
     try {
       const now = new Date();
-      const notifDoc = {
-        id: payload.tag || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-        title: payload.title,
-        body: payload.body,
-        message: payload.body,
-        category: payload.category || 'general',
-        type: payload.category || 'ride',
-        tab: payload.tab || 'dashboard',
-        url: payload.url || '/',
-        tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
-        customData: payload.customData || {},
-        createdAt: now.toISOString(),
-        timestamp: now.getTime(),
-      };
-      await database.collection('notification_history').updateOne(
-        { id: notifDoc.id },
-        { $set: notifDoc },
-        { upsert: true }
-      );
+      if (isTargeted) {
+        for (const uid of targetIds) {
+          const notifDoc = {
+            id: `${payload.tag || 'notif'}_${uid}_${Date.now()}`,
+            userId: uid,
+            targetUserIds: [uid],
+            title: payload.title,
+            body: payload.body,
+            message: payload.body,
+            category: payload.category || 'general',
+            type: payload.category === 'newsFeed' ? 'social' : payload.category || 'social',
+            tab: payload.tab || 'announcements',
+            url: payload.url || '/',
+            tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
+            customData: payload.customData || {},
+            createdAt: now.toISOString(),
+            timestamp: now.getTime(),
+          };
+          await database.collection('notification_history').updateOne(
+            { id: notifDoc.id },
+            { $set: notifDoc },
+            { upsert: true }
+          );
+        }
+      } else {
+        const notifDoc = {
+          id: payload.tag || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+          title: payload.title,
+          body: payload.body,
+          message: payload.body,
+          category: payload.category || 'general',
+          type: payload.category || 'ride',
+          tab: payload.tab || 'dashboard',
+          url: payload.url || '/',
+          tag: payload.tag || `bcc-${payload.category}-${Date.now()}`,
+          customData: payload.customData || {},
+          createdAt: now.toISOString(),
+          timestamp: now.getTime(),
+        };
+        await database.collection('notification_history').updateOne(
+          { id: notifDoc.id },
+          { $set: notifDoc },
+          { upsert: true }
+        );
+      }
     } catch (saveErr) {
       console.warn('[NotificationHistory] Save error:', saveErr);
     }
@@ -1886,6 +1937,18 @@ app.get('/api/notifications/history', async (req, res) => {
       query.timestamp = { $gt: sinceParam };
     }
 
+    // Filter by user ID: return broadcast notifications (no target) + targeted notifications for this user
+    if (req.query.userId) {
+      const uid = String(req.query.userId);
+      query.$or = [
+        { targetUserIds: { $exists: false } },
+        { targetUserIds: null },
+        { targetUserIds: [] },
+        { targetUserIds: uid },
+        { userId: uid },
+      ];
+    }
+
     // If notification_history is empty, seed from updates and events
     const count = await database.collection('notification_history').countDocuments({});
     if (count === 0) {
@@ -1952,6 +2015,9 @@ app.get('/api/notifications/history', async (req, res) => {
         tab: doc.tab || 'dashboard',
         url: doc.url || '/',
         tag: doc.tag || `bcc-thread-${Date.now()}`,
+        userId: doc.userId,
+        targetUserIds: doc.targetUserIds,
+        customData: doc.customData || {},
         timestamp: doc.timestamp || (doc.createdAt ? new Date(doc.createdAt).getTime() : Date.now()),
         createdAt: doc.createdAt || new Date().toISOString(),
         read: false,
@@ -6215,6 +6281,397 @@ app.post('/api/emails/send', async (req, res) => {
   }
 });
 
+// ==========================================
+// AUTOMATED MEMBER BIRTHDAY BROADCAST SERVICE
+// ==========================================
+
+interface BirthdayBroadcastLogDoc {
+  id: string;
+  celebratorId: string;
+  celebratorName: string;
+  birthdate: string;
+  sentDate: string; // YYYY-MM-DD in GMT+8
+  recipientCount: number;
+  recipients: string[];
+  sentAt: string; // ISO string
+  status: 'delivered' | 'simulated' | 'failed';
+  resendId?: string;
+  error?: string;
+}
+
+function getManilaCalendarDate(): { year: number; month: number; day: number; dateString: string } {
+  const now = new Date();
+  let dateString = '';
+  try {
+    dateString = now.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  } catch {
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    dateString = `${y}-${m}-${d}`;
+  }
+  const parts = dateString.split('-').map(Number);
+  return {
+    year: parts[0],
+    month: parts[1],
+    day: parts[2],
+    dateString,
+  };
+}
+
+function generateBirthdayEmailContentTextAndHtml(celebratorName: string) {
+  const cur = getManilaCalendarDate();
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const dateFormatted = `${monthNames[cur.month - 1]} ${cur.day}, ${cur.year}`;
+  const subject = `Happy Birthday, ${celebratorName} - Birthday Greetings and Blessings from BCC Riders Club`;
+
+  const body = `Dear BCC Riders Club Family,
+
+Today, ${dateFormatted}, we join together in celebration of the birthday of our valued club member and rider, ${celebratorName}.
+
+On behalf of the entire BCC Riders Club, we give thanks to our God for the precious gift of ${celebratorName}'s life, fellowship, and companionship on every journey we share.
+
+May God abundantly bless you on your birthday and in the year ahead. We pray that our Lord and Savior Jesus Christ grants you good health, divine protection on all roads, inner peace, and boundless joy. May God guide your path, watch over your coming and going, and grant you many more safe and memorable rides ahead.
+
+To all BCC Riders Club members:
+Please join us in honoring ${celebratorName} today! We encourage everyone to reach out, send a personal greeting, and share your warmest birthday wishes and prayers with our celebrator. Let us make their day truly memorable with the fellowship and love of our club family.
+
+May our God and Jesus Christ bless and keep you always, ${celebratorName}. Happy Birthday!
+
+Sincerely in Christ and fellowship,
+BCC Riders Club Community and Leadership
+Ride Strong. Ride Together.`;
+
+  const html = `
+<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 600px; margin: 0 auto; border: 1px solid #e2ece2; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
+  <div style="background-color: #1b4332; padding: 24px 28px; text-align: center;">
+    <h1 style="color: #ffffff; margin: 0; font-size: 20px; letter-spacing: 0.5px;">BCC Riders Club</h1>
+    <p style="color: #b7e4c7; margin: 6px 0 0; font-size: 13px;">Official Community Birthday Broadcast</p>
+  </div>
+  
+  <div style="padding: 28px;">
+    <p style="font-size: 15px; margin-top: 0;"><strong>Dear BCC Riders Club Family,</strong></p>
+    
+    <p style="font-size: 14px; color: #374151;">
+      Today, <strong>${dateFormatted}</strong>, we join together in celebration of the birthday of our valued club member and rider, <strong style="color: #1b4332;">${celebratorName}</strong>.
+    </p>
+
+    <div style="background-color: #f7f9f7; border-left: 4px solid #2d6a4f; padding: 14px 18px; margin: 20px 0; border-radius: 4px;">
+      <p style="font-size: 14px; color: #2d6a4f; margin: 0; font-style: italic;">
+        On behalf of the entire BCC Riders Club, we give thanks to our God for the precious gift of ${celebratorName}'s life, fellowship, and companionship on every journey we share.
+      </p>
+    </div>
+
+    <p style="font-size: 14px; color: #374151;">
+      May God abundantly bless you on your birthday and in the year ahead. We pray that our Lord and Savior Jesus Christ grants you good health, divine protection on all roads, inner peace, and boundless joy. May God guide your path, watch over your coming and going, and grant you many more safe and memorable rides ahead.
+    </p>
+
+    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 24px 0;">
+      <h3 style="color: #1b4332; margin: 0 0 8px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">To all BCC Riders Club members:</h3>
+      <p style="font-size: 13px; color: #166534; margin: 0;">
+        Please join us in honoring <strong>${celebratorName}</strong> today! We encourage everyone to reach out, send a personal greeting, and share your warmest birthday wishes and prayers with our celebrator. Let us make their day truly memorable with the fellowship and love of our club family.
+      </p>
+    </div>
+
+    <p style="font-size: 14px; color: #1b4332; font-weight: bold; margin-bottom: 24px;">
+      May our God and Jesus Christ bless and keep you always, ${celebratorName}. Happy Birthday!
+    </p>
+
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+
+    <p style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">Sincerely in Christ and fellowship,</p>
+    <p style="font-size: 13px; color: #1b4332; font-weight: bold; margin: 0;">BCC Riders Club Community and Leadership</p>
+    <p style="font-size: 11px; color: #9ca3af; margin-top: 2px;">Ride Strong. Ride Together.</p>
+  </div>
+</div>
+`;
+
+  return { subject, body, html };
+}
+
+async function checkAndSendBirthdayBroadcasts(options?: {
+  forceCelebratorId?: string;
+  isTest?: boolean;
+}): Promise<{
+  success: boolean;
+  checkedDate: string;
+  celebratorsFound: number;
+  dispatchedCount: number;
+  details: string[];
+  logs: any[];
+}> {
+  const database = await getMongoDb();
+  if (!database) {
+    return {
+      success: false,
+      checkedDate: '',
+      celebratorsFound: 0,
+      dispatchedCount: 0,
+      details: ['MongoDB is not connected.'],
+      logs: [],
+    };
+  }
+
+  const manila = getManilaCalendarDate();
+  const details: string[] = [];
+  let dispatchedCount = 0;
+
+  // Check if automation is enabled
+  const config = await database.collection('settings').findOne({ id: 'birthday_broadcast_config' });
+  const isEnabled = config ? config.enabled !== false : true;
+
+  if (!isEnabled && !options?.forceCelebratorId && !options?.isTest) {
+    details.push('Automated birthday broadcast is disabled in settings.');
+    return {
+      success: true,
+      checkedDate: manila.dateString,
+      celebratorsFound: 0,
+      dispatchedCount: 0,
+      details,
+      logs: [],
+    };
+  }
+
+  // Fetch all approved members
+  const members = await database.collection('members').find({ approvalStatus: 'Approved' }).toArray();
+  const eligibleRecipients = members
+    .map((m) => (m.email || '').trim())
+    .filter((e) => e && e.includes('@'));
+
+  if (eligibleRecipients.length === 0) {
+    details.push('No eligible recipient emails found.');
+    return {
+      success: false,
+      checkedDate: manila.dateString,
+      celebratorsFound: 0,
+      dispatchedCount: 0,
+      details,
+      logs: [],
+    };
+  }
+
+  // Find celebrators celebrating today in GMT+8 (Asia/Manila)
+  const celebrators = members.filter((m) => {
+    if (options?.forceCelebratorId && m.id === options.forceCelebratorId) return true;
+    if (!m.birthdate || typeof m.birthdate !== 'string') return false;
+    const parts = m.birthdate.trim().split('-');
+    if (parts.length !== 3) return false;
+    const bMonth = parseInt(parts[1], 10);
+    const bDay = parseInt(parts[2], 10);
+    return bMonth === manila.month && bDay === manila.day;
+  });
+
+  const createdLogs: any[] = [];
+
+  for (const celebrator of celebrators) {
+    // Check if broadcast already sent today
+    if (!options?.isTest && !options?.forceCelebratorId) {
+      const alreadySent = await database.collection('birthday_broadcast_logs').findOne({
+        celebratorId: celebrator.id,
+        sentDate: manila.dateString,
+        status: 'delivered',
+      });
+      if (alreadySent) {
+        details.push(`Broadcast for ${celebrator.name} was already delivered today (${manila.dateString}).`);
+        continue;
+      }
+    }
+
+    const { subject, body, html } = generateBirthdayEmailContentTextAndHtml(celebrator.name);
+    const resend = getResendClient();
+    let resendId = `msg_bcast_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    let deliveryStatus: 'delivered' | 'simulated' | 'failed' = 'delivered';
+    let errorMessage = '';
+
+    if (resend) {
+      try {
+        const response = await resend.emails.send({
+          from: 'BCC Riders Club <info@bccriders.cc>',
+          to: eligibleRecipients,
+          replyTo: 'contact@bccriders.cc',
+          subject,
+          text: body,
+          html,
+        });
+
+        if (response && (response as any).data?.id) {
+          resendId = (response as any).data.id;
+        } else if ((response as any).id) {
+          resendId = (response as any).id;
+        }
+        console.log(`[Birthday Broadcast] Dispatched successfully to ${eligibleRecipients.length} members for ${celebrator.name}. Resend ID: ${resendId}`);
+      } catch (err: any) {
+        console.error('[Birthday Broadcast] Resend API error:', err);
+        deliveryStatus = 'failed';
+        errorMessage = err.message || 'Failed to deliver birthday broadcast email';
+      }
+    } else {
+      deliveryStatus = 'simulated';
+      console.warn('[Birthday Broadcast] RESEND_API_KEY not configured, broadcast simulated.');
+    }
+
+    const logRecord: BirthdayBroadcastLogDoc = {
+      id: `bcast_${Date.now()}_${celebrator.id}`,
+      celebratorId: celebrator.id,
+      celebratorName: celebrator.name,
+      birthdate: celebrator.birthdate || '',
+      sentDate: manila.dateString,
+      recipientCount: eligibleRecipients.length,
+      recipients: eligibleRecipients,
+      sentAt: new Date().toISOString(),
+      status: deliveryStatus,
+      resendId,
+      error: errorMessage || undefined,
+    };
+
+    try {
+      await database.collection('birthday_broadcast_logs').insertOne(logRecord);
+      createdLogs.push(logRecord);
+    } catch (e) {
+      console.warn('Failed to insert birthday broadcast log into MongoDB:', e);
+    }
+
+    // Also record into outbound_emails collection for outbox visibility
+    const outboxRecord: OutboundEmailRecord = {
+      id: `out_bcast_${Date.now()}_${celebrator.id}`,
+      resendId,
+      from: 'BCC Riders Club <info@bccriders.cc>',
+      to: eligibleRecipients,
+      cc: [],
+      bcc: [],
+      replyTo: 'contact@bccriders.cc',
+      subject,
+      bodyText: body,
+      bodyHtml: html,
+      sentAt: new Date().toISOString(),
+      status: deliveryStatus === 'delivered' ? 'sent' : deliveryStatus,
+      error: errorMessage || undefined,
+      senderName: 'BCC Birthday Automation Service',
+    };
+
+    outboundEmailMemoryCache.unshift(outboxRecord);
+    await database.collection('outbound_emails').insertOne(outboxRecord).catch(() => {});
+
+    if (deliveryStatus !== 'failed') {
+      dispatchedCount++;
+      details.push(`Broadcast for ${celebrator.name} successfully sent to ${eligibleRecipients.length} member(s).`);
+    } else {
+      details.push(`Failed to send broadcast for ${celebrator.name}: ${errorMessage}`);
+    }
+  }
+
+  return {
+    success: true,
+    checkedDate: manila.dateString,
+    celebratorsFound: celebrators.length,
+    dispatchedCount,
+    details,
+    logs: createdLogs,
+  };
+}
+
+// GET /api/birthdays/status - Returns broadcast system status, today's celebrators, and recent logs
+app.get('/api/birthdays/status', async (_req, res) => {
+  try {
+    const database = await getMongoDb();
+    if (!database) {
+      return res.status(503).json({ error: 'MongoDB not connected' });
+    }
+
+    const manila = getManilaCalendarDate();
+    const config = await database.collection('settings').findOne({ id: 'birthday_broadcast_config' });
+    const isEnabled = config ? config.enabled !== false : true;
+
+    const members = await database.collection('members').find({ approvalStatus: 'Approved' }).toArray();
+    const eligibleRecipients = members
+      .map((m) => (m.email || '').trim())
+      .filter((e) => e && e.includes('@'));
+
+    const celebrators = members.filter((m) => {
+      if (!m.birthdate || typeof m.birthdate !== 'string') return false;
+      const parts = m.birthdate.trim().split('-');
+      if (parts.length !== 3) return false;
+      const bMonth = parseInt(parts[1], 10);
+      const bDay = parseInt(parts[2], 10);
+      return bMonth === manila.month && bDay === manila.day;
+    });
+
+    const logs = await database
+      .collection('birthday_broadcast_logs')
+      .find({})
+      .sort({ sentAt: -1 })
+      .limit(20)
+      .toArray();
+
+    const formattedLogs = logs.map(({ _id, ...rest }) => rest);
+
+    return res.json({
+      success: true,
+      isEnabled,
+      timezone: 'GMT+8 (Asia/Manila)',
+      currentDate: manila.dateString,
+      celebrators: celebrators.map((c) => ({
+        id: c.id,
+        name: c.name,
+        birthdate: c.birthdate,
+        memberNumber: c.memberNumber,
+        hasSentToday: formattedLogs.some(
+          (l) => l.celebratorId === c.id && l.sentDate === manila.dateString && l.status === 'delivered'
+        ),
+      })),
+      eligibleRecipientsCount: eligibleRecipients.length,
+      logs: formattedLogs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/birthdays/trigger - Manually triggers birthday broadcast check or resend
+app.post('/api/birthdays/trigger', async (req, res) => {
+  try {
+    const { celebratorId, force = false, isTest = false } = req.body || {};
+    const result = await checkAndSendBirthdayBroadcasts({
+      forceCelebratorId: force ? celebratorId : undefined,
+      isTest,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/birthdays/toggle - Toggles automated birthday broadcast setting in MongoDB
+app.post('/api/birthdays/toggle', async (req, res) => {
+  try {
+    const { enabled } = req.body || {};
+    const database = await getMongoDb();
+    if (!database) {
+      return res.status(503).json({ error: 'MongoDB not connected' });
+    }
+
+    const isEnabled = enabled === true;
+    await database.collection('settings').updateOne(
+      { id: 'birthday_broadcast_config' },
+      {
+        $set: {
+          id: 'birthday_broadcast_config',
+          enabled: isEnabled,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      { upsert: true }
+    );
+
+    return res.json({ success: true, enabled: isEnabled });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Catch-all route for API requests to ensure JSON response instead of HTML SPA fallback
 app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}`, data: [] });
@@ -6248,6 +6705,20 @@ async function startServer() {
   await startRealtimeChangeStreams().catch((err) =>
     console.warn('[Realtime] Initial change stream startup failed:', err?.message || err)
   );
+
+  // Automated Member Birthday Broadcast Background Worker
+  setTimeout(() => {
+    checkAndSendBirthdayBroadcasts().catch((err) =>
+      console.warn('[Birthday Broadcast Worker] Startup check error:', err)
+    );
+  }, 4000);
+
+  // Check every 30 minutes for new birthdays across GMT+8 calendar days
+  setInterval(() => {
+    checkAndSendBirthdayBroadcasts().catch((err) =>
+      console.warn('[Birthday Broadcast Worker] Scheduled check error:', err)
+    );
+  }, 30 * 60 * 1000);
 }
 
 // Graceful shutdown so Render deploys close change streams and sockets cleanly.

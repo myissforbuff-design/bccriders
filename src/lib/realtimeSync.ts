@@ -231,6 +231,7 @@ const FULL_RESYNC_ORDER = [
   'members',
   'settings',
   'updates',
+  'posts',
   'financeLogs',
   'liquidationLogs',
   'financeArchives',
@@ -378,6 +379,17 @@ function wireEvents(instance: Socket): void {
       reconnectAttempts: 0,
       transport: instance.io.engine?.transport?.name ?? null,
     });
+
+    try {
+      const stored = sessionStorage.getItem('bcc_session_user') || localStorage.getItem('bcc_user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        const uid = u.id || u.username;
+        if (uid) {
+          instance.emit('user:identify', uid);
+        }
+      }
+    } catch {}
   };
 
   const onReconnectAttempt = (attempt: number) => {

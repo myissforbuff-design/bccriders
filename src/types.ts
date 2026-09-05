@@ -492,6 +492,7 @@ export interface MilestoneBadge {
 export interface NotificationItem {
   id: string;
   userId?: string; // empty means broadcast to all
+  targetUserIds?: string[];
   title: string;
   message: string;
   type: 'ride' | 'due' | 'meeting' | 'social' | 'system';
@@ -502,6 +503,7 @@ export interface NotificationItem {
   timestamp: string;
   read: boolean;
   actionUrl?: string;
+  customData?: Record<string, any>;
 }
 
 export type AnnouncementPriority = 'Important' | 'General' | 'Event' | 'Emergency';

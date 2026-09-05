@@ -18,6 +18,9 @@ import {
   Palette,
   Briefcase,
   HelpCircle,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { store } from '../lib/db';
@@ -49,6 +52,27 @@ export const RolesSettings: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<ClubRoleDefinition | null>(null);
   const [deleteConfirmRole, setDeleteConfirmRole] = useState<ClubRoleDefinition | null>(null);
+  
+  // Collapse state for whole section
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('bcc_roles_settings_collapsed');
+      if (stored !== null) return stored === 'true';
+      return false;
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleCollapsed = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('bcc_roles_settings_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
   
   // Form states
   const [name, setName] = useState('');
@@ -256,7 +280,7 @@ export const RolesSettings: React.FC = () => {
       </AnimatePresence>
 
       {/* Main Section Header Card */}
-      <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
+      <div className={`bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] transition-all shadow-xs ${isCollapsed ? 'p-3 sm:p-4 space-y-2.5' : 'p-3.5 sm:p-4 md:p-5 space-y-3 sm:space-y-4'}`}>
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#1b4332] text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5 sm:mt-0">
@@ -270,43 +294,128 @@ export const RolesSettings: React.FC = () => {
                 <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-black bg-stone-200 text-stone-700 border border-stone-300 flex items-center gap-1 shrink-0">
                   {roles.length} Total
                 </span>
+                {isCollapsed && (
+                  <span className="px-2 py-0.5 rounded-full text-[9px] sm:text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    Small View
+                  </span>
+                )}
               </div>
               <p className="text-[11px] sm:text-xs text-[#52605d] leading-relaxed">
-                Define and customize motorcycle club roles, officer hierarchy, badge initials, and assigned duties. All configured roles will automatically appear in member edit dropdowns and roster profile badges.
+                {isCollapsed
+                  ? `${stats.officers} Officers · ${stats.staff} Staff · ${stats.custom} Custom defined · Click "Expand Roles" to view full directory.`
+                  : 'Define and customize motorcycle club roles, officer hierarchy, badge initials, and assigned duties. All configured roles will automatically appear in member edit dropdowns and roster profile badges.'}
               </p>
             </div>
           </div>
 
-          <button
-            id="btn-add-club-role"
-            onClick={handleOpenAdd}
-            className="w-full sm:w-auto px-4 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black rounded-xl transition-all shadow-xs flex items-center justify-center gap-2 cursor-pointer shrink-0"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Add New Role</span>
-          </button>
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+            <button
+              type="button"
+              id="btn-add-club-role"
+              onClick={handleOpenAdd}
+              className="flex-1 sm:flex-initial px-3.5 py-2 bg-[#1b4332] hover:bg-[#2d6a4f] text-white text-xs font-black rounded-xl transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Role</span>
+            </button>
+
+            <button
+              type="button"
+              id="btn-toggle-roles-collapse"
+              onClick={toggleCollapsed}
+              className={`flex-1 sm:flex-initial px-3.5 py-2 rounded-xl text-xs font-black transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer border ${
+                isCollapsed
+                  ? 'bg-white hover:bg-stone-50 text-[#1b4332] border-[#2d6a4f]'
+                  : 'bg-white hover:bg-stone-50 text-[#1b4332] border-[#e2ece2]'
+              }`}
+              title={isCollapsed ? 'Expand roles and permissions' : 'Collapse whole div to small div'}
+            >
+              {isCollapsed ? (
+                <>
+                  <ChevronDown className="w-4 h-4 text-[#2d6a4f]" />
+                  <span>Expand Roles ({roles.length})</span>
+                </>
+              ) : (
+                <>
+                  <ChevronUp className="w-4 h-4 text-[#2d6a4f]" />
+                  <span>Collapse to Small Div</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
 
-        {/* Stats Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-[#e2ece2]">
-          <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
-            <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-[#52605d] tracking-wider truncate">Total Roles</div>
-            <div className="text-sm sm:text-base font-black text-[#1b4332]">{stats.total}</div>
+        {/* Collapsed quick preview pills */}
+        {isCollapsed && (
+          <div className="pt-2 border-t border-[#e2ece2] flex items-center justify-between gap-2 overflow-x-auto text-[10px] sm:text-[11px]">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-extrabold text-[#52605d] uppercase text-[9px] tracking-wider shrink-0 mr-1">
+                Roles preview:
+              </span>
+              {roles.slice(0, 7).map((role) => (
+                <span
+                  key={role.id}
+                  style={{
+                    backgroundColor: `${role.badgeBgColor || '#059669'}15`,
+                    color: role.badgeBgColor || '#059669',
+                    borderColor: `${role.badgeBgColor || '#059669'}30`,
+                  }}
+                  className="px-2 py-0.5 rounded-md font-bold text-[10px] border flex items-center gap-1 shrink-0"
+                >
+                  <span className="font-black">[{role.badgeAbbr || role.name.slice(0, 2).toUpperCase()}]</span>
+                  <span>{role.name}</span>
+                </span>
+              ))}
+              {roles.length > 7 && (
+                <span className="px-2 py-0.5 rounded-md bg-stone-100 text-[#52605d] font-bold text-[10px] border border-stone-200 shrink-0">
+                  +{roles.length - 7} more
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={toggleCollapsed}
+              className="text-[11px] font-bold text-[#2d6a4f] hover:underline shrink-0 flex items-center gap-0.5 ml-auto cursor-pointer"
+            >
+              <span>Expand</span>
+              <ChevronDown className="w-3 h-3" />
+            </button>
           </div>
-          <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
-            <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-amber-700 tracking-wider truncate">Executive & Officers</div>
-            <div className="text-sm sm:text-base font-black text-amber-700">{stats.officers}</div>
+        )}
+
+        {/* Stats Row when expanded */}
+        {!isCollapsed && (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-[#e2ece2]">
+            <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
+              <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-[#52605d] tracking-wider truncate">Total Roles</div>
+              <div className="text-sm sm:text-base font-black text-[#1b4332]">{stats.total}</div>
+            </div>
+            <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
+              <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-amber-700 tracking-wider truncate">Executive & Officers</div>
+              <div className="text-sm sm:text-base font-black text-amber-700">{stats.officers}</div>
+            </div>
+            <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
+              <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-teal-700 tracking-wider truncate">Staff & Marshals</div>
+              <div className="text-sm sm:text-base font-black text-teal-700">{stats.staff}</div>
+            </div>
+            <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
+              <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider truncate">Custom Defined</div>
+              <div className="text-sm sm:text-base font-black text-emerald-700">{stats.custom}</div>
+            </div>
           </div>
-          <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
-            <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-teal-700 tracking-wider truncate">Staff & Marshals</div>
-            <div className="text-sm sm:text-base font-black text-teal-700">{stats.staff}</div>
-          </div>
-          <div className="p-2.5 sm:p-3 rounded-xl bg-white border border-[#e2ece2] min-w-0 space-y-0.5">
-            <div className="text-[9.5px] sm:text-[10px] font-extrabold uppercase text-emerald-700 tracking-wider truncate">Custom Defined</div>
-            <div className="text-sm sm:text-base font-black text-emerald-700">{stats.custom}</div>
-          </div>
-        </div>
+        )}
       </div>
+
+      {/* Collapsible Content: Search, Filters, Roles Grid, and Bottom Collapse Button */}
+      <AnimatePresence>
+        {!isCollapsed && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.25 }}
+            className="space-y-6 overflow-hidden"
+          >
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
@@ -497,6 +606,22 @@ export const RolesSettings: React.FC = () => {
           })}
         </div>
       )}
+
+      {/* Bottom Collapse Button */}
+      <div className="flex justify-center pt-2">
+        <button
+          type="button"
+          id="btn-toggle-roles-collapse-bottom"
+          onClick={toggleCollapsed}
+          className="px-4 py-2 bg-white hover:bg-stone-50 text-[#1b4332] border border-[#e2ece2] rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer hover:border-[#2d6a4f]"
+        >
+          <ChevronUp className="w-3.5 h-3.5 text-[#2d6a4f]" />
+          <span>Collapse to Small Div</span>
+        </button>
+      </div>
+    </motion.div>
+  )}
+</AnimatePresence>
 
       {/* Add / Edit Role Modal */}
       <AnimatePresence>

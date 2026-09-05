@@ -9,6 +9,7 @@ import { User, MembershipType } from '../types';
 import { MemberRegistrationForm } from './MemberRegistrationForm';
 import { EditMemberModal, cleanBarangayCityAddress } from './EditMemberModal';
 import { RoleAvatarBadge } from './RoleAvatarBadge';
+import { calculateMemberAge, isMemberBirthdayToday } from '../lib/birthdayUtils';
 import { PushNotificationSettings } from './PushNotificationSettings';
 import {
   triggerFinancePushNotification,
@@ -86,7 +87,7 @@ export const exportMembersToExcel = (membersList: User[] = []) => {
     'Approval Status': safeVal(m.approvalStatus || 'Approved'),
     'Join Date': safeVal(m.joinDate),
     'Birthdate': safeVal(m.birthdate),
-    'Age': safeVal(m.age),
+    'Age': safeVal(calculateMemberAge(m.birthdate, m.age)),
     'Gender': safeVal(m.gender),
     'Civil Status': safeVal(m.civilStatus),
     'Occupation': safeVal(m.occupation),
@@ -889,6 +890,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                             <div className="min-w-0 flex-1">
                               <div className="font-bold text-[#1b4332] text-xs sm:text-[13px] flex items-center gap-1.5 truncate">
                                 <span className="truncate">{m.name}</span>
+                                {isMemberBirthdayToday(m.birthdate) && (
+                                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-extrabold border border-amber-300 shrink-0">
+                                    Birthday Today
+                                  </span>
+                                )}
                                 {isMe && (
                                   <span className="text-[8.5px] px-1.5 py-0.2 rounded bg-[#d8f3dc] text-[#1b4332] font-extrabold shrink-0">
                                     YOU
@@ -1047,6 +1053,11 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                     <div className="min-w-0 flex-1">
                       <div className="font-bold text-[#1b4332] text-sm truncate flex items-center gap-1.5">
                         <span className="truncate">{m.name}</span>
+                        {isMemberBirthdayToday(m.birthdate) && (
+                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-extrabold border border-amber-300 shrink-0">
+                            Birthday Today
+                          </span>
+                        )}
                         {isMe && (
                           <span className="text-[9px] px-1.5 py-0.2 rounded bg-[#d8f3dc] text-[#1b4332] font-bold shrink-0">
                             YOU
@@ -1215,9 +1226,17 @@ export const MembershipManagement: React.FC<MembershipManagementProps> = ({ onOp
                         {selectedMember.phone}
                       </p>
                       {selectedMember.birthdate && (
-                        <p className="text-[#52605d]">
-                          Birthdate: <strong className="text-[#1b4332]">{selectedMember.birthdate}</strong>
-                          {selectedMember.age && ` (${selectedMember.age} yrs)`}
+                        <p className="text-[#52605d] flex items-center flex-wrap gap-1">
+                          <span>Birthdate: <strong className="text-[#1b4332]">{selectedMember.birthdate}</strong></span>
+                          {(() => {
+                            const dynamicAge = calculateMemberAge(selectedMember.birthdate, selectedMember.age);
+                            return dynamicAge !== undefined ? <span>({dynamicAge} yrs)</span> : null;
+                          })()}
+                          {isMemberBirthdayToday(selectedMember.birthdate) && (
+                            <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 font-extrabold text-[10px]">
+                              Birthday Today
+                            </span>
+                          )}
                         </p>
                       )}
                       {selectedMember.gender && (

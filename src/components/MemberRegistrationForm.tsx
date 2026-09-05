@@ -8,6 +8,7 @@ import { LTO_RESTRICTION_CODES_2026, LTO_CONDITIONS_2026 } from './RegistrationP
 import { BirthdateDropdownPicker } from './BirthdateDropdownPicker';
 import { InteractiveDatePicker } from './InteractiveDatePicker';
 import { cleanBarangayCityAddress } from './EditMemberModal';
+import { calculateMemberAge } from '../lib/birthdayUtils';
 import { OfficialLoader } from './OfficialLoader';
 import {
   User as UserIcon,
@@ -484,21 +485,8 @@ export const MemberRegistrationForm: React.FC<MemberRegistrationFormProps> = ({
     }
   }, [applicantSignature]);
 
-  // Calculate age automatically from birthdate
-  const calculateAge = (dob: string): number | undefined => {
-    if (!dob) return undefined;
-    const birthDate = new Date(dob);
-    if (isNaN(birthDate.getTime())) return undefined;
-    const today = new Date();
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const m = today.getMonth() - birthDate.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
-    }
-    return age >= 0 ? age : undefined;
-  };
-
-  const computedAge = calculateAge(birthdate);
+  // Calculate age automatically from birthdate respecting GMT+8
+  const computedAge = calculateMemberAge(birthdate);
 
   // Avatar file upload handler converting to Base64 string for MongoDB (Max 10MB)
   const handleAvatarFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {

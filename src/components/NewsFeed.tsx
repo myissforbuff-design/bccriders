@@ -179,13 +179,35 @@ export const NewsFeed: React.FC = () => {
       }
     };
     window.addEventListener('bcc_posts_updated', handlePostsUpdated);
+
+    const handleOpenNewsFeed = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      if (detail && detail.postId) {
+        setExpandedCommentPostIds((prev) => ({ ...prev, [detail.postId]: true }));
+        setTimeout(() => {
+          const el = document.getElementById(`post-card-${detail.postId}`);
+          if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('ring-2', 'ring-[#2d6a4f]', 'ring-offset-2');
+            setTimeout(() => {
+              el.classList.remove('ring-2', 'ring-[#2d6a4f]', 'ring-offset-2');
+            }, 3000);
+          }
+        }, 300);
+      }
+    };
+    window.addEventListener('bcc_open_newsfeed', handleOpenNewsFeed);
+
     // Initial fetch to ensure fresh server data
     store.refreshPostsFromServer().then((fresh) => {
       if (Array.isArray(fresh) && fresh.length > 0) {
         setPosts([...fresh]);
       }
     });
-    return () => window.removeEventListener('bcc_posts_updated', handlePostsUpdated);
+    return () => {
+      window.removeEventListener('bcc_posts_updated', handlePostsUpdated);
+      window.removeEventListener('bcc_open_newsfeed', handleOpenNewsFeed);
+    };
   }, []);
 
   // Media file handlers
@@ -960,6 +982,7 @@ export const NewsFeed: React.FC = () => {
             return (
               <motion.article
                 key={post.id}
+                id={`post-card-${post.id}`}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-4 border border-[#e2ece2] shadow-xs space-y-2.5 sm:space-y-3 transition-all hover:border-[#b7e4c7]"

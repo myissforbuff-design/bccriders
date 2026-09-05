@@ -76,7 +76,15 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   };
 
   const refreshNotifs = useCallback(() => {
-    setNotifications([...store.getNotifications()]);
+    const currentUid = getCurrentUserId();
+    const all = store.getNotifications();
+    const userSpecific = all.filter((n) => {
+      if (!n.userId && (!n.targetUserIds || n.targetUserIds.length === 0)) return true;
+      if (n.userId === currentUid) return true;
+      if (n.targetUserIds && n.targetUserIds.includes(currentUid)) return true;
+      return false;
+    });
+    setNotifications(userSpecific);
   }, []);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
@@ -110,7 +118,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         return;
       }
 
-      const missedList = await fetchMissedNotifications(sinceTimestamp, 30);
+      const missedList = await fetchMissedNotifications(sinceTimestamp, 30, userId);
       const now = Date.now();
       saveUserNotificationState(userId, { lastCheckedAt: now });
 
@@ -130,6 +138,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           if (itemsToAdd.length > 0) {
             const formattedForStore: NotificationItem[] = itemsToAdd.map((item) => ({
               id: item.id || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              userId: item.userId,
+              targetUserIds: item.targetUserIds,
+              customData: item.customData,
               title: item.title,
               message: item.message || item.body || '',
               type: (item.type as any) || (item.category === 'activities' ? 'ride' : item.category === 'finance' ? 'due' : 'social'),
@@ -183,6 +194,15 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
       const detail = customEvent.detail;
       if (detail) {
         const userId = getCurrentUserId();
+
+        // Check if this notification is targeted to specific users
+        if (detail.targetUserIds && Array.isArray(detail.targetUserIds) && detail.targetUserIds.length > 0) {
+          // If the logged-in user is not one of the targeted recipients, suppress the alert
+          if (!detail.targetUserIds.includes(userId)) {
+            return;
+          }
+        }
+
         if (detail.id) {
           markNotificationsAsSeen(userId, [detail.id]);
         }
@@ -190,6 +210,30 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           markNotificationsAsSeen(userId, detail.threadItems.map((t: any) => t.id));
         }
         saveUserNotificationState(userId, { lastCheckedAt: Date.now() });
+
+        // Ensure this alert is persisted to local store if not already present
+        const currentNotifs = store.getNotifications();
+        const exists = currentNotifs.some(
+          (n) => n.id === detail.tag || n.tag === detail.tag || (n.title === detail.title && n.message === (detail.body || detail.message))
+        );
+        if (!exists) {
+          const itemToAdd: NotificationItem = {
+            id: detail.tag || `notif_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            userId: detail.userId || userId,
+            targetUserIds: detail.targetUserIds,
+            customData: detail.customData,
+            title: detail.title || 'BCC Riders Club Update',
+            message: detail.body || detail.message || '',
+            type: (detail.category === 'newsFeed' ? 'social' : detail.category === 'activities' ? 'ride' : detail.category === 'finance' ? 'due' : 'social') as any,
+            category: detail.category,
+            tab: detail.tab,
+            tag: detail.tag,
+            timestamp: 'Just now',
+            createdAt: new Date().toISOString(),
+            read: false,
+          };
+          store.setNotifications([itemToAdd, ...currentNotifs]);
+        }
 
         setToastMessage({
           title: detail.title || 'BCC Riders Club Update',
@@ -230,6 +274,9 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
           localStorage.setItem('bcc_active_tab', targetTab);
           window.location.hash = targetTab;
           window.dispatchEvent(new CustomEvent('bcc_tab_navigate', { detail: targetTab }));
+          if (e.data.data?.subTab === 'feed' || targetTab === 'announcements') {
+            window.dispatchEvent(new CustomEvent('bcc_open_newsfeed', { detail: e.data.data }));
+          }
         }
       }
     };

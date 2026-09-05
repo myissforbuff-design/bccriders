@@ -1,4 +1,5 @@
 import { formatApiUrl } from './db';
+import type { SocialReactionType } from '../types';
 
 export interface PushNotificationConfig {
   enabled: boolean;
@@ -8,6 +9,7 @@ export interface PushNotificationConfig {
     activities: boolean;
     announcements: boolean;
     sos: boolean;
+    newsFeed: boolean;
   };
   sound: boolean;
   vibration: boolean;
@@ -21,6 +23,7 @@ export const DEFAULT_PUSH_CONFIG: PushNotificationConfig = {
     activities: true,
     announcements: true,
     sos: true,
+    newsFeed: true,
   },
   sound: true,
   vibration: true,
@@ -218,6 +221,8 @@ export interface PushNotificationPayload {
   tag?: string;
   requireInteraction?: boolean;
   isThread?: boolean;
+  targetUserIds?: string[];
+  senderUserId?: string;
   threadItems?: Array<{
     id: string;
     title: string;
@@ -316,10 +321,12 @@ export function saveUserNotificationState(
 
 export async function fetchMissedNotifications(
   sinceTimestamp: number,
-  limit: number = 30
+  limit: number = 30,
+  userId?: string
 ): Promise<any[]> {
   try {
-    const url = formatApiUrl(`/api/notifications/history?since=${sinceTimestamp || 0}&limit=${limit}`);
+    const userQuery = userId ? `&userId=${encodeURIComponent(userId)}` : '';
+    const url = formatApiUrl(`/api/notifications/history?since=${sinceTimestamp || 0}&limit=${limit}${userQuery}`);
     const res = await fetch(url);
     if (!res.ok) return [];
     const data = await res.json();
@@ -577,10 +584,11 @@ export async function sendPushNotification(
   const config = getPushNotificationConfig();
   const hasPermission = typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted';
 
-  // 1. Cross-Device Broadcast to all mobile riders & dashboard users
-  // 1. Backend Web Push Broadcast: Send push notification to all devices
-  // (Broadcast should NEVER be blocked by the local sender's personal audio/mute settings)
-  if (broadcast && typeof window !== 'undefined') {
+  const hasTargetUsers = Boolean(payload.targetUserIds && payload.targetUserIds.length > 0);
+  const shouldSendToServer = broadcast || hasTargetUsers;
+
+  // 1. Cross-Device / Targeted Push delivery via Backend Web Push & Socket.io
+  if (shouldSendToServer && typeof window !== 'undefined') {
     const origin = window.location.origin;
     const resolvedIcon = payload.icon
       ? (payload.icon.startsWith('http') ? payload.icon : `${origin}${payload.icon}`)
@@ -597,11 +605,28 @@ export async function sendPushNotification(
         icon: resolvedIcon,
         badge: resolvedBadge,
       }),
-    }).catch((err) => console.warn('[Push] Broadcast request error:', err));
+    }).catch((err) => console.warn('[Push] Server push request error:', err));
+  }
+
+  // If this notification is targeted to specific users, check if the current active client is one of them.
+  // The person who commented, reacted, or replied should NEVER get a notification on their own device for their own action!
+  if (hasTargetUsers && typeof window !== 'undefined') {
+    let currentUserId = '';
+    try {
+      const stored = sessionStorage.getItem('bcc_session_user') || localStorage.getItem('bcc_user');
+      if (stored) {
+        const u = JSON.parse(stored);
+        currentUserId = u.id || u.username || '';
+      }
+    } catch {}
+
+    if (currentUserId && !payload.targetUserIds?.includes(currentUserId)) {
+      return true;
+    }
   }
 
   // 2. Local device delivery: check if category is muted locally
-  if (payload.category && config.categories && config.categories[payload.category] === false) {
+  if (payload.category && config.categories && (config.categories as any)[payload.category] === false) {
     return true;
   }
 
@@ -787,4 +812,144 @@ export async function triggerSosPushNotification(
     requireInteraction: true,
     customData: { riderName, location, message },
   });
+}
+
+// 6. News Feed Social Interactions Push Alert Trigger (Facebook-style Post, Comment, Reply, and Reaction Notifications)
+export interface NewsFeedInteractionParams {
+  type:
+    | 'post_reaction'
+    | 'comment_reaction'
+    | 'reply_reaction'
+    | 'post_comment'
+    | 'comment_reply'
+    | 'thread_reply';
+  actorId: string;
+  actorName: string;
+  actorAvatar?: string;
+  targetUserIds: string[];
+  postId: string;
+  postTitle?: string;
+  postSnippet?: string;
+  commentId?: string;
+  commentSnippet?: string;
+  replyId?: string;
+  replySnippet?: string;
+  reactionType?: SocialReactionType;
+  postAuthorName?: string;
+  isCoCommenter?: boolean;
+  isPostAuthorNotice?: boolean;
+}
+
+function truncateSnippet(text?: string, max: number = 80): string {
+  if (!text) return '';
+  const clean = text.replace(/\s+/g, ' ').trim();
+  if (clean.length <= max) return clean;
+  return clean.slice(0, max - 3) + '...';
+}
+
+function getReactionInfo(reactionType?: SocialReactionType): { emoji: string; verb: string; label: string } {
+  switch (reactionType) {
+    case 'heart':
+      return { emoji: '❤️', verb: 'loved', label: 'Heart' };
+    case 'care':
+      return { emoji: '🤗', verb: 'cared for', label: 'Care' };
+    case 'blessed':
+      return { emoji: '🙏', verb: 'blessed', label: 'Blessed' };
+    case 'like':
+    default:
+      return { emoji: '👍', verb: 'liked', label: 'Like' };
+  }
+}
+
+export async function triggerNewsFeedInteractionNotification(
+  params: NewsFeedInteractionParams
+): Promise<boolean> {
+  // Filter out any self-targeted notifications or empty IDs
+  const validRecipients = (params.targetUserIds || []).filter(
+    (id) => Boolean(id) && id !== params.actorId
+  );
+
+  if (validRecipients.length === 0) {
+    return false;
+  }
+
+  let title = `${params.actorName} interacted with your update`;
+  let body = '';
+  const reaction = getReactionInfo(params.reactionType);
+
+  switch (params.type) {
+    case 'post_reaction': {
+      title = `${params.actorName} reacted to your post`;
+      const postContext = truncateSnippet(params.postSnippet || params.postTitle || 'post');
+      body = `${reaction.emoji} ${params.actorName} reacted with ${reaction.label}: "${postContext}"`;
+      break;
+    }
+
+    case 'comment_reaction': {
+      title = `${params.actorName} reacted to your comment`;
+      const commentContext = truncateSnippet(params.commentSnippet || 'comment');
+      body = `${reaction.emoji} ${params.actorName} reacted with ${reaction.label}: "${commentContext}"`;
+      break;
+    }
+
+    case 'reply_reaction': {
+      title = `${params.actorName} reacted to your reply`;
+      const replyContext = truncateSnippet(params.replySnippet || 'reply');
+      body = `${reaction.emoji} ${params.actorName} reacted with ${reaction.label}: "${replyContext}"`;
+      break;
+    }
+
+    case 'post_comment': {
+      if (params.isCoCommenter) {
+        title = `${params.actorName} also commented on ${params.postAuthorName ? `${params.postAuthorName}'s` : 'a'} post`;
+      } else {
+        title = `${params.actorName} commented on your post`;
+      }
+      body = `"${truncateSnippet(params.commentSnippet || 'comment')}"`;
+      break;
+    }
+
+    case 'comment_reply': {
+      if (params.isPostAuthorNotice) {
+        title = `${params.actorName} replied to a comment on your post`;
+      } else {
+        title = `${params.actorName} replied to your comment`;
+      }
+      body = `"${truncateSnippet(params.replySnippet || 'reply')}"`;
+      break;
+    }
+
+    case 'thread_reply': {
+      title = `${params.actorName} replied in the discussion`;
+      body = `"${truncateSnippet(params.replySnippet || 'reply')}"`;
+      break;
+    }
+  }
+
+  const notificationTag = `bcc-social-${params.postId}-${Date.now()}`;
+
+  return sendPushNotification(
+    {
+      title,
+      body,
+      category: 'newsFeed',
+      tab: 'announcements',
+      icon: params.actorAvatar || '/app-logo.png',
+      tag: notificationTag,
+      targetUserIds: validRecipients,
+      senderUserId: params.actorId,
+      customData: {
+        type: params.type,
+        subTab: 'feed',
+        postId: params.postId,
+        commentId: params.commentId,
+        replyId: params.replyId,
+        actorId: params.actorId,
+        actorName: params.actorName,
+        actorAvatar: params.actorAvatar,
+        reactionType: params.reactionType,
+      },
+    },
+    true
+  );
 }

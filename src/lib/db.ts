@@ -59,7 +59,9 @@ import {
   triggerMemberApprovalPushNotification,
   triggerActivityCreatedPushNotification,
   triggerAnnouncementPushNotification,
+  triggerNewsFeedInteractionNotification,
 } from './pushNotifications';
+import { calculateMemberAge } from './birthdayUtils';
 
 export { getCachedData, setCachedData, removeCachedData, clearAllApiCache };
 
@@ -798,6 +800,8 @@ export class DataStoreService {
       ? '/bcc-logo.png'
       : (user.avatar || '/avatar.svg');
 
+    const dynamicAge = user.birthdate ? calculateMemberAge(user.birthdate, user.age) : user.age;
+
     return {
       ...user,
       avatar,
@@ -806,6 +810,7 @@ export class DataStoreService {
       approvalStatus: user.approvalStatus || 'Approved',
       role: user.role || 'Member',
       memberNumber: user.memberNumber || 'BRC-0000',
+      age: dynamicAge !== undefined ? dynamicAge : user.age,
     };
   }
 
@@ -865,7 +870,15 @@ export class DataStoreService {
 
   // Users Management
   getUsers(): User[] {
-    return this.users;
+    return this.users.map((u) => {
+      if (u.birthdate) {
+        const dynamicAge = calculateMemberAge(u.birthdate, u.age);
+        if (dynamicAge !== undefined && dynamicAge !== u.age) {
+          return { ...u, age: dynamicAge };
+        }
+      }
+      return u;
+    });
   }
 
   updateUserPassword(email: string, newPassword: string): boolean {
@@ -1355,6 +1368,7 @@ export class DataStoreService {
     if (!post.reactionsDetails) post.reactionsDetails = [];
 
     const existingReaction = post.reactionsDetails.find((r) => r.userId === userId);
+    const isNewReaction = !existingReaction || existingReaction.type !== reactionType;
 
     if (existingReaction && existingReaction.type === reactionType) {
       // Toggle off
@@ -1399,6 +1413,21 @@ export class DataStoreService {
       window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
     }
 
+    // Facebook-style push notification: notify the post author when someone reacted to their post
+    if (isNewReaction && post.authorId && post.authorId !== userId) {
+      triggerNewsFeedInteractionNotification({
+        type: 'post_reaction',
+        actorId: userId,
+        actorName: userName,
+        actorAvatar: userAvatar,
+        targetUserIds: [post.authorId],
+        postId: post.id,
+        postTitle: post.title,
+        postSnippet: post.content || post.title || 'post',
+        reactionType,
+      }).catch((err) => console.warn('[Push] reactToPost notification notice:', err));
+    }
+
     return post;
   }
 
@@ -1416,6 +1445,15 @@ export class DataStoreService {
     if (!post) throw new Error('Post not found');
 
     if (!post.comments) post.comments = [];
+
+    // Capture previous commenters to notify them like Facebook ("Alex also commented on John's post")
+    const previousCommenterIds = Array.from(
+      new Set(
+        post.comments
+          .map((c) => c.authorId)
+          .filter((id) => Boolean(id) && id !== commentData.authorId && id !== post.authorId)
+      )
+    );
 
     const newComment: PostComment = {
       id: `comment_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1441,6 +1479,39 @@ export class DataStoreService {
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    // 1. Facebook-style push notification: notify post author when someone comments on their post
+    if (post.authorId && post.authorId !== commentData.authorId) {
+      triggerNewsFeedInteractionNotification({
+        type: 'post_comment',
+        actorId: commentData.authorId,
+        actorName: commentData.authorName,
+        actorAvatar: commentData.authorAvatar,
+        targetUserIds: [post.authorId],
+        postId: post.id,
+        postTitle: post.title,
+        postSnippet: post.content || post.title || 'post',
+        commentSnippet: commentData.content,
+        postAuthorName: post.authorName,
+      }).catch((err) => console.warn('[Push] addCommentToPost author notification notice:', err));
+    }
+
+    // 2. Facebook-style push notification: notify other users who also commented on this post
+    if (previousCommenterIds.length > 0) {
+      triggerNewsFeedInteractionNotification({
+        type: 'post_comment',
+        actorId: commentData.authorId,
+        actorName: commentData.authorName,
+        actorAvatar: commentData.authorAvatar,
+        targetUserIds: previousCommenterIds,
+        postId: post.id,
+        postTitle: post.title,
+        postSnippet: post.content || post.title || 'post',
+        commentSnippet: commentData.content,
+        postAuthorName: post.authorName,
+        isCoCommenter: true,
+      }).catch((err) => console.warn('[Push] addCommentToPost co-commenters notice:', err));
     }
 
     return post;
@@ -1495,6 +1566,7 @@ export class DataStoreService {
     if (!comment.reactionsDetails) comment.reactionsDetails = [];
 
     const existingReaction = comment.reactionsDetails.find((r) => r.userId === userId);
+    const isNewReaction = !existingReaction || existingReaction.type !== reactionType;
 
     if (existingReaction && existingReaction.type === reactionType) {
       // Toggle off
@@ -1531,6 +1603,21 @@ export class DataStoreService {
       window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
     }
 
+    // Facebook-style push notification: notify the comment author when someone reacts to their comment
+    if (isNewReaction && comment.authorId && comment.authorId !== userId) {
+      triggerNewsFeedInteractionNotification({
+        type: 'comment_reaction',
+        actorId: userId,
+        actorName: userName,
+        actorAvatar: userAvatar,
+        targetUserIds: [comment.authorId],
+        postId: post.id,
+        commentId: comment.id,
+        commentSnippet: comment.content,
+        reactionType,
+      }).catch((err) => console.warn('[Push] reactToComment notification notice:', err));
+    }
+
     return post;
   }
 
@@ -1553,6 +1640,15 @@ export class DataStoreService {
     if (!comment) throw new Error('Comment not found');
 
     if (!comment.replies) comment.replies = [];
+
+    // Capture previous repliers in this comment thread to notify them
+    const previousReplierIds = Array.from(
+      new Set(
+        comment.replies
+          .map((r) => r.authorId)
+          .filter((id) => Boolean(id) && id !== replyData.authorId && id !== comment.authorId)
+      )
+    );
 
     const newReply: CommentReply = {
       id: `reply_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
@@ -1582,6 +1678,53 @@ export class DataStoreService {
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    // 1. Facebook-style push notification: notify the comment author who received the reply
+    if (comment.authorId && comment.authorId !== replyData.authorId) {
+      triggerNewsFeedInteractionNotification({
+        type: 'comment_reply',
+        actorId: replyData.authorId,
+        actorName: replyData.authorName,
+        actorAvatar: replyData.authorAvatar,
+        targetUserIds: [comment.authorId],
+        postId: post.id,
+        commentId: comment.id,
+        commentSnippet: comment.content,
+        replySnippet: replyData.content,
+        postAuthorName: post.authorName,
+      }).catch((err) => console.warn('[Push] addReplyToComment author notice:', err));
+    }
+
+    // 2. Facebook-style push notification: notify other users who participated in this reply thread
+    if (previousReplierIds.length > 0) {
+      triggerNewsFeedInteractionNotification({
+        type: 'thread_reply',
+        actorId: replyData.authorId,
+        actorName: replyData.authorName,
+        actorAvatar: replyData.authorAvatar,
+        targetUserIds: previousReplierIds,
+        postId: post.id,
+        commentId: comment.id,
+        replySnippet: replyData.content,
+        commentSnippet: comment.content,
+      }).catch((err) => console.warn('[Push] addReplyToComment thread notice:', err));
+    }
+
+    // 3. Facebook-style push notification: notify the post author if someone replied on their post
+    if (post.authorId && post.authorId !== replyData.authorId && post.authorId !== comment.authorId) {
+      triggerNewsFeedInteractionNotification({
+        type: 'comment_reply',
+        actorId: replyData.authorId,
+        actorName: replyData.authorName,
+        actorAvatar: replyData.authorAvatar,
+        targetUserIds: [post.authorId],
+        postId: post.id,
+        commentId: comment.id,
+        replySnippet: replyData.content,
+        commentSnippet: comment.content,
+        isPostAuthorNotice: true,
+      }).catch((err) => console.warn('[Push] addReplyToComment post author notice:', err));
     }
 
     return post;
@@ -1641,6 +1784,7 @@ export class DataStoreService {
     if (!reply.reactionsDetails) reply.reactionsDetails = [];
 
     const existingReaction = reply.reactionsDetails.find((r) => r.userId === userId);
+    const isNewReaction = !existingReaction || existingReaction.type !== reactionType;
 
     if (existingReaction && existingReaction.type === reactionType) {
       // Toggle off
@@ -1675,6 +1819,22 @@ export class DataStoreService {
 
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
+
+    // Facebook-style push notification: notify the reply author when someone reacts to their reply
+    if (isNewReaction && reply.authorId && reply.authorId !== userId) {
+      triggerNewsFeedInteractionNotification({
+        type: 'reply_reaction',
+        actorId: userId,
+        actorName: userName,
+        actorAvatar: userAvatar,
+        targetUserIds: [reply.authorId],
+        postId: post.id,
+        commentId: comment.id,
+        replyId: reply.id,
+        replySnippet: reply.content,
+        reactionType,
+      }).catch((err) => console.warn('[Push] reactToReply notification notice:', err));
     }
 
     return post;

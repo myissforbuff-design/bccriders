@@ -5,6 +5,7 @@ import { useModalDismiss } from '../hooks/useModalDismiss';
 import { OfficialLoader } from './OfficialLoader';
 import { ImageCropperModal } from './ImageCropperModal';
 import { RoleAvatarBadge } from './RoleAvatarBadge';
+import { calculateMemberAge } from '../lib/birthdayUtils';
 import {
   X,
   User as UserIcon,
@@ -340,21 +341,8 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [formError, setFormError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
 
-  // Age calculation
-  const calculateAge = (dob: string): number | undefined => {
-    if (!dob) return undefined;
-    const birthDate = new Date(dob);
-    if (isNaN(birthDate.getTime())) return undefined;
-    const today = new Date();
-    let age = today.getFullYear() - birthDate.getFullYear();
-    const m = today.getMonth() - birthDate.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) {
-      age--;
-    }
-    return age >= 0 ? age : undefined;
-  };
-
-  const computedAge = calculateAge(birthdate);
+  // Dynamic age calculation respecting GMT+8
+  const computedAge = calculateMemberAge(birthdate, member.age);
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();

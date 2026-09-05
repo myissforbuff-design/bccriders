@@ -24,6 +24,7 @@ import { ModalPortal } from './ModalPortal';
 import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import { InboundEmailViewer } from './InboundEmailViewer';
 import { EmailSender } from './EmailSender';
+import { BirthdayBroadcastSettings } from './BirthdayBroadcastSettings';
 import { PushNotificationSettings } from './PushNotificationSettings';
 import { RolesSettings } from './RolesSettings';
 import { DriveStorageSettings } from './DriveStorageSettings';
@@ -2304,90 +2305,100 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Interactive Sub-Navigation Dropdown */}
-      <div className="relative max-w-sm w-full" ref={subTabDropdownRef}>
-        <button
-          type="button"
-          onClick={() => setIsSubTabDropdownOpen((prev) => !prev)}
-          className="w-full flex items-center justify-between gap-3 px-4 py-3 bg-white hover:bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] shadow-xs text-left transition-all cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-[#1b4332]/20"
-        >
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="p-2 rounded-xl bg-[#1b4332] text-white shrink-0 shadow-xs">
-              {activeSubTab === 'push_notifications' && <Bell className="w-4 h-4 text-[#74c69d]" />}
-              {activeSubTab === 'storage' && <HardDrive className="w-4 h-4 text-[#74c69d]" />}
-              {activeSubTab === 'finance' && <Wallet className="w-4 h-4 text-[#74c69d]" />}
-              {activeSubTab === 'reports' && <FileSpreadsheet className="w-4 h-4 text-[#74c69d]" />}
-              {activeSubTab === 'security' && <Shield className="w-4 h-4 text-[#74c69d]" />}
-              {activeSubTab === 'inbound' && <Mail className="w-4 h-4 text-[#74c69d]" />}
-            </div>
-            <div className="truncate">
-              <p className="text-[10px] font-extrabold uppercase tracking-wider text-[#52605d]">Settings Category</p>
-              <p className="text-sm font-extrabold text-[#1b4332] truncate">
-                {SUB_TAB_OPTIONS.find((t) => t.id === activeSubTab)?.label}
-              </p>
-            </div>
-          </div>
-          <ChevronDown
-            className={`w-5 h-5 text-[#2d6a4f] shrink-0 transition-transform duration-200 ${
-              isSubTabDropdownOpen ? 'rotate-180' : ''
-            }`}
-          />
-        </button>
-
-        <AnimatePresence>
-          {isSubTabDropdownOpen && (
-            <motion.div
-              initial={{ opacity: 0, y: -6, scale: 0.98 }}
-              animate={{ opacity: 1, y: 4, scale: 1 }}
-              exit={{ opacity: 0, y: -6, scale: 0.98 }}
-              transition={{ duration: 0.15 }}
-              className="absolute left-0 right-0 top-full z-30 p-1.5 bg-white rounded-2xl border border-[#e2ece2] shadow-xl space-y-1 mt-1 overflow-hidden"
+      {/* Sticky Sub-Navigation Dropdown Bar */}
+      <div className="sticky top-[86px] sm:top-[108px] lg:top-[56px] z-20 -mx-2.5 sm:-mx-6 lg:-mx-8 px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-3 bg-white/95 backdrop-blur-md border-b border-[#e2ece2] shadow-xs transition-all -mt-2.5 sm:-mt-6 lg:-mt-8">
+        <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="relative max-w-sm w-full" ref={subTabDropdownRef}>
+            <button
+              type="button"
+              id="btn-settings-category-dropdown"
+              onClick={() => setIsSubTabDropdownOpen((prev) => !prev)}
+              className="w-full flex items-center justify-between gap-3 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-white hover:bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] shadow-xs text-left transition-all cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-[#1b4332]/20"
             >
-              {SUB_TAB_OPTIONS.map((tab) => {
-                const Icon = tab.icon;
-                const isSelected = activeSubTab === tab.id;
-                return (
-                  <button
-                    key={tab.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveSubTab(tab.id as 'push_notifications' | 'finance' | 'reports' | 'security' | 'inbound');
-                      setIsSubTabDropdownOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between gap-3 p-3 rounded-xl transition-all cursor-pointer text-left ${
-                      isSelected
-                        ? 'bg-[#1b4332] text-white shadow-xs'
-                        : 'hover:bg-[#f0f7f2] text-[#1b4332]'
-                    }`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`p-2 rounded-lg shrink-0 ${
-                          isSelected ? 'bg-white/10 text-white' : 'bg-[#e8f5e9] text-[#1b4332]'
+              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                <div className="p-1.5 sm:p-2 rounded-xl bg-[#1b4332] text-white shrink-0 shadow-xs">
+                  {activeSubTab === 'push_notifications' && <Bell className="w-4 h-4 text-[#74c69d]" />}
+                  {activeSubTab === 'storage' && <HardDrive className="w-4 h-4 text-[#74c69d]" />}
+                  {activeSubTab === 'finance' && <Wallet className="w-4 h-4 text-[#74c69d]" />}
+                  {activeSubTab === 'reports' && <FileSpreadsheet className="w-4 h-4 text-[#74c69d]" />}
+                  {activeSubTab === 'security' && <Shield className="w-4 h-4 text-[#74c69d]" />}
+                  {activeSubTab === 'inbound' && <Mail className="w-4 h-4 text-[#74c69d]" />}
+                </div>
+                <div className="truncate">
+                  <p className="text-[9.5px] sm:text-[10px] font-extrabold uppercase tracking-wider text-[#52605d]">Settings Category</p>
+                  <p className="text-xs sm:text-sm font-extrabold text-[#1b4332] truncate">
+                    {SUB_TAB_OPTIONS.find((t) => t.id === activeSubTab)?.label}
+                  </p>
+                </div>
+              </div>
+              <ChevronDown
+                className={`w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0 transition-transform duration-200 ${
+                  isSubTabDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            <AnimatePresence>
+              {isSubTabDropdownOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
+                  animate={{ opacity: 1, y: 4, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute left-0 right-0 top-full z-40 p-1.5 bg-white rounded-2xl border border-[#e2ece2] shadow-2xl space-y-1 mt-1 max-h-[calc(100vh-160px)] overflow-y-auto"
+                >
+                  {SUB_TAB_OPTIONS.map((tab) => {
+                    const Icon = tab.icon;
+                    const isSelected = activeSubTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        onClick={() => {
+                          setActiveSubTab(tab.id as 'push_notifications' | 'storage' | 'finance' | 'reports' | 'security' | 'inbound');
+                          setIsSubTabDropdownOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between gap-3 p-2.5 sm:p-3 rounded-xl transition-all cursor-pointer text-left ${
+                          isSelected
+                            ? 'bg-[#1b4332] text-white shadow-xs'
+                            : 'hover:bg-[#f0f7f2] text-[#1b4332]'
                         }`}
                       >
-                        <Icon className={`w-4 h-4 ${isSelected ? 'text-[#74c69d]' : 'text-[#2d6a4f]'}`} />
-                      </div>
-                      <div className="min-w-0">
-                        <p className={`text-xs font-bold truncate ${isSelected ? 'text-white' : 'text-[#1b4332]'}`}>
-                          {tab.label}
-                        </p>
-                        <p
-                          className={`text-[10px] truncate ${
-                            isSelected ? 'text-[#d8f3dc]' : 'text-[#52605d]'
-                          }`}
-                        >
-                          {tab.description}
-                        </p>
-                      </div>
-                    </div>
-                    {isSelected && <Check className="w-4 h-4 text-[#74c69d] shrink-0" />}
-                  </button>
-                );
-              })}
-            </motion.div>
-          )}
-        </AnimatePresence>
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className={`p-2 rounded-lg shrink-0 ${
+                              isSelected ? 'bg-white/10 text-white' : 'bg-[#e8f5e9] text-[#1b4332]'
+                            }`}
+                          >
+                            <Icon className={`w-4 h-4 ${isSelected ? 'text-[#74c69d]' : 'text-[#2d6a4f]'}`} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className={`text-xs font-bold truncate ${isSelected ? 'text-white' : 'text-[#1b4332]'}`}>
+                              {tab.label}
+                            </p>
+                            <p
+                              className={`text-[10px] truncate ${
+                                isSelected ? 'text-[#d8f3dc]' : 'text-[#52605d]'
+                              }`}
+                            >
+                              {tab.description}
+                            </p>
+                          </div>
+                        </div>
+                        {isSelected && <Check className="w-4 h-4 text-[#74c69d] shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2 text-xs text-[#52605d] font-medium min-w-0">
+            <span className="w-2 h-2 rounded-full bg-[#2d6a4f] shrink-0" />
+            <span className="truncate">{SUB_TAB_OPTIONS.find((t) => t.id === activeSubTab)?.description}</span>
+          </div>
+        </div>
       </div>
 
       {/* SUB TAB 1: FINANCE SETTINGS */}
@@ -4151,6 +4162,9 @@ export const Settings: React.FC = () => {
       {/* SUB TAB 4: EMAIL (SENDING & INBOUND INBOX) */}
       {activeSubTab === 'inbound' && (
         <div className="space-y-4 sm:space-y-6">
+          {/* Section 0: Birthday Greeting Broadcast Automation */}
+          <BirthdayBroadcastSettings members={approvedMembers} />
+
           {/* Section 1: Sending Email via Resend */}
           <EmailSender members={approvedMembers} />
 

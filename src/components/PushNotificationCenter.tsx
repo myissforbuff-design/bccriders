@@ -19,6 +19,9 @@ import {
   Trash2,
   RefreshCw,
   Layers,
+  MessageSquare,
+  Heart,
+  ThumbsUp,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -276,6 +279,61 @@ export const PushNotificationCenter: React.FC<PushNotificationCenterProps> = ({
       );
     }
 
+    // Social Feed / Newsfeed interactions (reactions, comments, replies)
+    if (
+      key.includes('post_') ||
+      key.includes('comment_') ||
+      key.includes('reply_') ||
+      key.includes('feed') ||
+      key.includes('social') ||
+      item.customData?.postId
+    ) {
+      const actorAvatar = item.customData?.actorAvatar;
+      const actorName = item.customData?.actorName || 'Member';
+      const reactionType = item.customData?.reactionType;
+
+      if (actorAvatar) {
+        return (
+          <div className="relative shrink-0 mt-0.5">
+            <img
+              src={actorAvatar}
+              alt={actorName}
+              className="w-9 h-9 rounded-full object-cover border border-[#b7e4c7] shadow-xs"
+              crossOrigin="anonymous"
+              referrerPolicy="no-referrer"
+            />
+            {reactionType === 'heart' ? (
+              <span className="absolute -bottom-1 -right-1 text-xs">❤️</span>
+            ) : reactionType ? (
+              <span className="absolute -bottom-1 -right-1 text-xs">👍</span>
+            ) : (
+              <span className="absolute -bottom-1 -right-1 p-0.5 bg-[#2d6a4f] rounded-full text-white">
+                <MessageSquare className="w-2.5 h-2.5" />
+              </span>
+            )}
+          </div>
+        );
+      }
+
+      if (key.includes('reaction')) {
+        return (
+          <div className="p-2 rounded-xl bg-rose-50 border border-rose-200 shrink-0 mt-0.5">
+            {reactionType === 'heart' ? (
+              <Heart className="w-4 h-4 text-rose-600 fill-rose-500" />
+            ) : (
+              <ThumbsUp className="w-4 h-4 text-[#2d6a4f]" />
+            )}
+          </div>
+        );
+      }
+
+      return (
+        <div className="p-2 rounded-xl bg-emerald-50 border border-emerald-200 shrink-0 mt-0.5">
+          <MessageSquare className="w-4 h-4 text-[#2d6a4f]" />
+        </div>
+      );
+    }
+
     return (
       <div className="p-2 rounded-xl bg-stone-100 border border-stone-200 shrink-0 mt-0.5">
         <Megaphone className="w-4 h-4 text-amber-700" />
@@ -285,10 +343,14 @@ export const PushNotificationCenter: React.FC<PushNotificationCenterProps> = ({
 
   const handleItemClick = (item: any) => {
     markAsRead(item.id);
-    if (item.tab) {
-      localStorage.setItem('bcc_active_tab', item.tab);
-      window.location.hash = item.tab;
-      window.dispatchEvent(new CustomEvent('bcc_tab_navigate', { detail: item.tab }));
+    const targetTab = item.tab || (item.customData?.postId ? 'community' : undefined);
+    if (targetTab) {
+      localStorage.setItem('bcc_active_tab', targetTab);
+      window.location.hash = targetTab;
+      window.dispatchEvent(new CustomEvent('bcc_tab_navigate', { detail: targetTab }));
+      if (item.customData?.postId) {
+        window.dispatchEvent(new CustomEvent('bcc_open_newsfeed', { detail: item.customData }));
+      }
       setIsOpen(false);
     }
   };
