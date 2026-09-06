@@ -5593,11 +5593,23 @@ app.post('/api/mongodb/monthlyDues', async (req, res) => {
   }
 
   try {
+    const isNew = !(await database.collection('monthlyDues').findOne({ id: record.id }));
     const result = await database.collection('monthlyDues').updateOne(
       { id: record.id },
       { $set: { ...record, updatedAt: new Date().toISOString() } },
       { upsert: true }
     );
+
+    // Trigger automated email broadcast to members if newly created or explicitly requested
+    if (record.sendBroadcast !== false) {
+      setTimeout(() => {
+        checkAndSendMonthlyDueBroadcast({
+          dueRecord: record,
+          isCreation: isNew,
+        }).catch((err) => console.warn('[Monthly Due Broadcast] Background dispatch error:', err));
+      }, 500);
+    }
+
     res.json({
       success: true,
       id: record.id,
@@ -5956,6 +5968,35 @@ app.get('/api/inbound-emails', async (_req, res) => {
   });
 });
 
+// DELETE ALL inbound emails (Inbox Clear All)
+app.delete('/api/inbound-emails', async (_req, res) => {
+  const database = await getInboundMongoDb();
+
+  // Clear memory cache
+  const cachedCount = inboundEmailMemoryCache.length;
+  inboundEmailMemoryCache.length = 0;
+
+  if (database) {
+    try {
+      const result = await database.collection('inbound_emails').deleteMany({});
+      return res.json({
+        success: true,
+        message: 'All inbound emails deleted successfully',
+        deletedCount: result.deletedCount,
+      });
+    } catch (err: any) {
+      console.error('Error deleting all inbound emails in MongoDB:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  return res.json({
+    success: true,
+    message: 'All inbound emails deleted successfully from cache',
+    deletedCount: cachedCount,
+  });
+});
+
 // DELETE an inbound email
 app.delete('/api/inbound-emails/:id', async (req, res) => {
   const { id } = req.params;
@@ -6090,6 +6131,35 @@ app.get('/api/emails/outbox', async (_req, res) => {
     success: true,
     count: outboundEmailMemoryCache.length,
     data: outboundEmailMemoryCache,
+  });
+});
+
+// DELETE ALL /api/emails/outbox (Clear entire outbox history)
+app.delete('/api/emails/outbox', async (_req, res) => {
+  const database = await getMongoDb();
+
+  // Clear memory cache
+  const cachedCount = outboundEmailMemoryCache.length;
+  outboundEmailMemoryCache.length = 0;
+
+  if (database) {
+    try {
+      const result = await database.collection('outbound_emails').deleteMany({});
+      return res.json({
+        success: true,
+        message: 'All outbox records deleted successfully',
+        deletedCount: result.deletedCount,
+      });
+    } catch (err: any) {
+      console.error('Error deleting all outbound emails in MongoDB:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
+  return res.json({
+    success: true,
+    message: 'All outbox records deleted successfully from cache',
+    deletedCount: cachedCount,
   });
 });
 
@@ -6672,6 +6742,1051 @@ app.post('/api/birthdays/toggle', async (req, res) => {
   }
 });
 
+// ==========================================
+// AUTOMATED MONTHLY DUE BROADCAST & REMINDER SERVICE
+// ==========================================
+
+interface MonthlyDueBroadcastLogDoc {
+  id: string;
+  dueId: string;
+  month: string;
+  year: number;
+  amount: number;
+  title: string;
+  notes?: string;
+  sentDate: string; // YYYY-MM-DD
+  sentMonthYear: string; // e.g. "September 2026"
+  recipientCount: number;
+  recipients: string[];
+  sentAt: string;
+  status: 'delivered' | 'simulated' | 'failed';
+  resendId?: string;
+  error?: string;
+  triggerType: 'creation' | 'manual' | 'monthly_reminder';
+}
+
+function generateMonthlyDueEmailContentTextAndHtml(options: {
+  month: string;
+  year: number;
+  amount: number;
+  title?: string;
+  notes?: string;
+}) {
+  const { month, year, amount, title, notes } = options;
+  const cur = getManilaCalendarDate();
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const dateFormatted = `${monthNames[cur.month - 1]} ${cur.day}, ${cur.year}`;
+  const dueName = title || `${month} ${year} Monthly Due`;
+  const formattedAmount = `PHP ${amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const subject = `BCC Riders Club - Monthly Dues Notice: ${month} ${year} (${formattedAmount})`;
+
+  const body = `Dear BCC Riders Club Family and Fellow Riders,
+
+We greet you in the name of our Lord and Savior Jesus Christ!
+
+This is an official notice that the monthly dues for ${month} ${year} have been scheduled.
+
+Monthly Due Details:
+- Covered Period: ${month} ${year}
+- Item: ${dueName}
+- Amount: ${formattedAmount} per member
+- Date of Notice: ${dateFormatted}
+${notes ? `- Additional Notes: ${notes}\n` : ''}
+Reminder on Previous Monthly Dues:
+If you have any unsettled or unpaid monthly dues from previous months, please take this opportunity to settle them alongside your current monthly due. Timely contributions ensure our club projects, emergency assistance funds, and community activities continue to thrive and remain transparent for all members.
+
+Payment Remittance:
+Kindly remit your contributions to the club treasurer or through the official club payment channels (GCash / Cash). Please ensure you keep a reference or copy of your payment confirmation for recording.
+
+May our God bless your livelihood, provide for all your needs, and keep you and your loved ones safe under His divine protection on every road and journey ahead.
+
+Sincerely in Christ and fellowship,
+BCC Riders Club Community and Leadership
+Ride Strong. Ride Together.`;
+
+  const html = `
+<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 600px; margin: 0 auto; border: 1px solid #e2ece2; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
+  <div style="background-color: #1b4332; padding: 24px 28px; text-align: center;">
+    <h1 style="color: #ffffff; margin: 0; font-size: 20px; letter-spacing: 0.5px;">BCC Riders Club</h1>
+    <p style="color: #b7e4c7; margin: 6px 0 0; font-size: 13px;">Official Monthly Dues Advisory</p>
+  </div>
+  
+  <div style="padding: 28px;">
+    <p style="font-size: 15px; margin-top: 0;"><strong>Dear BCC Riders Club Family and Fellow Riders,</strong></p>
+    
+    <p style="font-size: 14px; color: #374151;">
+      We greet you in the grace, peace, and fellowship of our Lord and Savior Jesus Christ.
+    </p>
+
+    <div style="background-color: #f7f9f7; border-left: 4px solid #2d6a4f; padding: 14px 18px; margin: 20px 0; border-radius: 4px;">
+      <p style="font-size: 14px; color: #1b4332; font-weight: bold; margin: 0 0 4px 0;">
+        Monthly Due Notice: ${month} ${year}
+      </p>
+      <p style="font-size: 13px; color: #2d6a4f; margin: 0;">
+        The monthly contribution for the period of <strong>${month} ${year}</strong> is now open for payment.
+      </p>
+    </div>
+
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background-color: #fdfefe; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+      <tbody>
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+          <td style="padding: 10px 14px; font-size: 13px; color: #6b7280; width: 40%; font-weight: bold;">Covered Period</td>
+          <td style="padding: 10px 14px; font-size: 14px; color: #111827; font-weight: bold;">${month} ${year}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+          <td style="padding: 10px 14px; font-size: 13px; color: #6b7280; font-weight: bold;">Amount Due</td>
+          <td style="padding: 10px 14px; font-size: 15px; color: #1b4332; font-weight: bold;">${formattedAmount}</td>
+        </tr>
+        <tr style="border-bottom: 1px solid #e5e7eb;">
+          <td style="padding: 10px 14px; font-size: 13px; color: #6b7280; font-weight: bold;">Item Description</td>
+          <td style="padding: 10px 14px; font-size: 13px; color: #374151;">${dueName}</td>
+        </tr>
+        ${
+          notes
+            ? `<tr>
+          <td style="padding: 10px 14px; font-size: 13px; color: #6b7280; font-weight: bold;">Notes</td>
+          <td style="padding: 10px 14px; font-size: 13px; color: #374151;">${notes}</td>
+        </tr>`
+            : ''
+        }
+      </tbody>
+    </table>
+
+    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 24px 0;">
+      <h3 style="color: #1b4332; margin: 0 0 8px 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.5px;">
+        Reminder on Previous Monthly Dues
+      </h3>
+      <p style="font-size: 13px; color: #166534; margin: 0 0 8px 0;">
+        If you have any unsettled or unpaid monthly dues from previous months, please take this opportunity to settle them alongside your current monthly due.
+      </p>
+      <p style="font-size: 12px; color: #2d6a4f; margin: 0;">
+        Your regular and faithful contributions sustain our club operations, emergency rider funds, and community activities.
+      </p>
+    </div>
+
+    <p style="font-size: 13px; color: #4b5563;">
+      <strong>Payment Remittance:</strong> Please send payments through official club channels (GCash or Cash to the Club Treasurer) and retain your payment reference for verified accounting.
+    </p>
+
+    <p style="font-size: 14px; color: #1b4332; font-weight: bold; margin: 24px 0 16px 0;">
+      May God bless your livelihood and work, and may Jesus Christ keep you safe on all your rides!
+    </p>
+
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+
+    <p style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">Sincerely in Christ and fellowship,</p>
+    <p style="font-size: 13px; color: #1b4332; font-weight: bold; margin: 0;">BCC Riders Club Community and Leadership</p>
+    <p style="font-size: 11px; color: #9ca3af; margin-top: 2px;">Ride Strong. Ride Together.</p>
+  </div>
+</div>
+`;
+
+  return { subject, body, html };
+}
+
+async function checkAndSendMonthlyDueBroadcast(options?: {
+  dueRecord?: any;
+  dueId?: string;
+  isCreation?: boolean;
+  isTest?: boolean;
+  force?: boolean;
+  customNotes?: string;
+}): Promise<{
+  success: boolean;
+  dispatched: boolean;
+  details: string;
+  record?: any;
+}> {
+  const database = await getMongoDb();
+  if (!database) {
+    return { success: false, dispatched: false, details: 'MongoDB not connected.' };
+  }
+
+  const manila = getManilaCalendarDate();
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const currentMonthName = monthNames[manila.month - 1];
+  const currentYear = manila.year;
+
+  // Check if broadcast toggle is enabled
+  const config = await database.collection('settings').findOne({ id: 'monthly_due_broadcast_config' });
+  const isEnabled = config ? config.enabled !== false : true;
+
+  if (!isEnabled && !options?.force && !options?.isTest) {
+    return {
+      success: true,
+      dispatched: false,
+      details: 'Monthly due automated broadcast is disabled in settings.',
+    };
+  }
+
+  // Determine target monthly due
+  let targetDue = options?.dueRecord;
+  if (!targetDue && options?.dueId) {
+    targetDue = await database.collection('monthlyDues').findOne({ id: options.dueId });
+  }
+  if (!targetDue) {
+    // Find active due for the current month/year, or the latest configured due
+    targetDue = await database.collection('monthlyDues').findOne({
+      $or: [
+        { month: currentMonthName, year: currentYear },
+        { month: currentMonthName, year: String(currentYear) },
+        { status: 'Active' },
+      ],
+    });
+    if (!targetDue) {
+      targetDue = await database.collection('monthlyDues').find({}).sort({ year: -1, updatedAt: -1 }).limit(1).next();
+    }
+  }
+
+  if (!targetDue) {
+    return {
+      success: false,
+      dispatched: false,
+      details: 'No monthly due configured to broadcast.',
+    };
+  }
+
+  const dueMonth = targetDue.month || currentMonthName;
+  const dueYear = Number(targetDue.year) || currentYear;
+  const dueAmount = Number(targetDue.amount) || 150;
+  const dueTitle = targetDue.title || `${dueMonth} ${dueYear} Monthly Due`;
+  const dueNotes = options?.customNotes || targetDue.notes || '';
+  const sentMonthYear = `${dueMonth} ${dueYear}`;
+
+  // Check if a broadcast for this month/due was already sent this month (to enforce "once a month" constraint)
+  if (!options?.force && !options?.isTest && !options?.isCreation) {
+    const existingLog = await database.collection('monthly_due_broadcast_logs').findOne({
+      sentMonthYear,
+      sentDate: { $regex: `^${manila.year}-${String(manila.month).padStart(2, '0')}` },
+      status: 'delivered',
+    });
+    if (existingLog) {
+      return {
+        success: true,
+        dispatched: false,
+        details: `Monthly dues reminder broadcast for ${sentMonthYear} has already been sent this month.`,
+      };
+    }
+  }
+
+  // Fetch approved members with emails
+  const members = await database.collection('members').find({ approvalStatus: 'Approved' }).toArray();
+  const eligibleRecipients = members
+    .map((m) => (m.email || '').trim())
+    .filter((e) => e && e.includes('@'));
+
+  if (eligibleRecipients.length === 0) {
+    return {
+      success: false,
+      dispatched: false,
+      details: 'No approved members with valid email addresses found.',
+    };
+  }
+
+  const { subject, body, html } = generateMonthlyDueEmailContentTextAndHtml({
+    month: dueMonth,
+    year: dueYear,
+    amount: dueAmount,
+    title: dueTitle,
+    notes: dueNotes,
+  });
+
+  const resend = getResendClient();
+  let resendId = `msg_due_bcast_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  let deliveryStatus: 'delivered' | 'simulated' | 'failed' = 'delivered';
+  let errorMessage = '';
+
+  if (resend) {
+    try {
+      const response = await resend.emails.send({
+        from: 'BCC Riders Club <info@bccriders.cc>',
+        to: eligibleRecipients,
+        replyTo: 'contact@bccriders.cc',
+        subject,
+        text: body,
+        html,
+      });
+
+      if (response && (response as any).data?.id) {
+        resendId = (response as any).data.id;
+      } else if ((response as any).id) {
+        resendId = (response as any).id;
+      }
+      console.log(`[Monthly Due Broadcast] Sent successfully to ${eligibleRecipients.length} members for ${sentMonthYear}. Resend ID: ${resendId}`);
+    } catch (err: any) {
+      console.error('[Monthly Due Broadcast] Resend API error:', err);
+      deliveryStatus = 'failed';
+      errorMessage = err.message || 'Failed to deliver monthly dues broadcast email';
+    }
+  } else {
+    deliveryStatus = 'simulated';
+    console.warn('[Monthly Due Broadcast] RESEND_API_KEY not configured, broadcast simulated.');
+  }
+
+  const triggerType = options?.isCreation ? 'creation' : options?.force || options?.isTest ? 'manual' : 'monthly_reminder';
+
+  const logRecord: MonthlyDueBroadcastLogDoc = {
+    id: `due_bcast_${Date.now()}_${targetDue.id || 'due'}`,
+    dueId: targetDue.id || 'unknown',
+    month: dueMonth,
+    year: dueYear,
+    amount: dueAmount,
+    title: dueTitle,
+    notes: dueNotes || undefined,
+    sentDate: manila.dateString,
+    sentMonthYear,
+    recipientCount: eligibleRecipients.length,
+    recipients: eligibleRecipients,
+    sentAt: new Date().toISOString(),
+    status: deliveryStatus,
+    resendId,
+    error: errorMessage || undefined,
+    triggerType,
+  };
+
+  try {
+    await database.collection('monthly_due_broadcast_logs').insertOne(logRecord);
+  } catch (e) {
+    console.warn('Failed to insert monthly due broadcast log into MongoDB:', e);
+  }
+
+  // Record in outbound_emails for outbox audit log
+  const outboxRecord: OutboundEmailRecord = {
+    id: `out_due_bcast_${Date.now()}`,
+    resendId,
+    from: 'BCC Riders Club <info@bccriders.cc>',
+    to: eligibleRecipients,
+    cc: [],
+    bcc: [],
+    replyTo: 'contact@bccriders.cc',
+    subject,
+    bodyText: body,
+    bodyHtml: html,
+    sentAt: new Date().toISOString(),
+    status: deliveryStatus === 'delivered' ? 'sent' : deliveryStatus,
+    error: errorMessage || undefined,
+    senderName: 'BCC Monthly Dues Automation Service',
+  };
+
+  outboundEmailMemoryCache.unshift(outboxRecord);
+  await database.collection('outbound_emails').insertOne(outboxRecord).catch(() => {});
+
+  return {
+    success: deliveryStatus !== 'failed',
+    dispatched: deliveryStatus !== 'failed',
+    details:
+      deliveryStatus === 'failed'
+        ? `Failed to dispatch broadcast: ${errorMessage}`
+        : `Monthly dues broadcast for ${sentMonthYear} successfully dispatched to ${eligibleRecipients.length} member(s).`,
+    record: logRecord,
+  };
+}
+
+// GET /api/monthly-dues/broadcast/status
+app.get('/api/monthly-dues/broadcast/status', async (_req, res) => {
+  try {
+    const database = await getMongoDb();
+    if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+
+    const manila = getManilaCalendarDate();
+    const config = await database.collection('settings').findOne({ id: 'monthly_due_broadcast_config' });
+    const isEnabled = config ? config.enabled !== false : true;
+
+    const members = await database.collection('members').find({ approvalStatus: 'Approved' }).toArray();
+    const eligibleRecipients = members
+      .map((m) => (m.email || '').trim())
+      .filter((e) => e && e.includes('@'));
+
+    const activeDues = await database.collection('monthlyDues').find({}).sort({ year: -1, updatedAt: -1 }).toArray();
+
+    const logs = await database
+      .collection('monthly_due_broadcast_logs')
+      .find({})
+      .sort({ sentAt: -1 })
+      .limit(20)
+      .toArray();
+
+    const formattedLogs = logs.map(({ _id, ...rest }) => rest);
+
+    return res.json({
+      success: true,
+      isEnabled,
+      timezone: 'GMT+8 (Asia/Manila)',
+      currentDate: manila.dateString,
+      eligibleRecipientsCount: eligibleRecipients.length,
+      activeDues: activeDues.map(({ _id, ...rest }) => rest),
+      logs: formattedLogs,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/monthly-dues/broadcast - Manual or triggered monthly due broadcast
+app.post('/api/monthly-dues/broadcast', async (req, res) => {
+  try {
+    const { dueId, dueRecord, force = true, isTest = false, customNotes } = req.body || {};
+    const result = await checkAndSendMonthlyDueBroadcast({
+      dueId,
+      dueRecord,
+      force,
+      isTest,
+      customNotes,
+    });
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/monthly-dues/broadcast/toggle - Toggles monthly dues broadcast automation
+app.post('/api/monthly-dues/broadcast/toggle', async (req, res) => {
+  try {
+    const { enabled } = req.body || {};
+    const database = await getMongoDb();
+    if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+
+    const isEnabled = enabled === true;
+    await database.collection('settings').updateOne(
+      { id: 'monthly_due_broadcast_config' },
+      {
+        $set: {
+          id: 'monthly_due_broadcast_config',
+          enabled: isEnabled,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      { upsert: true }
+    );
+
+    return res.json({ success: true, enabled: isEnabled });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// INDIVIDUAL MEMBER UNPAID DUES REMINDER ENGINE
+// ==========================================
+
+interface MemberUnpaidDuesSummary {
+  userId: string;
+  username: string;
+  fullName: string;
+  email: string;
+  phone?: string;
+  unpaidDues: {
+    dueId?: string;
+    month: string;
+    year: number;
+    amount: number;
+    title?: string;
+  }[];
+  totalUnpaidAmount: number;
+  unpaidCount: number;
+  lastReminderSentAt?: string;
+}
+
+interface IndividualDueReminderLogDoc {
+  id: string;
+  userId: string;
+  username: string;
+  fullName: string;
+  recipientEmail: string;
+  unpaidDuesCount: number;
+  unpaidDuesSummary: string[];
+  totalAmountDue: number;
+  sentDate: string; // YYYY-MM-DD
+  sentMonthYear: string;
+  sentAt: string;
+  status: 'delivered' | 'simulated' | 'failed';
+  resendId?: string;
+  error?: string;
+  triggerType: 'manual_single' | 'manual_batch' | 'automated_cycle';
+}
+
+function generateIndividualDueReminderEmailTextAndHtml(options: {
+  memberName: string;
+  unpaidDues: { dueId?: string; month: string; year: number; amount: number; title?: string }[];
+  customMessage?: string;
+}) {
+  const { memberName, unpaidDues, customMessage } = options;
+  const cur = getManilaCalendarDate();
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  const dateFormatted = `${monthNames[cur.month - 1]} ${cur.day}, ${cur.year}`;
+
+  const totalUnpaidAmount = unpaidDues.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  const formattedTotal = `PHP ${totalUnpaidAmount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const subject = `BCC Riders Club - Friendly Reminder: Unsettled Monthly Dues (${formattedTotal})`;
+
+  const duesListText = unpaidDues
+    .map((d, idx) => `  ${idx + 1}. ${d.title || `${d.month} ${d.year} Monthly Due`} - PHP ${Number(d.amount).toFixed(2)}`)
+    .join('\n');
+
+  const duesRowsHtml = unpaidDues
+    .map(
+      (d) => `
+      <tr style="border-bottom: 1px solid #e5e7eb;">
+        <td style="padding: 10px 14px; font-size: 13px; color: #111827; font-weight: bold;">${d.month} ${d.year}</td>
+        <td style="padding: 10px 14px; font-size: 13px; color: #4b5563;">${d.title || 'Monthly Due'}</td>
+        <td style="padding: 10px 14px; font-size: 14px; color: #b91c1c; font-weight: bold; text-align: right;">PHP ${Number(d.amount).toFixed(2)}</td>
+      </tr>`
+    )
+    .join('');
+
+  const body = `Dear ${memberName},
+
+We greet you in the peace, love, and fellowship of our Lord and Savior Jesus Christ!
+
+This is a personal and friendly reminder from BCC Riders Club regarding your membership monthly dues. According to our latest finance and ledger records, the following monthly dues remain unsettled or unpaid:
+
+Unpaid Monthly Dues:
+${duesListText}
+
+Total Outstanding Balance: ${formattedTotal}
+Date of Notice: ${dateFormatted}
+${customMessage ? `\nNote from Leadership / Treasurer:\n${customMessage}\n` : ''}
+Payment Remittance:
+Kindly settle your balance through official club payment channels (GCash or Cash directly to our Club Treasurer) at your earliest convenience. Once payment is completed, please provide your payment reference or confirmation receipt so our finance team can promptly update your ledger and membership standing.
+
+Your faithful contributions sustain our club operations, emergency rider assistance fund, outreach events, and mutual aid brotherhood.
+
+May our Lord God continue to bless the work of your hands, supply all your needs according to His riches in glory, and grant you safe travels on all your journeys.
+
+Sincerely in Christ and brotherhood,
+BCC Riders Club Finance and Leadership Team
+Ride Strong. Ride Together.`;
+
+  const html = `
+<div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937; max-width: 600px; margin: 0 auto; border: 1px solid #e2ece2; border-radius: 12px; overflow: hidden; background-color: #ffffff;">
+  <div style="background-color: #1b4332; padding: 24px 28px; text-align: center;">
+    <h1 style="color: #ffffff; margin: 0; font-size: 20px; letter-spacing: 0.5px;">BCC Riders Club</h1>
+    <p style="color: #b7e4c7; margin: 6px 0 0; font-size: 13px;">Personal Monthly Dues Statement & Reminder</p>
+  </div>
+  
+  <div style="padding: 28px;">
+    <p style="font-size: 15px; margin-top: 0;"><strong>Dear ${memberName},</strong></p>
+    
+    <p style="font-size: 14px; color: #374151;">
+      We greet you in the grace, peace, and fellowship of our Lord and Savior Jesus Christ.
+    </p>
+
+    <div style="background-color: #fff7ed; border-left: 4px solid #ea580c; padding: 14px 18px; margin: 20px 0; border-radius: 4px;">
+      <p style="font-size: 14px; color: #9a3412; font-weight: bold; margin: 0 0 4px 0;">
+        Personal Monthly Dues Advisory
+      </p>
+      <p style="font-size: 13px; color: #c2410c; margin: 0;">
+        Our club records show that you have <strong>${unpaidDues.length}</strong> unsettled monthly due contribution(s) totaling <strong>${formattedTotal}</strong>.
+      </p>
+    </div>
+
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0; background-color: #fdfefe; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+      <thead>
+        <tr style="background-color: #f3f4f6; border-bottom: 2px solid #e5e7eb; text-align: left;">
+          <th style="padding: 10px 14px; font-size: 12px; color: #374151; font-weight: bold;">Period</th>
+          <th style="padding: 10px 14px; font-size: 12px; color: #374151; font-weight: bold;">Description</th>
+          <th style="padding: 10px 14px; font-size: 12px; color: #374151; font-weight: bold; text-align: right;">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${duesRowsHtml}
+        <tr style="background-color: #f8fafc; border-top: 2px solid #cbd5e1;">
+          <td colspan="2" style="padding: 12px 14px; font-size: 14px; color: #1e293b; font-weight: bold;">Total Outstanding Due:</td>
+          <td style="padding: 12px 14px; font-size: 16px; color: #b91c1c; font-weight: 800; text-align: right;">${formattedTotal}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    ${
+      customMessage
+        ? `<div style="background-color: #f8fafc; border: 1px dashed #cbd5e1; border-radius: 8px; padding: 12px 16px; margin: 18px 0;">
+        <p style="font-size: 12px; color: #64748b; margin: 0 0 4px 0; font-weight: bold;">Note from Club Leadership:</p>
+        <p style="font-size: 13px; color: #334155; margin: 0;">${customMessage}</p>
+      </div>`
+        : ''
+    }
+
+    <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 16px; margin: 24px 0;">
+      <h3 style="color: #1b4332; margin: 0 0 6px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">
+        Payment Remittance Instructions
+      </h3>
+      <p style="font-size: 13px; color: #166534; margin: 0 0 6px 0;">
+        Please settle your balance through official club channels (GCash or Cash to the Club Treasurer).
+      </p>
+      <p style="font-size: 12px; color: #2d6a4f; margin: 0;">
+        Kindly send your payment reference number or screenshot to ensure your ledger is promptly updated.
+      </p>
+    </div>
+
+    <p style="font-size: 14px; color: #1b4332; font-weight: bold; margin: 24px 0 16px 0;">
+      May God abundantly bless your livelihood, provide for all your needs, and protect you and your family on every road!
+    </p>
+
+    <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+
+    <p style="font-size: 12px; color: #6b7280; margin-bottom: 4px;">Sincerely in Christ and brotherhood,</p>
+    <p style="font-size: 13px; color: #1b4332; font-weight: bold; margin: 0;">BCC Riders Club Finance and Leadership Team</p>
+    <p style="font-size: 11px; color: #9ca3af; margin-top: 2px;">Ride Strong. Ride Together.</p>
+  </div>
+</div>
+`;
+
+  return { subject, body, html, totalUnpaidAmount };
+}
+
+function isMemberAdmin(member: any): boolean {
+  if (!member) return false;
+  const role = String(member.role || member.userRole || member.clubRole || '').toLowerCase().trim();
+  const username = String(member.username || '').toLowerCase().trim();
+  const id = String(member.id || '').toLowerCase().trim();
+  const name = String(member.name || member.fullName || '').toLowerCase().trim();
+  const email = String(member.email || '').toLowerCase().trim();
+  return (
+    role === 'admin' ||
+    role === 'administrator' ||
+    role === 'executive' ||
+    id === 'usr_admin' ||
+    username === 'admin' ||
+    username === 'administrator' ||
+    name === 'admin' ||
+    name === 'administrator' ||
+    email === 'admin@gmail.com' ||
+    email === 'myissforbuff@gmail.com' ||
+    email.startsWith('admin@') ||
+    member.isAdmin === true
+  );
+}
+
+async function calculateMembersUnpaidDues(database: any, filterUserIds?: string[]): Promise<MemberUnpaidDuesSummary[]> {
+  // Query approved members
+  const memberQuery: any = {
+    $or: [
+      { approvalStatus: 'Approved' },
+      { approvalStatus: { $exists: false }, role: { $ne: 'admin' } },
+    ],
+  };
+  if (filterUserIds && filterUserIds.length > 0) {
+    memberQuery.id = { $in: filterUserIds };
+  }
+
+  const rawMembers = await database.collection('members').find(memberQuery).toArray();
+  // Strictly exclude any administrators from dues calculations and individual reminders
+  const members = rawMembers.filter((m: any) => !isMemberAdmin(m));
+  const activeDues = await database.collection('monthlyDues').find({}).sort({ year: -1, month: -1 }).toArray();
+
+  const monthlyDueLogs = await database.collection('monthlyDueLogs').find({}).toArray();
+  const financeLogs = await database.collection('financeLogs').find({}).toArray();
+  const allPayments = [...monthlyDueLogs, ...financeLogs];
+
+  const reminderLogs = await database
+    .collection('individual_due_reminder_logs')
+    .find({})
+    .sort({ sentAt: -1 })
+    .toArray();
+
+  const results: MemberUnpaidDuesSummary[] = [];
+
+  for (const member of members) {
+    const memberEmail = (member.email || '').trim();
+    const memberPayments = allPayments.filter((p: any) => p.userId === member.id);
+
+    const unpaidDues: { dueId?: string; month: string; year: number; amount: number; title?: string }[] = [];
+
+    for (const due of activeDues) {
+      const coveredMonthStr = `${due.month} ${due.year}`;
+      const dueYearNum = Number(due.year) || 2026;
+
+      // 1. Check if member has Annual Upfront Promo covering this year
+      const hasPromo = memberPayments.some(
+        (p: any) =>
+          p.itemType === 'Annual Upfront Promo' &&
+          p.status === 'Paid' &&
+          (p.coveredMonth?.includes(String(dueYearNum)) ||
+            p.customItemName?.includes(String(dueYearNum)) ||
+            !p.coveredMonth)
+      );
+      if (hasPromo) continue;
+
+      // 2. Check if member has a Paid or Waived record for this monthly due
+      const isPaidOrWaived = memberPayments.some(
+        (p: any) =>
+          p.itemType === 'Monthly Due' &&
+          (p.status === 'Paid' || p.status === 'Waived') &&
+          (p.coveredMonth === coveredMonthStr ||
+            p.customItemName === due.title ||
+            p.id === `rec_md_${due.id}_${member.id}` ||
+            p.id === `rec_md_${(due.id || '').replace(/^md_/, '')}_${member.id}`)
+      );
+      if (isPaidOrWaived) continue;
+
+      unpaidDues.push({
+        dueId: due.id,
+        month: due.month,
+        year: dueYearNum,
+        amount: Number(due.amount) || 150,
+        title: due.title || `${due.month} ${dueYearNum} Monthly Due`,
+      });
+    }
+
+    if (unpaidDues.length > 0) {
+      const totalUnpaidAmount = unpaidDues.reduce((acc, d) => acc + (Number(d.amount) || 0), 0);
+      const lastLog = reminderLogs.find((l: any) => l.userId === member.id && l.status === 'delivered');
+
+      results.push({
+        userId: member.id,
+        username: member.username || member.name || 'Member',
+        fullName: member.fullName || member.name || member.username || 'Member',
+        email: memberEmail,
+        phone: member.phone || member.contactNumber,
+        unpaidDues,
+        totalUnpaidAmount,
+        unpaidCount: unpaidDues.length,
+        lastReminderSentAt: lastLog ? lastLog.sentAt : undefined,
+      });
+    }
+  }
+
+  return results;
+}
+
+async function sendIndividualDueReminderToMember(
+  database: any,
+  memberSummary: MemberUnpaidDuesSummary,
+  options?: {
+    customMessage?: string;
+    triggerType?: 'manual_single' | 'manual_batch' | 'automated_cycle';
+    isTest?: boolean;
+  }
+): Promise<{
+  success: boolean;
+  recipient: string;
+  resendId?: string;
+  error?: string;
+}> {
+  if (isMemberAdmin(memberSummary)) {
+    return {
+      success: false,
+      recipient: memberSummary.email || memberSummary.fullName,
+      error: 'Administrators are strictly excluded from dues reminders.',
+    };
+  }
+  const memberEmail = (memberSummary.email || '').trim();
+  if (!memberEmail || !memberEmail.includes('@')) {
+    return {
+      success: false,
+      recipient: memberEmail || memberSummary.fullName,
+      error: 'Member has no valid email address on file.',
+    };
+  }
+
+  const manila = getManilaCalendarDate();
+  const { subject, body, html, totalUnpaidAmount } = generateIndividualDueReminderEmailTextAndHtml({
+    memberName: memberSummary.fullName || memberSummary.username,
+    unpaidDues: memberSummary.unpaidDues,
+    customMessage: options?.customMessage,
+  });
+
+  const resend = getResendClient();
+  let resendId = `msg_ind_due_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  let deliveryStatus: 'delivered' | 'simulated' | 'failed' = 'delivered';
+  let errorMessage = '';
+
+  if (resend) {
+    try {
+      const response = await resend.emails.send({
+        from: 'BCC Riders Club <info@bccriders.cc>',
+        to: [memberEmail],
+        replyTo: 'contact@bccriders.cc',
+        subject,
+        text: body,
+        html,
+      });
+
+      if (response && (response as any).data?.id) {
+        resendId = (response as any).data.id;
+      } else if ((response as any).id) {
+        resendId = (response as any).id;
+      }
+      console.log(`[Individual Due Reminder] Sent to ${memberSummary.fullName} (${memberEmail}). Total: PHP ${totalUnpaidAmount}. Resend ID: ${resendId}`);
+    } catch (err: any) {
+      console.error(`[Individual Due Reminder] Resend API error for ${memberEmail}:`, err);
+      deliveryStatus = 'failed';
+      errorMessage = err.message || 'Failed to deliver individual dues reminder email';
+    }
+  } else {
+    deliveryStatus = 'simulated';
+    console.warn(`[Individual Due Reminder] RESEND_API_KEY not configured, simulated reminder for ${memberEmail}.`);
+  }
+
+  const logDoc: IndividualDueReminderLogDoc = {
+    id: `ind_due_${Date.now()}_${memberSummary.userId}`,
+    userId: memberSummary.userId,
+    username: memberSummary.username,
+    fullName: memberSummary.fullName,
+    recipientEmail: memberEmail,
+    unpaidDuesCount: memberSummary.unpaidDues.length,
+    unpaidDuesSummary: memberSummary.unpaidDues.map((d) => `${d.month} ${d.year} (PHP ${d.amount.toFixed(2)})`),
+    totalAmountDue: totalUnpaidAmount,
+    sentDate: manila.dateString,
+    sentMonthYear: `${manila.year}-${String(manila.month).padStart(2, '0')}`,
+    sentAt: new Date().toISOString(),
+    status: deliveryStatus,
+    resendId,
+    error: errorMessage || undefined,
+    triggerType: options?.triggerType || 'manual_single',
+  };
+
+  try {
+    await database.collection('individual_due_reminder_logs').insertOne(logDoc);
+  } catch (e) {
+    console.warn('Failed to insert individual due reminder log:', e);
+  }
+
+  const outboxRecord: OutboundEmailRecord = {
+    id: `out_ind_due_${Date.now()}_${memberSummary.userId}`,
+    resendId,
+    from: 'BCC Riders Club <info@bccriders.cc>',
+    to: [memberEmail],
+    cc: [],
+    bcc: [],
+    replyTo: 'contact@bccriders.cc',
+    subject,
+    bodyText: body,
+    bodyHtml: html,
+    sentAt: new Date().toISOString(),
+    status: deliveryStatus === 'delivered' ? 'sent' : deliveryStatus,
+    error: errorMessage || undefined,
+    senderName: 'BCC Individual Dues Reminder Service',
+  };
+
+  outboundEmailMemoryCache.unshift(outboxRecord);
+  await database.collection('outbound_emails').insertOne(outboxRecord).catch(() => {});
+
+  return {
+    success: deliveryStatus !== 'failed',
+    recipient: memberEmail,
+    resendId,
+    error: errorMessage || undefined,
+  };
+}
+
+async function checkAndSendIndividualDueReminders(options?: {
+  userIds?: string[];
+  customMessage?: string;
+  force?: boolean;
+  isTest?: boolean;
+}): Promise<{
+  success: boolean;
+  totalTargeted: number;
+  totalSent: number;
+  results: Array<{ recipient: string; success: boolean; error?: string }>;
+  details: string;
+}> {
+  const database = await getMongoDb();
+  if (!database) {
+    return { success: false, totalTargeted: 0, totalSent: 0, results: [], details: 'MongoDB not connected.' };
+  }
+
+  const config = await database.collection('settings').findOne({ id: 'individual_due_reminder_config' });
+  const isEnabled = config ? config.enabled !== false : true;
+
+  if (!isEnabled && !options?.force && !options?.isTest) {
+    return {
+      success: true,
+      totalTargeted: 0,
+      totalSent: 0,
+      results: [],
+      details: 'Individual dues automated reminders are disabled in settings.',
+    };
+  }
+
+  const manila = getManilaCalendarDate();
+  const currentCycle = `${manila.year}-${String(manila.month).padStart(2, '0')}`;
+
+  const allUnpaidMembers = await calculateMembersUnpaidDues(database, options?.userIds);
+  const disabledUserIds = new Set(Array.isArray(config?.disabledUserIds) ? config.disabledUserIds : []);
+
+  let targetMembers = allUnpaidMembers;
+
+  // Filter out any members who have their reminders toggled off/disabled (unless an officer explicitly triggers a single manual reminder)
+  const isSingleManual = options?.userIds && options.userIds.length === 1;
+  if (!isSingleManual) {
+    targetMembers = targetMembers.filter((m) => !disabledUserIds.has(m.userId));
+  }
+
+  // If automated cycle without force, exclude members who already received an individual reminder this month
+  if (!options?.force && !options?.isTest) {
+    const logsThisMonth = await database
+      .collection('individual_due_reminder_logs')
+      .find({ sentMonthYear: currentCycle, status: 'delivered' })
+      .toArray();
+    const remindedUserIds = new Set(logsThisMonth.map((l: any) => l.userId));
+    targetMembers = targetMembers.filter((m) => !remindedUserIds.has(m.userId));
+  }
+
+  if (targetMembers.length === 0) {
+    return {
+      success: true,
+      totalTargeted: 0,
+      totalSent: 0,
+      results: [],
+      details: 'No members with unpaid dues require reminders at this time.',
+    };
+  }
+
+  const results: Array<{ recipient: string; success: boolean; error?: string }> = [];
+  let totalSent = 0;
+  const triggerType = options?.userIds && options.userIds.length === 1 ? 'manual_single' : options?.force ? 'manual_batch' : 'automated_cycle';
+
+  for (const member of targetMembers) {
+    const res = await sendIndividualDueReminderToMember(database, member, {
+      customMessage: options?.customMessage,
+      triggerType,
+      isTest: options?.isTest,
+    });
+    results.push(res);
+    if (res.success) totalSent++;
+  }
+
+  return {
+    success: totalSent > 0 || targetMembers.length === 0,
+    totalTargeted: targetMembers.length,
+    totalSent,
+    results,
+    details: `Individual unpaid dues reminders dispatched to ${totalSent} of ${targetMembers.length} member(s).`,
+  };
+}
+
+// GET /api/monthly-dues/unpaid-summary
+app.get('/api/monthly-dues/unpaid-summary', async (_req, res) => {
+  try {
+    const database = await getMongoDb();
+    if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+
+    const config = await database.collection('settings').findOne({ id: 'individual_due_reminder_config' });
+    const isEnabled = config ? config.enabled !== false : true;
+    const disabledUserIds: string[] = Array.isArray(config?.disabledUserIds) ? config.disabledUserIds : [];
+
+    const membersWithUnpaidDues = await calculateMembersUnpaidDues(database);
+    const totalUnpaidAmount = membersWithUnpaidDues.reduce((acc, m) => acc + m.totalUnpaidAmount, 0);
+
+    const logs = await database
+      .collection('individual_due_reminder_logs')
+      .find({})
+      .sort({ sentAt: -1 })
+      .limit(30)
+      .toArray();
+
+    return res.json({
+      success: true,
+      isEnabled,
+      disabledUserIds,
+      membersWithUnpaidDues,
+      totalMembersWithUnpaidDues: membersWithUnpaidDues.length,
+      totalUnpaidAmount,
+      logs: logs.map(({ _id, ...rest }) => rest),
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/monthly-dues/remind-individual - Send individual reminder to specific member(s) or all unpaid
+app.post('/api/monthly-dues/remind-individual', async (req, res) => {
+  try {
+    const { userId, userIds, force = true, isTest = false, customMessage } = req.body || {};
+    const targetIds = userIds ? userIds : userId ? [userId] : undefined;
+
+    const result = await checkAndSendIndividualDueReminders({
+      userIds: targetIds,
+      force,
+      isTest,
+      customMessage,
+    });
+
+    return res.json(result);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/monthly-dues/individual-reminders/member-toggle - Toggle reminders for a specific member
+app.post('/api/monthly-dues/individual-reminders/member-toggle', async (req, res) => {
+  try {
+    const { userId, enabled } = req.body || {};
+    if (!userId) return res.status(400).json({ error: 'userId is required' });
+    const database = await getMongoDb();
+    if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+
+    if (enabled) {
+      await database.collection('settings').updateOne(
+        { id: 'individual_due_reminder_config' },
+        {
+          $pull: { disabledUserIds: userId } as any,
+          $set: { updatedAt: new Date().toISOString() },
+        },
+        { upsert: true }
+      );
+    } else {
+      await database.collection('settings').updateOne(
+        { id: 'individual_due_reminder_config' },
+        {
+          $addToSet: { disabledUserIds: userId } as any,
+          $set: { updatedAt: new Date().toISOString() },
+        },
+        { upsert: true }
+      );
+    }
+
+    const updated = await database.collection('settings').findOne({ id: 'individual_due_reminder_config' });
+    return res.json({
+      success: true,
+      userId,
+      enabled: enabled === true,
+      disabledUserIds: updated?.disabledUserIds || [],
+    });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/monthly-dues/individual-reminders/toggle
+app.post('/api/monthly-dues/individual-reminders/toggle', async (req, res) => {
+  try {
+    const { enabled } = req.body || {};
+    const database = await getMongoDb();
+    if (!database) return res.status(503).json({ error: 'MongoDB not connected' });
+
+    const isEnabled = enabled === true;
+    await database.collection('settings').updateOne(
+      { id: 'individual_due_reminder_config' },
+      {
+        $set: {
+          id: 'individual_due_reminder_config',
+          enabled: isEnabled,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+      { upsert: true }
+    );
+
+    return res.json({ success: true, enabled: isEnabled });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // Catch-all route for API requests to ensure JSON response instead of HTML SPA fallback
 app.all('/api/*', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}`, data: [] });
@@ -6719,6 +7834,34 @@ async function startServer() {
       console.warn('[Birthday Broadcast Worker] Scheduled check error:', err)
     );
   }, 30 * 60 * 1000);
+
+  // Automated Monthly Dues Reminder Broadcast Worker (runs on startup and checks once daily)
+  setTimeout(() => {
+    checkAndSendMonthlyDueBroadcast().catch((err) =>
+      console.warn('[Monthly Due Broadcast Worker] Startup check error:', err)
+    );
+  }, 8000);
+
+  // Check every 6 hours to ensure active monthly dues reminder is broadcast once a month
+  setInterval(() => {
+    checkAndSendMonthlyDueBroadcast().catch((err) =>
+      console.warn('[Monthly Due Broadcast Worker] Scheduled check error:', err)
+    );
+  }, 6 * 60 * 60 * 1000);
+
+  // Automated Individual Member Unpaid Dues Reminder Worker (checks on startup and daily)
+  setTimeout(() => {
+    checkAndSendIndividualDueReminders().catch((err) =>
+      console.warn('[Individual Due Reminders Worker] Startup check error:', err)
+    );
+  }, 12000);
+
+  // Check every 12 hours to gently remind members with remaining unpaid dues (limited to once per month per member)
+  setInterval(() => {
+    checkAndSendIndividualDueReminders().catch((err) =>
+      console.warn('[Individual Due Reminders Worker] Scheduled check error:', err)
+    );
+  }, 12 * 60 * 60 * 1000);
 }
 
 // Graceful shutdown so Render deploys close change streams and sockets cleanly.

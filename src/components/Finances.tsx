@@ -54,6 +54,8 @@ import {
   Download,
   FileArchive,
   Layers,
+  Mail,
+  Send,
 } from 'lucide-react';
 
 export type FinanceItemType = 'Membership Fee' | 'Monthly Due' | 'Vest Payment' | 'Annual Upfront Promo' | 'Donation Collection' | 'Other';
@@ -232,6 +234,44 @@ export const Finances: React.FC = () => {
   const [recordSuccessNotice, setRecordSuccessNotice] = useState<string | null>(null);
   const [financeNoticeModal, setFinanceNoticeModal] = useState<{ title: string; message: string; isError?: boolean } | null>(null);
   const [showDeleteAllConfirmModal, setShowDeleteAllConfirmModal] = useState(false);
+  const [remindingMemberId, setRemindingMemberId] = useState<string | null>(null);
+
+  const handleQuickRemindMember = async (userId: string, memberName: string, memberEmail?: string) => {
+    if (!memberEmail || !memberEmail.includes('@')) {
+      setFinanceNoticeModal({
+        title: 'Missing Email Address',
+        message: `${memberName} has no registered email address on file. Please update their profile email first.`,
+        isError: true,
+      });
+      return;
+    }
+    setRemindingMemberId(userId);
+    try {
+      const res = await authFetch('/api/monthly-dues/remind-individual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, force: true }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setRecordSuccessNotice(`Personal monthly dues reminder email successfully sent to ${memberName} (${memberEmail})!`);
+      } else {
+        setFinanceNoticeModal({
+          title: 'Reminder Error',
+          message: data.details || data.error || 'Failed to dispatch individual dues reminder email.',
+          isError: true,
+        });
+      }
+    } catch (err: any) {
+      setFinanceNoticeModal({
+        title: 'Network Error',
+        message: err.message || 'Failed to send dues reminder email.',
+        isError: true,
+      });
+    } finally {
+      setRemindingMemberId(null);
+    }
+  };
 
   useEffect(() => {
     if (recordSuccessNotice) {
@@ -3627,15 +3667,29 @@ export const Finances: React.FC = () => {
 
                                       {/* Action Column */}
                                       <td className="py-2.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                                        <button
-                                          type="button"
-                                          onClick={() => setAccountMemberId(u.id)}
-                                          className="px-2.5 py-1 rounded-lg text-[10.5px] font-bold bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-2xs transition-all cursor-pointer inline-flex items-center gap-1 whitespace-nowrap"
-                                          title="View Member Transactions"
-                                        >
-                                          <FileText className="w-3 h-3 text-[#74c69d]" />
-                                          <span>View</span>
-                                        </button>
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          {totalPendingCount > 0 && (isAdmin || isOfficer) && !(u.role === 'admin' || u.role === 'administrator' || u.id === 'usr_admin' || String(u.username || '').toLowerCase() === 'admin' || (u as any).isAdmin === true) && (
+                                            <button
+                                              type="button"
+                                              disabled={remindingMemberId === u.id}
+                                              onClick={() => handleQuickRemindMember(u.id, u.name || u.username, u.email)}
+                                              className="px-2 py-1 rounded-lg text-[10.5px] font-bold bg-[#2d6a4f] hover:bg-[#1b4332] text-white shadow-2xs transition-all cursor-pointer inline-flex items-center gap-1 whitespace-nowrap disabled:opacity-50"
+                                              title={`Send personal dues reminder email to ${u.name || u.username}`}
+                                            >
+                                              <Mail className="w-3 h-3 text-[#74c69d]" />
+                                              <span>{remindingMemberId === u.id ? 'Sending...' : 'Remind'}</span>
+                                            </button>
+                                          )}
+                                          <button
+                                            type="button"
+                                            onClick={() => setAccountMemberId(u.id)}
+                                            className="px-2.5 py-1 rounded-lg text-[10.5px] font-bold bg-[#1b4332] hover:bg-[#2d6a4f] text-white shadow-2xs transition-all cursor-pointer inline-flex items-center gap-1 whitespace-nowrap"
+                                            title="View Member Transactions"
+                                          >
+                                            <FileText className="w-3 h-3 text-[#74c69d]" />
+                                            <span>View</span>
+                                          </button>
+                                        </div>
                                       </td>
                                     </tr>
                                   );
@@ -3734,15 +3788,28 @@ export const Finances: React.FC = () => {
                                   </div>
                                 </div>
 
-                                {/* Action Button */}
-                                <button
-                                  type="button"
-                                  onClick={() => setAccountMemberId(u.id)}
-                                  className="w-full py-2.5 px-3 rounded-xl bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-xs font-extrabold cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-2xs mt-auto"
-                                >
-                                  <FileText className="w-3.5 h-3.5" />
-                                  <span>View Transactions</span>
-                                </button>
+                                {/* Action Buttons */}
+                                <div className="flex items-center gap-2 mt-auto">
+                                  {totalPendingCount > 0 && (isAdmin || isOfficer) && !(u.role === 'admin' || u.role === 'administrator' || u.id === 'usr_admin' || String(u.username || '').toLowerCase() === 'admin' || (u as any).isAdmin === true) && (
+                                    <button
+                                      type="button"
+                                      disabled={remindingMemberId === u.id}
+                                      onClick={() => handleQuickRemindMember(u.id, u.name || u.username, u.email)}
+                                      className="flex-1 py-2.5 px-2 rounded-xl bg-[#2d6a4f] text-white hover:bg-[#1b4332] text-xs font-extrabold cursor-pointer transition-all flex items-center justify-center gap-1 shadow-2xs disabled:opacity-50"
+                                    >
+                                      <Mail className="w-3.5 h-3.5 text-[#74c69d]" />
+                                      <span>{remindingMemberId === u.id ? "Sending..." : "Remind"}</span>
+                                    </button>
+                                  )}
+                                  <button
+                                    type="button"
+                                    onClick={() => setAccountMemberId(u.id)}
+                                    className="flex-1 py-2.5 px-3 rounded-xl bg-[#1b4332] text-white hover:bg-[#2d6a4f] text-xs font-extrabold cursor-pointer transition-all flex items-center justify-center gap-1.5 shadow-2xs"
+                                  >
+                                    <FileText className="w-3.5 h-3.5" />
+                                    <span>View Transactions</span>
+                                  </button>
+                                </div>
                               </div>
                             );
                           })}

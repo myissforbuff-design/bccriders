@@ -557,21 +557,9 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                   </div>
 
                   <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-[#2d3a3a] font-semibold block">
-                        Password
-                      </label>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setError('');
-                          setShowForgotPasswordModal(true);
-                        }}
-                        className="text-[#2d6a4f] hover:text-[#1b4332] font-bold text-xs hover:underline cursor-pointer transition-colors"
-                      >
-                        Forgot password?
-                      </button>
-                    </div>
+                    <label className="text-[#2d3a3a] font-semibold mb-1.5 block">
+                      Password
+                    </label>
                     <div className="relative">
                       <input
                         type={showPassword ? 'text' : 'password'}
@@ -590,6 +578,18 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onLoginSuccess }) => {
                         aria-label={showPassword ? 'Hide password' : 'Show password'}
                       >
                         {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <div className="flex justify-end mt-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError('');
+                          setShowForgotPasswordModal(true);
+                        }}
+                        className="text-[#2d6a4f] hover:text-[#1b4332] font-bold text-xs hover:underline cursor-pointer transition-colors"
+                      >
+                        Forgot password?
                       </button>
                     </div>
                   </div>

@@ -25,9 +25,9 @@ import { extractZipArchive } from '../lib/yearlyArchiveUtils';
 import { InboundEmailViewer } from './InboundEmailViewer';
 import { EmailSender } from './EmailSender';
 import { BirthdayBroadcastSettings } from './BirthdayBroadcastSettings';
+import { MonthlyDueBroadcastSettings } from './MonthlyDueBroadcastSettings';
 import { PushNotificationSettings } from './PushNotificationSettings';
 import { RolesSettings } from './RolesSettings';
-import { DriveStorageSettings } from './DriveStorageSettings';
 import {
   Coins,
   Wallet,
@@ -43,7 +43,6 @@ import {
   Lock,
   Mail,
   Bell,
-  HardDrive,
   Settings as SettingsIcon,
   Save,
   X,
@@ -75,6 +74,7 @@ import {
   Fingerprint,
   Smartphone,
   KeyRound,
+  Send,
 } from 'lucide-react';
 import {
   isBiometricsSupported,
@@ -110,11 +110,10 @@ const MONTH_OPTIONS = [
 const YEAR_OPTIONS = ['2024', '2025', '2026', '2027', '2028', '2029', '2030'];
 
 const SUB_TAB_OPTIONS = [
-  { id: 'push_notifications', label: 'Push Notifications', icon: Bell, description: 'Web push alerts & customizable triggers' },
-  { id: 'storage', label: 'Google Shared Drive & Storage', icon: HardDrive, description: 'Google Drive photo sync & MongoDB zero-base64' },
-  { id: 'finance', label: 'Finances & Fees', icon: Wallet, description: 'Fees, monthly dues & drives' },
-  { id: 'reports', label: 'Reports & Export', icon: FileSpreadsheet, description: 'Export member & financial ledgers' },
-  { id: 'security', label: 'System Security & Biometrics', icon: Shield, description: 'Fingerprint, Face ID & Admin 2FA' },
+  { id: 'push_notifications', label: 'Alerts', icon: Bell, description: 'Web push alerts & customizable triggers' },
+  { id: 'finance', label: 'Finance', icon: Wallet, description: 'Fees, monthly dues & drives' },
+  { id: 'reports', label: 'Reports', icon: FileSpreadsheet, description: 'Export member & financial ledgers' },
+  { id: 'security', label: 'Security', icon: Shield, description: 'Fingerprint, Face ID & Admin 2FA' },
   { id: 'inbound', label: 'Email', icon: Mail, description: 'Email dispatcher, broadcast & contact@bccriders.cc inbox' },
 ] as const;
 
@@ -123,9 +122,9 @@ export const Settings: React.FC = () => {
   const { runWithLoader, refreshTick } = useLoader();
 
   // Settings Sub-Navigation Dropdown & Tabs
-  const [activeSubTab, setActiveSubTab] = useState<'push_notifications' | 'storage' | 'finance' | 'reports' | 'security' | 'inbound'>(() => {
+  const [activeSubTab, setActiveSubTab] = useState<'push_notifications' | 'finance' | 'reports' | 'security' | 'inbound'>(() => {
     const saved = localStorage.getItem('bcc_settings_subtab');
-    return (saved === 'push_notifications' || saved === 'storage' || saved === 'finance' || saved === 'reports' || saved === 'security' || saved === 'inbound') ? saved : 'push_notifications';
+    return (saved === 'push_notifications' || saved === 'finance' || saved === 'reports' || saved === 'security' || saved === 'inbound') ? saved : 'push_notifications';
   });
 
   useEffect(() => {
@@ -210,6 +209,40 @@ export const Settings: React.FC = () => {
   const [isRemovingPin, setIsRemovingPin] = useState(false);
 
   const [settingsNoticeModal, setSettingsNoticeModal] = useState<{ title: string; message: string; isError?: boolean } | null>(null);
+
+  // Sub-tabs per settings div state (without 'all', defaulting to the first section)
+  const [financeDivTab, setFinanceDivTab] = useState<'rates' | 'dues' | 'promos' | 'collections'>('rates');
+  const [reportsDivTab, setReportsDivTab] = useState<'exports' | 'archiving' | 'delete_year'>('exports');
+  const [securityDivTab, setSecurityDivTab] = useState<'otp' | 'biometrics' | 'pin' | 'roles' | 'session'>('otp');
+  const [inboundDivTab, setInboundDivTab] = useState<'birthdays' | 'monthly_dues' | 'compose' | 'inbox'>('birthdays');
+
+  const FINANCE_SUB_TABS = [
+    { id: 'rates', label: 'Rates', icon: Coins },
+    { id: 'dues', label: 'Dues', icon: Calendar },
+    { id: 'promos', label: 'Promos', icon: Sparkles },
+    { id: 'collections', label: 'Drives', icon: HeartHandshake },
+  ] as const;
+
+  const REPORTS_SUB_TABS = [
+    { id: 'exports', label: 'Exports', icon: Download },
+    { id: 'archiving', label: 'Archive', icon: Archive },
+    { id: 'delete_year', label: 'Reset', icon: Trash2 },
+  ] as const;
+
+  const SECURITY_SUB_TABS = [
+    { id: 'otp', label: '2FA', icon: Key },
+    { id: 'biometrics', label: 'Biometrics', shortLabel: 'Bio', icon: Fingerprint },
+    { id: 'pin', label: 'PIN', icon: KeyRound },
+    { id: 'roles', label: 'Roles', icon: Users },
+    { id: 'session', label: 'Session', icon: LogOut },
+  ] as const;
+
+  const INBOUND_SUB_TABS = [
+    { id: 'birthdays', label: 'Birthday', icon: Sparkles },
+    { id: 'monthly_dues', label: 'Dues', icon: Coins },
+    { id: 'compose', label: 'Compose', icon: Send },
+    { id: 'inbox', label: 'Inbox', icon: Receipt },
+  ] as const;
 
   useEffect(() => {
     isBiometricsSupported()
@@ -304,6 +337,7 @@ export const Settings: React.FC = () => {
   const [dueMonth, setDueMonth] = useState<string>('January');
   const [dueYear, setDueYear] = useState<string>('2026');
   const [dueNotes, setDueNotes] = useState('');
+  const [sendDueBroadcast, setSendDueBroadcast] = useState(true);
 
   // Dynamic Collection Modal State
   const [showCollectionModal, setShowCollectionModal] = useState(false);
@@ -1583,6 +1617,7 @@ export const Settings: React.FC = () => {
     setDueMonth(MONTH_OPTIONS.includes(currMonthName) ? currMonthName : 'January');
     setDueYear(String(new Date().getFullYear()));
     setDueNotes('');
+    setSendDueBroadcast(true);
     setShowMonthlyDueModal(true);
   };
 
@@ -1593,6 +1628,7 @@ export const Settings: React.FC = () => {
     setDueMonth(due.month);
     setDueYear(String(due.year));
     setDueNotes(due.notes || '');
+    setSendDueBroadcast(false);
     setShowMonthlyDueModal(true);
   };
 
@@ -1621,6 +1657,19 @@ export const Settings: React.FC = () => {
             status: 'Active',
             notes: dueNotes.trim(),
           });
+        }
+
+        // If broadcast checkbox is checked, trigger email broadcast to all members
+        if (sendDueBroadcast) {
+          authFetch('/api/monthly-dues/broadcast', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              dueId: savedDue.id,
+              dueRecord: savedDue,
+              force: true,
+            }),
+          }).catch((err) => console.warn('Broadcast request failed:', err));
         }
 
         refreshFinanceData();
@@ -2305,97 +2354,45 @@ export const Settings: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      {/* Sticky Sub-Navigation Dropdown Bar */}
-      <div className="sticky top-[86px] sm:top-[108px] lg:top-[56px] z-20 -mx-2.5 sm:-mx-6 lg:-mx-8 px-2.5 sm:px-6 lg:px-8 py-2.5 sm:py-3 bg-white/95 backdrop-blur-md border-b border-[#e2ece2] shadow-xs transition-all -mt-2.5 sm:-mt-6 lg:-mt-8">
+      {/* Settings Category Button Group (5 items: Alerts, Finance, Reports, Security, Email) */}
+      <div className="relative z-20 -mx-2.5 sm:-mx-6 lg:-mx-8 px-2.5 sm:px-6 lg:px-8 py-2 sm:py-2.5 bg-white border-b border-[#e2ece2] shadow-xs transition-all -mt-2.5 sm:-mt-6 lg:-mt-8">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="relative max-w-sm w-full" ref={subTabDropdownRef}>
-            <button
-              type="button"
-              id="btn-settings-category-dropdown"
-              onClick={() => setIsSubTabDropdownOpen((prev) => !prev)}
-              className="w-full flex items-center justify-between gap-3 px-3.5 sm:px-4 py-2 sm:py-2.5 bg-white hover:bg-[#f7f9f7] rounded-2xl border border-[#e2ece2] shadow-xs text-left transition-all cursor-pointer focus:outline-hidden focus:ring-2 focus:ring-[#1b4332]/20"
+          <div className="w-full sm:w-auto sm:min-w-[260px] py-0.5">
+            <div
+              role="group"
+              aria-label="Settings Categories"
+              className="grid grid-cols-5 p-1 bg-[#eaefe9] rounded-xl border border-[#d6e2d7] w-full"
             >
-              <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
-                <div className="p-1.5 sm:p-2 rounded-xl bg-[#1b4332] text-white shrink-0 shadow-xs">
-                  {activeSubTab === 'push_notifications' && <Bell className="w-4 h-4 text-[#74c69d]" />}
-                  {activeSubTab === 'storage' && <HardDrive className="w-4 h-4 text-[#74c69d]" />}
-                  {activeSubTab === 'finance' && <Wallet className="w-4 h-4 text-[#74c69d]" />}
-                  {activeSubTab === 'reports' && <FileSpreadsheet className="w-4 h-4 text-[#74c69d]" />}
-                  {activeSubTab === 'security' && <Shield className="w-4 h-4 text-[#74c69d]" />}
-                  {activeSubTab === 'inbound' && <Mail className="w-4 h-4 text-[#74c69d]" />}
-                </div>
-                <div className="truncate">
-                  <p className="text-[9.5px] sm:text-[10px] font-extrabold uppercase tracking-wider text-[#52605d]">Settings Category</p>
-                  <p className="text-xs sm:text-sm font-extrabold text-[#1b4332] truncate">
-                    {SUB_TAB_OPTIONS.find((t) => t.id === activeSubTab)?.label}
-                  </p>
-                </div>
-              </div>
-              <ChevronDown
-                className={`w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0 transition-transform duration-200 ${
-                  isSubTabDropdownOpen ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
-
-            <AnimatePresence>
-              {isSubTabDropdownOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: -6, scale: 0.98 }}
-                  animate={{ opacity: 1, y: 4, scale: 1 }}
-                  exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute left-0 right-0 top-full z-40 p-1.5 bg-white rounded-2xl border border-[#e2ece2] shadow-2xl space-y-1 mt-1 max-h-[calc(100vh-160px)] overflow-y-auto"
-                >
-                  {SUB_TAB_OPTIONS.map((tab) => {
-                    const Icon = tab.icon;
-                    const isSelected = activeSubTab === tab.id;
-                    return (
-                      <button
-                        key={tab.id}
-                        type="button"
-                        onClick={() => {
-                          setActiveSubTab(tab.id as 'push_notifications' | 'storage' | 'finance' | 'reports' | 'security' | 'inbound');
-                          setIsSubTabDropdownOpen(false);
-                        }}
-                        className={`w-full flex items-center justify-between gap-3 p-2.5 sm:p-3 rounded-xl transition-all cursor-pointer text-left ${
-                          isSelected
-                            ? 'bg-[#1b4332] text-white shadow-xs'
-                            : 'hover:bg-[#f0f7f2] text-[#1b4332]'
-                        }`}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          <div
-                            className={`p-2 rounded-lg shrink-0 ${
-                              isSelected ? 'bg-white/10 text-white' : 'bg-[#e8f5e9] text-[#1b4332]'
-                            }`}
-                          >
-                            <Icon className={`w-4 h-4 ${isSelected ? 'text-[#74c69d]' : 'text-[#2d6a4f]'}`} />
-                          </div>
-                          <div className="min-w-0">
-                            <p className={`text-xs font-bold truncate ${isSelected ? 'text-white' : 'text-[#1b4332]'}`}>
-                              {tab.label}
-                            </p>
-                            <p
-                              className={`text-[10px] truncate ${
-                                isSelected ? 'text-[#d8f3dc]' : 'text-[#52605d]'
-                              }`}
-                            >
-                              {tab.description}
-                            </p>
-                          </div>
-                        </div>
-                        {isSelected && <Check className="w-4 h-4 text-[#74c69d] shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </motion.div>
-              )}
-            </AnimatePresence>
+              {SUB_TAB_OPTIONS.map((tab) => {
+                const Icon = tab.icon;
+                const isSelected = activeSubTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    id={`btn-settings-category-${tab.id}`}
+                    type="button"
+                    title={tab.label}
+                    aria-label={tab.label}
+                    onClick={() => setActiveSubTab(tab.id as any)}
+                    className={`py-2 px-1 rounded-lg transition-all cursor-pointer flex items-center justify-center ${
+                      isSelected
+                        ? 'bg-[#1b4332] text-white shadow-xs'
+                        : 'text-[#2d6a4f] hover:text-[#1b4332] hover:bg-white/60'
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 sm:w-4.5 sm:h-4.5 shrink-0 ${isSelected ? 'text-[#74c69d]' : 'text-[#2d6a4f]'}`} />
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
-          <div className="hidden sm:flex items-center gap-2 text-xs text-[#52605d] font-medium min-w-0">
+          <div className="flex items-center gap-2 text-xs text-[#52605d] font-medium min-w-0">
             <span className="w-2 h-2 rounded-full bg-[#2d6a4f] shrink-0" />
+            <span className="font-bold text-[#1b4332]">
+              {SUB_TAB_OPTIONS.find((t) => t.id === activeSubTab)?.label}
+            </span>
+            <span className="text-[#a0aba0]">•</span>
             <span className="truncate">{SUB_TAB_OPTIONS.find((t) => t.id === activeSubTab)?.description}</span>
           </div>
         </div>
@@ -2404,64 +2401,96 @@ export const Settings: React.FC = () => {
       {/* SUB TAB 1: FINANCE SETTINGS */}
       {activeSubTab === 'finance' && (
         <div className="space-y-4 sm:space-y-6">
-          {/* Section 1: Standard Fee Configuration */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
-              <div>
-                <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
-                  <Coins className="w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0" />
-                  <span>Fee Rates</span>
-                </h2>
-                <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5">
-                  Set baseline member registration fee
-                </p>
-              </div>
-
-              {feeSavedToast && (
-                <motion.div
-                  initial={{ opacity: 0, x: 10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold flex items-center gap-1.5 self-start sm:self-auto"
-                >
-                  <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
-                  <span>Fee saved!</span>
-                </motion.div>
-              )}
+          {/* Sub-Tabs Button Group in Finance Settings (4 items: Rates, Dues, Promos, Drives) */}
+          <div className="w-full py-0.5">
+            <div
+              role="group"
+              aria-label="Finance Sub-Tabs"
+              className="grid grid-cols-4 p-1 bg-[#eaefe9] rounded-xl border border-[#d6e2d7] w-full"
+            >
+              {FINANCE_SUB_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isSelected = financeDivTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setFinanceDivTab(tab.id as any)}
+                    className={`py-1.5 px-1 sm:px-2 rounded-lg text-[11px] sm:text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap min-w-0 ${
+                      isSelected
+                        ? 'bg-[#1b4332] text-white shadow-xs'
+                        : 'text-[#2d6a4f] hover:text-[#1b4332] hover:bg-white/60'
+                    }`}
+                  >
+                    <Icon className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isSelected ? 'text-[#74c69d]' : 'text-[#2d6a4f]'}`} />
+                    <span className="truncate">{tab.label}</span>
+                  </button>
+                );
+              })}
             </div>
-
-            <form onSubmit={handleSaveFees} className="space-y-3 max-w-md w-full">
-              <div className="space-y-1.5 bg-[#f7f9f7] p-3 sm:p-4 rounded-2xl border border-[#e2ece2]">
-                <label className="text-xs font-bold text-[#1b4332] block">
-                  Membership Fee (₱)
-                </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={membershipFeeInput}
-                    onChange={(e) => setMembershipFeeInput(Number(e.target.value))}
-                    className="w-full pl-8 pr-3 py-2 rounded-xl bg-white border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                  />
-                  <span className="absolute left-3 top-2 text-xs font-bold text-[#52605d]">₱</span>
-                </div>
-                <span className="text-[10.5px] text-[#52605d] block">One-time registration fee for new members</span>
-              </div>
-
-              <div className="flex justify-end pt-1">
-                <button
-                  type="submit"
-                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02]"
-                >
-                  <Save className="w-4 h-4" />
-                  <span>Save Fee</span>
-                </button>
-              </div>
-            </form>
           </div>
 
+          {/* Section 1: Standard Fee Configuration */}
+          {financeDivTab === 'rates' && (
+            <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
+                <div>
+                  <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
+                    <Coins className="w-4 h-4 sm:w-5 sm:h-5 text-[#2d6a4f] shrink-0" />
+                    <span>Fee Rates</span>
+                  </h2>
+                  <p className="text-[11px] sm:text-xs text-[#52605d] mt-0.5">
+                    Set baseline member registration fee
+                  </p>
+                </div>
+
+                {feeSavedToast && (
+                  <motion.div
+                    initial={{ opacity: 0, x: 10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="px-3 py-1.5 rounded-xl bg-emerald-100 text-emerald-900 border border-emerald-300 text-xs font-bold flex items-center gap-1.5 self-start sm:self-auto"
+                  >
+                    <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                    <span>Fee saved!</span>
+                  </motion.div>
+                )}
+              </div>
+
+              <form onSubmit={handleSaveFees} className="space-y-3 max-w-md w-full">
+                <div className="space-y-1.5 bg-[#f7f9f7] p-3 sm:p-4 rounded-2xl border border-[#e2ece2]">
+                  <label className="text-xs font-bold text-[#1b4332] block">
+                    Membership Fee (₱)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={membershipFeeInput}
+                      onChange={(e) => setMembershipFeeInput(Number(e.target.value))}
+                      className="w-full pl-8 pr-3 py-2 rounded-xl bg-white border border-[#e2ece2] text-sm font-extrabold text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
+                    />
+                    <span className="absolute left-3 top-2 text-xs font-bold text-[#52605d]">₱</span>
+                  </div>
+                  <span className="text-[10.5px] text-[#52605d] block">One-time registration fee for new members</span>
+                </div>
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="submit"
+                    className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] text-white font-extrabold text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02]"
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>Save Fee</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
           {/* Section 2: Monthly Dues Management */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+          {financeDivTab === 'dues' && (
+            <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
               <div>
                 <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
@@ -2581,9 +2610,11 @@ export const Settings: React.FC = () => {
               )}
             </div>
           </div>
+          )}
 
           {/* Promotional Campaigns & Special Packages Section */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+          {financeDivTab === 'promos' && (
+            <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
             <div className="flex items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
               <div className="min-w-0 flex-1">
                 <h3 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-1.5 sm:gap-2 truncate">
@@ -2703,9 +2734,11 @@ export const Settings: React.FC = () => {
               </div>
             </div>
           </div>
+          )}
 
           {/* Section 3: Dynamic Collections & Donations Management */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+          {financeDivTab === 'collections' && (
+            <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-3 border-b border-[#e2ece2]">
               <div>
                 <h2 className="font-heading text-sm sm:text-base font-black text-[#1b4332] flex items-center gap-2">
@@ -2873,14 +2906,46 @@ export const Settings: React.FC = () => {
               )}
             </div>
           </div>
+          )}
         </div>
       )}
 
       {/* SUB TAB 2: REPORTS & EXPORT CENTER */}
       {activeSubTab === 'reports' && (
         <div className="space-y-4 sm:space-y-6">
-          {/* Header & Controls Card */}
-          <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
+          {/* Sub-Tabs Button Group in Reports & Export (3 items: Exports, Archive, Reset) */}
+          <div className="w-full py-0.5">
+            <div
+              role="group"
+              aria-label="Reports Sub-Tabs"
+              className="grid grid-cols-3 p-1 bg-[#eaefe9] rounded-xl border border-[#d6e2d7] w-full sm:max-w-md"
+            >
+              {REPORTS_SUB_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isSelected = reportsDivTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setReportsDivTab(tab.id as any)}
+                    className={`py-1.5 px-1 sm:px-2 rounded-lg text-[11px] sm:text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap min-w-0 ${
+                      isSelected
+                        ? 'bg-[#1b4332] text-white shadow-xs'
+                        : 'text-[#2d6a4f] hover:text-[#1b4332] hover:bg-white/60'
+                    }`}
+                  >
+                    <Icon className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isSelected ? 'text-[#74c69d]' : 'text-[#2d6a4f]'}`} />
+                    <span className="truncate">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Header & Controls Card & Export Report Options */}
+          {reportsDivTab === 'exports' && (
+            <>
+              <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#e2ece2]">
               <div>
                 <h2 className="font-heading text-sm sm:text-base md:text-lg font-black text-[#1b4332] flex items-center gap-2">
@@ -3505,8 +3570,11 @@ export const Settings: React.FC = () => {
               </div>
             </div>
           </div>
+          </>
+          )}
 
           {/* Section: Yearly Financial Archiving & Audit */}
+          {reportsDivTab === 'archiving' && (
           <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 md:p-6 border border-[#e2ece2] shadow-xs space-y-3 sm:space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[#e2ece2]">
               <div>
@@ -3564,8 +3632,10 @@ export const Settings: React.FC = () => {
               </div>
             </div>
           </div>
+          )}
 
           {/* Section: Delete a Year's Transactions */}
+          {reportsDivTab === 'delete_year' && (
           <div className="bg-white rounded-2xl sm:rounded-3xl p-3.5 sm:p-5 border border-rose-200/80 shadow-xs space-y-3">
             <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-rose-100">
               <div>
@@ -3657,6 +3727,7 @@ export const Settings: React.FC = () => {
               )}
             </div>
           </div>
+          )}
 
           {/* Interactive Report Data Preview Modal */}
           <AnimatePresence>
@@ -3831,6 +3902,36 @@ export const Settings: React.FC = () => {
             </div>
           </div>
 
+          {/* Sub-Tabs Button Group in Security Settings (5 items: 2FA, Biometrics, PIN, Roles, Session) */}
+          <div className="w-full py-0.5">
+            <div
+              role="group"
+              aria-label="Security Sub-Tabs"
+              className="grid grid-cols-5 p-1 bg-[#eaefe9] rounded-xl border border-[#d6e2d7] w-full"
+            >
+              {SECURITY_SUB_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isSelected = securityDivTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setSecurityDivTab(tab.id as any)}
+                    className={`py-1.5 px-0.5 sm:px-2 rounded-lg text-[10.5px] sm:text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-0.5 sm:gap-1.5 whitespace-nowrap min-w-0 ${
+                      isSelected
+                        ? 'bg-[#1b4332] text-white shadow-xs'
+                        : 'text-[#2d6a4f] hover:text-[#1b4332] hover:bg-white/60'
+                    }`}
+                  >
+                    <Icon className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isSelected ? 'text-[#74c69d]' : 'text-[#2d6a4f]'}`} />
+                    <span className="truncate sm:hidden">{('shortLabel' in tab && tab.shortLabel) ? tab.shortLabel : tab.label}</span>
+                    <span className="truncate hidden sm:inline">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Toast Notification for Security Changes */}
           <AnimatePresence>
             {securityToast && (
@@ -3860,7 +3961,8 @@ export const Settings: React.FC = () => {
           </AnimatePresence>
 
           {/* Card 1: Admin 2FA OTP Toggle Settings */}
-          <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
+          {securityDivTab === 'otp' && (
+            <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-start gap-3">
                 <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-[#1b4332] text-white flex items-center justify-center shadow-xs shrink-0 mt-0.5 sm:mt-0">
@@ -3934,8 +4036,10 @@ export const Settings: React.FC = () => {
               </div>
             </div>
           </div>
+          )}
 
           {/* Card 2: Biometric Authentication (Fingerprint / Touch ID / Face ID) */}
+          {securityDivTab === 'biometrics' && (
           <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-start gap-3">
@@ -4031,8 +4135,10 @@ export const Settings: React.FC = () => {
               )}
             </div>
           </div>
+          )}
 
           {/* Card 3: 4-Digit Quick PIN Login (For Devices without Fingerprint) */}
+          {securityDivTab === 'pin' && (
           <div className="bg-[#f7f9f7] rounded-2xl p-3.5 sm:p-4 md:p-5 border border-[#e2ece2] space-y-3 sm:space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-start gap-3">
@@ -4128,13 +4234,17 @@ export const Settings: React.FC = () => {
               )}
             </div>
           </div>
+          )}
 
           {/* Section 3: Official Club Roles Management */}
+          {securityDivTab === 'roles' && (
           <div className="pt-2 border-t border-[#e2ece2]">
             <RolesSettings />
           </div>
+          )}
 
           {/* Card 4: Executive Sign Out Card */}
+          {securityDivTab === 'session' && (
           <div className="p-3.5 sm:p-4 rounded-2xl bg-rose-50/60 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="space-y-0.5">
               <div className="flex items-center gap-1.5">
@@ -4156,31 +4266,67 @@ export const Settings: React.FC = () => {
               <span>Sign Out</span>
             </button>
           </div>
+          )}
         </div>
       )}
 
       {/* SUB TAB 4: EMAIL (SENDING & INBOUND INBOX) */}
       {activeSubTab === 'inbound' && (
         <div className="space-y-4 sm:space-y-6">
+          {/* Sub-Tabs Button Group in Email Tools (4 items: Birthday, Dues, Compose, Inbox) */}
+          <div className="w-full py-0.5">
+            <div
+              role="group"
+              aria-label="Email Sub-Tabs"
+              className="grid grid-cols-4 p-1 bg-[#eaefe9] rounded-xl border border-[#d6e2d7] w-full"
+            >
+              {INBOUND_SUB_TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isSelected = inboundDivTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setInboundDivTab(tab.id as any)}
+                    className={`py-1.5 px-1 sm:px-2 rounded-lg text-[11px] sm:text-xs font-black transition-all cursor-pointer flex items-center justify-center gap-1 sm:gap-1.5 whitespace-nowrap min-w-0 ${
+                      isSelected
+                        ? 'bg-[#1b4332] text-white shadow-xs'
+                        : 'text-[#2d6a4f] hover:text-[#1b4332] hover:bg-white/60'
+                    }`}
+                  >
+                    <Icon className={`w-3 h-3 sm:w-3.5 sm:h-3.5 shrink-0 ${isSelected ? 'text-[#74c69d]' : 'text-[#2d6a4f]'}`} />
+                    <span className="truncate">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Section 0: Birthday Greeting Broadcast Automation */}
-          <BirthdayBroadcastSettings members={approvedMembers} />
+          {inboundDivTab === 'birthdays' && (
+            <BirthdayBroadcastSettings members={approvedMembers} />
+          )}
+
+          {/* Section 0.5: Monthly Dues Email Broadcast & Reminders Automation */}
+          {inboundDivTab === 'monthly_dues' && (
+            <MonthlyDueBroadcastSettings members={approvedMembers} monthlyDues={monthlyDues} />
+          )}
 
           {/* Section 1: Sending Email via Resend */}
-          <EmailSender members={approvedMembers} />
+          {inboundDivTab === 'compose' && (
+            <EmailSender members={approvedMembers} />
+          )}
 
           {/* Section 2: Inbound Email Webhook Inbox */}
-          <InboundEmailViewer />
+          {inboundDivTab === 'inbox' && (
+            <InboundEmailViewer />
+          )}
         </div>
       )}
 
       {/* SUB TAB 5: WEB PUSH NOTIFICATIONS & CHANNEL CUSTOMIZATION */}
       {activeSubTab === 'push_notifications' && (
         <PushNotificationSettings />
-      )}
-
-      {/* SUB TAB 6: GOOGLE SHARED DRIVE & STORAGE CONFIGURATION */}
-      {activeSubTab === 'storage' && (
-        <DriveStorageSettings />
       )}
 
       {/* MODAL: CREATE / EDIT MONTHLY DUE */}
@@ -4269,6 +4415,19 @@ export const Settings: React.FC = () => {
                         ₱{(approvedMemberCount * (Number(dueAmount) || 0)).toLocaleString()}
                       </div>
                     </div>
+
+                    {/* Broadcast Email Reminder Option */}
+                    <label className="flex items-start gap-2 p-2 bg-[#f0fdf4] border border-[#bbf7d0] rounded-lg cursor-pointer transition-colors hover:bg-[#e8fbe8]">
+                      <input
+                        type="checkbox"
+                        checked={sendDueBroadcast}
+                        onChange={(e) => setSendDueBroadcast(e.target.checked)}
+                        className="mt-0.5 rounded text-[#2d6a4f] focus:ring-[#2d6a4f] cursor-pointer"
+                      />
+                      <span className="text-[10px] text-[#1b4332] font-semibold leading-tight">
+                        Send broadcast email notice & reminder to all approved members upon saving
+                      </span>
+                    </label>
                   </div>
 
                   {/* Fixed Footer Buttons */}

@@ -101,6 +101,8 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent, members: 
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [isDeletingOutbox, setIsDeletingOutbox] = useState(false);
   const [outboxItemToDelete, setOutboxItemToDelete] = useState<OutboundEmail | null>(null);
+  const [showDeleteAllOutboxModal, setShowDeleteAllOutboxModal] = useState(false);
+  const [isDeletingAllOutbox, setIsDeletingAllOutbox] = useState(false);
   const [showConfirmSendModal, setShowConfirmSendModal] = useState(false);
 
   const totalOutboxPages = Math.max(1, Math.ceil(outboxList.length / outboxItemsPerPage));
@@ -113,6 +115,38 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent, members: 
   const handleOpenDeleteOutboxModal = (e: React.MouseEvent, item: OutboundEmail) => {
     e.stopPropagation();
     setOutboxItemToDelete(item);
+  };
+
+  const handleConfirmDeleteAllOutbox = async () => {
+    setShowDeleteAllOutboxModal(false);
+    setIsDeletingAllOutbox(true);
+    try {
+      const res = await authFetch('/api/emails/outbox', {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setOutboxList([]);
+        setSelectedSentEmail(null);
+        setStatusFeedback({
+          type: 'info',
+          message: 'All sent message records have been deleted from outbox.',
+        });
+      } else {
+        setStatusFeedback({
+          type: 'error',
+          message: data.error || 'Failed to clear outbox records',
+        });
+      }
+    } catch (err) {
+      console.error('Error clearing outbox:', err);
+      setStatusFeedback({
+        type: 'error',
+        message: 'Failed to clear outbox records',
+      });
+    } finally {
+      setIsDeletingAllOutbox(false);
+    }
   };
 
   const handleConfirmDeleteOutbox = async () => {
@@ -1023,15 +1057,30 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent, members: 
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={fetchOutbox}
-            disabled={isLoadingOutbox}
-            className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 text-[#2d6a4f] ${isLoadingOutbox ? 'animate-spin' : ''}`} />
-            <span className="hidden sm:inline">Refresh Outbox</span>
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0">
+            {isAdmin && outboxList.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteAllOutboxModal(true)}
+                disabled={isLoadingOutbox || isDeletingAllOutbox}
+                className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                title="Delete all outbox records"
+              >
+                <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                <span className="hidden sm:inline">Delete All</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={fetchOutbox}
+              disabled={isLoadingOutbox}
+              className="px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-[#f7f9f7] hover:bg-[#e8f5e9] text-[#1b4332] border border-[#e2ece2] text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-[#2d6a4f] ${isLoadingOutbox ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Refresh Outbox</span>
+            </button>
+          </div>
         </div>
 
         {outboxList.length === 0 ? (
@@ -1388,11 +1437,65 @@ export const EmailSender: React.FC<EmailSenderProps> = ({ onEmailSent, members: 
               </motion.div>
             </div>
           )}
+
+          {/* Custom Confirmation Modal: Delete ALL Outbox Records */}
+          {showDeleteAllOutboxModal && (
+            <div className="fixed inset-0 z-[9999] bg-black/70 backdrop-blur-md flex items-center justify-center p-3 sm:p-4">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                className="bg-white rounded-2xl sm:rounded-3xl max-w-sm w-full p-4 sm:p-6 shadow-2xl border border-rose-200 space-y-4"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 border border-rose-200 flex items-center justify-center mx-auto">
+                  <Trash2 className="w-6 h-6" />
+                </div>
+
+                <div className="text-center space-y-1">
+                  <h3 className="text-base font-heading font-black text-rose-950">
+                    Delete All Outbox Records?
+                  </h3>
+                  <p className="text-xs text-[#52605d]">
+                    Are you sure you want to permanently delete all <strong>{outboxList.length}</strong> sent message records from your outbox log?
+                  </p>
+                </div>
+
+                <div className="bg-rose-50/70 rounded-xl p-3 border border-rose-200 space-y-1 text-xs text-rose-900">
+                  <p className="text-[11px] font-bold">
+                    ⚠️ Permanent Irreversible Action
+                  </p>
+                  <p className="text-[11px] text-rose-700 leading-relaxed">
+                    This will permanently clear all dispatched email tracking records and logs stored in the database.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteAllOutboxModal(false)}
+                    disabled={isDeletingAllOutbox}
+                    className="flex-1 py-2.5 rounded-xl border border-stone-200 text-stone-600 hover:bg-stone-50 text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isDeletingAllOutbox}
+                    onClick={handleConfirmDeleteAllOutbox}
+                    className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-colors cursor-pointer shadow-sm disabled:opacity-50 flex items-center justify-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>{isDeletingAllOutbox ? 'Deleting All...' : 'Delete All'}</span>
+                  </button>
+                </div>
+              </motion.div>
+            </div>
+          )}
         </AnimatePresence>
       </ModalPortal>
 
       {/* Outbox Deletion Official Loader */}
-      <OfficialLoader isLoading={isDeletingOutbox} message="Deleting Outbox Record..." />
+      <OfficialLoader isLoading={isDeletingOutbox || isDeletingAllOutbox} message={isDeletingAllOutbox ? "Purging All Outbox Records..." : "Deleting Outbox Record..."} />
     </div>
   );
 };
