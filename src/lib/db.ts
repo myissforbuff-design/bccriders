@@ -1313,6 +1313,7 @@ export class DataStoreService {
       comments: post.comments || [],
       commentsCount: post.comments ? post.comments.length : (post.commentsCount || 0),
       createdAt: post.createdAt || new Date().toISOString(),
+      viewsCount: post.viewsCount || 0,
     };
 
     this.posts.unshift(newPost);
@@ -1329,6 +1330,16 @@ export class DataStoreService {
     }
 
     return newPost;
+  }
+
+  incrementPostViews(postId: string): void {
+    const post = this.posts.find((p) => p.id === postId);
+    if (!post) return;
+    post.viewsCount = (post.viewsCount || 0) + 1;
+    saveToStorage(STORAGE_KEYS.POSTS, this.posts);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('bcc_posts_updated', { detail: this.posts }));
+    }
   }
 
   deletePost(postId: string): boolean {

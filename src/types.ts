@@ -431,6 +431,7 @@ export interface CommunityPost {
   commentsCount: number;
   createdAt: string;
   routeId?: string;
+  viewsCount?: number;
 }
 
 export interface Comment {

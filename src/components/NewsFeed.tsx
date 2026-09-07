@@ -1,125 +1,93 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   MessageSquare,
-  Search,
-  Filter,
   Trash2,
   Send,
-  User,
   Clock,
   ChevronDown,
   Check,
   X,
   AlertTriangle,
   Sparkles,
-  Smile,
-  Tag,
-  ShieldCheck,
-  Bike,
   Flame,
-  ArrowUpDown,
-  Reply,
-  CornerDownRight,
+  Zap,
+  History,
   Image as ImageIcon,
   Video as VideoIcon,
   Play,
   HardDrive,
   Film,
   Loader2,
-  Maximize2,
-  ExternalLink,
+  Layers,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { store } from '../lib/db';
-import { CommunityPost, SocialReactionType, ReactionRecord, PostComment, CommentReply, PostMediaItem } from '../types';
+import {
+  CommunityPost,
+  SocialReactionType,
+  ReactionRecord,
+} from '../types';
 import { uploadPhotoToSharedDrive, uploadVideoToSharedDrive } from '../lib/driveMedia';
-import { WhiteLabelVideoPlayer } from './WhiteLabelVideoPlayer';
 import { ModalPortal } from './ModalPortal';
 import { useModalDismiss } from '../hooks/useModalDismiss';
+import { FeedPostCard, computePostViews, REACTIONS } from './FeedPostCard';
 
-interface ReactionConfig {
-  type: SocialReactionType;
-  label: string;
-  emoji: string;
-  activeColor: string;
-  activeBg: string;
-  activeBorder: string;
-  badgeBg: string;
+export type FeedSortMode = 'newest' | 'most_viewed' | 'old' | 'algorithm';
+
+const PAGE_SIZE = 5;
+
+interface CachedFeedState {
+  sortMode: FeedSortMode;
+  postIds: string[];
+  cursor: string | null;
+  hasMore: boolean;
+  topRandomPostId: string | null;
+  timestamp: number;
 }
 
-const REACTIONS: ReactionConfig[] = [
-  {
-    type: 'like',
-    label: 'Like',
-    emoji: '👍',
-    activeColor: 'text-blue-600',
-    activeBg: 'bg-blue-50',
-    activeBorder: 'border-blue-200',
-    badgeBg: 'bg-blue-100 text-blue-800',
-  },
-  {
-    type: 'heart',
-    label: 'Heart',
-    emoji: '❤️',
-    activeColor: 'text-rose-600',
-    activeBg: 'bg-rose-50',
-    activeBorder: 'border-rose-200',
-    badgeBg: 'bg-rose-100 text-rose-800',
-  },
-  {
-    type: 'care',
-    label: 'Care',
-    emoji: '🤗',
-    activeColor: 'text-amber-600',
-    activeBg: 'bg-amber-50',
-    activeBorder: 'border-amber-200',
-    badgeBg: 'bg-amber-100 text-amber-800',
-  },
-  {
-    type: 'blessed',
-    label: 'Blessed',
-    emoji: '🙏',
-    activeColor: 'text-emerald-700',
-    activeBg: 'bg-emerald-50',
-    activeBorder: 'border-emerald-200',
-    badgeBg: 'bg-emerald-100 text-emerald-800',
-  },
-];
-
-function formatRelativeTime(dateString: string): string {
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return dateString;
-    const now = new Date();
-    const diffSec = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-    if (diffSec < 45) return 'Just now';
-    if (diffSec < 3600) {
-      const mins = Math.max(1, Math.floor(diffSec / 60));
-      return `${mins}m ago`;
-    }
-    if (diffSec < 86400) {
-      const hours = Math.floor(diffSec / 3600);
-      return `${hours}h ago`;
-    }
-    if (diffSec < 604800) {
-      const days = Math.floor(diffSec / 86400);
-      return `${days}d ago`;
-    }
-    return date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-  } catch {
-    return dateString;
-  }
-}
+// In-memory client-side cache singleton for feed state retention across tab navigations
+const MEMORY_CACHE = new Map<string, CachedFeedState>();
 
 export const NewsFeed: React.FC = () => {
   const { currentUser, isAdmin } = useAuth();
+  const cacheKey = `bcc_feed_${currentUser?.id || 'guest'}`;
 
-  // Posts State
+  // Initial sort preference: if user logged in and multiple posts, default to 'algorithm'
+  const [sortMode, setSortMode] = useState<FeedSortMode>(() => {
+    try {
+      const saved = sessionStorage.getItem('bcc_feed_sort_mode');
+      if (saved && ['newest', 'most_viewed', 'old', 'algorithm'].includes(saved)) {
+        return saved as FeedSortMode;
+      }
+    } catch {
+      // ignore
+    }
+    return 'algorithm';
+  });
+
+  // Custom sort dropdown visibility
+  const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false);
+  const sortDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // Raw posts from DB
   const [posts, setPosts] = useState<CommunityPost[]>(() => store.getPosts());
-  const [searchQuery, setSearchQuery] = useState('');
-  const [sortBy, setSortBy] = useState<'latest' | 'popular'>('latest');
+
+  // Algorithmic random post ID for current session
+  const [topRandomPostId, setTopRandomPostId] = useState<string | null>(() => {
+    try {
+      return sessionStorage.getItem('bcc_feed_random_post_id');
+    } catch {
+      return null;
+    }
+  });
+
+  // Infinite Scroll & Cursor-based Pagination State
+  const [displayedPosts, setDisplayedPosts] = useState<CommunityPost[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState<boolean>(true);
+  const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   // Composer State
   const [isComposerExpanded, setIsComposerExpanded] = useState(false);
@@ -128,8 +96,16 @@ export const NewsFeed: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Photos & Video Media Composer State
-  const [stagedPhotos, setStagedPhotos] = useState<Array<{ id: string; file?: File; previewUrl: string; name: string }>>([]);
-  const [stagedVideo, setStagedVideo] = useState<{ id: string; file?: File; previewUrl: string; name: string; title: string } | null>(null);
+  const [stagedPhotos, setStagedPhotos] = useState<
+    Array<{ id: string; file?: File; previewUrl: string; name: string }>
+  >([]);
+  const [stagedVideo, setStagedVideo] = useState<{
+    id: string;
+    file?: File;
+    previewUrl: string;
+    name: string;
+    title: string;
+  } | null>(null);
   const [mediaUploadProgress, setMediaUploadProgress] = useState<string | null>(null);
   const [mediaUploadError, setMediaUploadError] = useState<string | null>(null);
   const [selectedPhotoPreview, setSelectedPhotoPreview] = useState<string | null>(null);
@@ -137,28 +113,10 @@ export const NewsFeed: React.FC = () => {
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const videoInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Active Reaction Popover State (keyed by 'post_${id}', 'comment_${id}', or 'reply_${id}')
-  const [activeReactionPickerKey, setActiveReactionPickerKey] = useState<string | null>(null);
-  const reactionPickerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Expanded comments by post ID
-  const [expandedCommentPostIds, setExpandedCommentPostIds] = useState<Record<string, boolean>>({});
-  const [commentInputs, setCommentInputs] = useState<Record<string, string>>({});
-
-  // Replying State
-  const [activeReplyCommentId, setActiveReplyCommentId] = useState<string | null>(null);
-  const [replyInputs, setReplyInputs] = useState<Record<string, string>>({});
-  const [replyMentions, setReplyMentions] = useState<Record<string, string>>({});
-
-  // Reactions Breakdown Modal State (Universal for posts, comments, and replies)
+  // Universal Reactions Breakdown Modal State
   interface ReactionsModalData {
     title: string;
-    reactions?: {
-      like?: string[];
-      heart?: string[];
-      care?: string[];
-      blessed?: string[];
-    };
+    reactions?: CommunityPost['reactions'];
     reactionsDetails?: ReactionRecord[];
   }
   const [reactionsModalData, setReactionsModalData] = useState<ReactionsModalData | null>(null);
@@ -170,7 +128,20 @@ export const NewsFeed: React.FC = () => {
   useModalDismiss(Boolean(reactionsModalData), () => setReactionsModalData(null));
   useModalDismiss(Boolean(postToDelete), () => setPostToDelete(null));
 
-  // Listen to store updates
+  // Close sort dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node)) {
+        setIsSortDropdownOpen(false);
+      }
+    };
+    if (isSortDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isSortDropdownOpen]);
+
+  // Sync with store updates and initial server sync
   useEffect(() => {
     const handlePostsUpdated = (e: Event) => {
       const updated = ((e as CustomEvent).detail || store.getPosts()) as CommunityPost[];
@@ -183,7 +154,6 @@ export const NewsFeed: React.FC = () => {
     const handleOpenNewsFeed = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (detail && detail.postId) {
-        setExpandedCommentPostIds((prev) => ({ ...prev, [detail.postId]: true }));
         setTimeout(() => {
           const el = document.getElementById(`post-card-${detail.postId}`);
           if (el) {
@@ -198,17 +168,193 @@ export const NewsFeed: React.FC = () => {
     };
     window.addEventListener('bcc_open_newsfeed', handleOpenNewsFeed);
 
-    // Initial fetch to ensure fresh server data
     store.refreshPostsFromServer().then((fresh) => {
       if (Array.isArray(fresh) && fresh.length > 0) {
         setPosts([...fresh]);
       }
     });
+
     return () => {
       window.removeEventListener('bcc_posts_updated', handlePostsUpdated);
       window.removeEventListener('bcc_open_newsfeed', handleOpenNewsFeed);
     };
   }, []);
+
+  // Compute Full Sorted Posts List based on Sort Mode & Algorithm
+  const fullSortedPosts = useMemo(() => {
+    if (posts.length === 0) return [];
+    const list = [...posts];
+
+    if (sortMode === 'newest') {
+      return list.sort((a, b) => {
+        const tA = new Date(a.createdAt).getTime() || 0;
+        const tB = new Date(b.createdAt).getTime() || 0;
+        return tB - tA;
+      });
+    }
+
+    if (sortMode === 'most_viewed') {
+      return list.sort((a, b) => {
+        const vA = computePostViews(a);
+        const vB = computePostViews(b);
+        return vB - vA;
+      });
+    }
+
+    if (sortMode === 'old') {
+      return list.sort((a, b) => {
+        const tA = new Date(a.createdAt).getTime() || 0;
+        const tB = new Date(b.createdAt).getTime() || 0;
+        return tA - tB;
+      });
+    }
+
+    // sortMode === 'algorithm'
+    // Ensure we have a persistent random post selected for this session
+    if (list.length <= 1) return list;
+
+    let targetRandomId = topRandomPostId;
+    const exists = list.some((p) => p.id === targetRandomId);
+    if (!targetRandomId || !exists) {
+      const randomIndex = Math.floor(Math.random() * list.length);
+      targetRandomId = list[randomIndex].id;
+      setTopRandomPostId(targetRandomId);
+      try {
+        sessionStorage.setItem('bcc_feed_random_post_id', targetRandomId);
+      } catch {
+        // ignore
+      }
+    }
+
+    const topPost = list.find((p) => p.id === targetRandomId);
+    const otherPosts = list.filter((p) => p.id !== targetRandomId);
+
+    // Algorithmic interleave: Sort others with engagement-weighted distribution
+    otherPosts.sort((a, b) => {
+      const scoreA = computePostViews(a) * 0.4 + (new Date(a.createdAt).getTime() / 10000000) * 0.6;
+      const scoreB = computePostViews(b) * 0.4 + (new Date(b.createdAt).getTime() / 10000000) * 0.6;
+      return scoreB - scoreA;
+    });
+
+    return topPost ? [topPost, ...otherPosts] : otherPosts;
+  }, [posts, sortMode, topRandomPostId]);
+
+  // Client-side Caching & Pagination initialization
+  useEffect(() => {
+    if (fullSortedPosts.length === 0) {
+      setDisplayedPosts([]);
+      setCursor(null);
+      setHasMore(false);
+      return;
+    }
+
+    // Check memory or session cache first
+    const cached = MEMORY_CACHE.get(cacheKey);
+    const now = Date.now();
+    const isCacheValid = cached && cached.sortMode === sortMode && now - cached.timestamp < 15 * 60 * 1000;
+
+    if (isCacheValid && cached.postIds.length > 0) {
+      const restored = cached.postIds
+        .map((id) => fullSortedPosts.find((p) => p.id === id))
+        .filter(Boolean) as CommunityPost[];
+
+      if (restored.length > 0) {
+        setDisplayedPosts(restored);
+        setCursor(cached.cursor);
+        setHasMore(cached.hasMore);
+        return;
+      }
+    }
+
+    // Default: initialize first page
+    const initialSlice = fullSortedPosts.slice(0, PAGE_SIZE);
+    setDisplayedPosts(initialSlice);
+    const newCursor = initialSlice[initialSlice.length - 1]?.id || null;
+    setCursor(newCursor);
+    const more = initialSlice.length < fullSortedPosts.length;
+    setHasMore(more);
+
+    // Write to memory cache
+    MEMORY_CACHE.set(cacheKey, {
+      sortMode,
+      postIds: initialSlice.map((p) => p.id),
+      cursor: newCursor,
+      hasMore: more,
+      topRandomPostId,
+      timestamp: Date.now(),
+    });
+  }, [fullSortedPosts, sortMode, cacheKey]);
+
+  // Load Next Page (Cursor-based Pagination + Lazy Loading)
+  const loadNextPage = useCallback(() => {
+    if (isLoadingMore || !hasMore || fullSortedPosts.length === 0) return;
+    setIsLoadingMore(true);
+
+    // Simulate async smooth cursor slice fetch
+    setTimeout(() => {
+      setDisplayedPosts((prev) => {
+        const lastId = prev[prev.length - 1]?.id;
+        const currentIdx = lastId ? fullSortedPosts.findIndex((p) => p.id === lastId) : -1;
+        const start = currentIdx >= 0 ? currentIdx + 1 : prev.length;
+        const nextBatch = fullSortedPosts.slice(start, start + PAGE_SIZE);
+
+        if (nextBatch.length === 0) {
+          setHasMore(false);
+          setIsLoadingMore(false);
+          return prev;
+        }
+
+        const combined = [...prev, ...nextBatch];
+        const nextCursorId = nextBatch[nextBatch.length - 1].id;
+        setCursor(nextCursorId);
+        const stillHasMore = combined.length < fullSortedPosts.length;
+        setHasMore(stillHasMore);
+
+        // Update cache
+        MEMORY_CACHE.set(cacheKey, {
+          sortMode,
+          postIds: combined.map((p) => p.id),
+          cursor: nextCursorId,
+          hasMore: stillHasMore,
+          topRandomPostId,
+          timestamp: Date.now(),
+        });
+
+        setIsLoadingMore(false);
+        return combined;
+      });
+    }, 200);
+  }, [isLoadingMore, hasMore, fullSortedPosts, sortMode, cacheKey, topRandomPostId]);
+
+  // Infinite Scroll IntersectionObserver
+  useEffect(() => {
+    if (!sentinelRef.current) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && hasMore && !isLoadingMore) {
+          loadNextPage();
+        }
+      },
+      {
+        root: null,
+        rootMargin: '350px',
+        threshold: 0,
+      }
+    );
+    observer.observe(sentinelRef.current);
+    return () => observer.disconnect();
+  }, [hasMore, isLoadingMore, loadNextPage]);
+
+  // Change Sort Mode
+  const handleSelectSort = (mode: FeedSortMode) => {
+    setSortMode(mode);
+    setIsSortDropdownOpen(false);
+    try {
+      sessionStorage.setItem('bcc_feed_sort_mode', mode);
+    } catch {
+      // ignore
+    }
+  };
 
   // Media file handlers
   const handlePhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -244,19 +390,23 @@ export const NewsFeed: React.FC = () => {
   };
 
   const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
     setMediaUploadError(null);
 
+    const file = files[0];
     if (!file.type.startsWith('video/')) {
-      setMediaUploadError('Please select a valid video file (MP4, WebM, MOV).');
+      setMediaUploadError('Selected file is not a valid video format.');
       return;
     }
 
-    // Limit to 45MB to be safe within the 50MB body limit
-    if (file.size > 45 * 1024 * 1024) {
-      setMediaUploadError('Video file size exceeds the 45MB upload threshold.');
+    if (file.size > 200 * 1024 * 1024) {
+      setMediaUploadError('Video exceeds 200MB limit. Please compress or choose a shorter clip.');
       return;
+    }
+
+    if (stagedVideo && stagedVideo.previewUrl.startsWith('blob:')) {
+      URL.revokeObjectURL(stagedVideo.previewUrl);
     }
 
     const previewUrl = URL.createObjectURL(file);
@@ -272,342 +422,97 @@ export const NewsFeed: React.FC = () => {
   };
 
   const handleRemoveVideo = () => {
-    if (stagedVideo?.previewUrl?.startsWith('blob:')) {
+    if (stagedVideo && stagedVideo.previewUrl.startsWith('blob:')) {
       URL.revokeObjectURL(stagedVideo.previewUrl);
     }
     setStagedVideo(null);
   };
 
-  // Post Submission Handler
+  // Submit Post
   const handleCreatePost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentUser || (!postContent.trim() && stagedPhotos.length === 0 && !stagedVideo)) return;
+    if (!currentUser) return;
+    if (!postContent.trim() && stagedPhotos.length === 0 && !stagedVideo) return;
 
     setIsSubmitting(true);
     setMediaUploadError(null);
-    setMediaUploadProgress(null);
 
     try {
-      const uploadedPhotos: string[] = [];
-      const mediaItems: PostMediaItem[] = [];
-      let uploadedVideoUrl: string | undefined;
-
-      // 1. Upload photos to Google Shared Drive (Folder ID: 0AGPGJ8Knm3Y7Uk9PVA)
+      const uploadedPhotosUrls: string[] = [];
       if (stagedPhotos.length > 0) {
+        setMediaUploadProgress(`Uploading ${stagedPhotos.length} photo(s)...`);
         for (let i = 0; i < stagedPhotos.length; i++) {
-          const photo = stagedPhotos[i];
-          setMediaUploadProgress(`Uploading photo ${i + 1} of ${stagedPhotos.length} to Shared Drive...`);
-          try {
-            if (photo.file) {
-              const res = await uploadPhotoToSharedDrive(
-                photo.file,
-                currentUser.name || currentUser.username || 'rider',
-                '0AGPGJ8Knm3Y7Uk9PVA',
-                (status) => setMediaUploadProgress(`Photo ${i + 1}/${stagedPhotos.length}: ${status}`)
-              );
-              uploadedPhotos.push(res.url);
-              mediaItems.push({
-                id: `media_${Date.now()}_${i}`,
-                type: 'photo',
-                url: res.url,
-                fileId: res.fileId,
-                webViewLink: res.webViewLink,
-              });
-            } else if (photo.previewUrl) {
-              uploadedPhotos.push(photo.previewUrl);
-              mediaItems.push({
-                id: `media_${Date.now()}_${i}`,
-                type: 'photo',
-                url: photo.previewUrl,
-              });
-            }
-          } catch (err: any) {
-            console.error(`Error uploading photo ${photo.name}:`, err);
-            // If upload to shared drive encounters a problem, keep preview URL or notify
-            uploadedPhotos.push(photo.previewUrl);
-            mediaItems.push({
-              id: `media_${Date.now()}_${i}`,
-              type: 'photo',
-              url: photo.previewUrl,
-            });
+          const p = stagedPhotos[i];
+          if (p.file) {
+            setMediaUploadProgress(`Uploading photo ${i + 1} of ${stagedPhotos.length}...`);
+            const driveRes = await uploadPhotoToSharedDrive(
+              p.file,
+              currentUser.name || currentUser.username || 'Member'
+            );
+            uploadedPhotosUrls.push(driveRes.url);
+          } else {
+            uploadedPhotosUrls.push(p.previewUrl);
           }
         }
       }
 
-      // 2. Upload video directly to Club Cloud Storage (100% White-Label Native Video)
+      let uploadedVideoUrl: string | undefined = undefined;
       if (stagedVideo && stagedVideo.file) {
-        setMediaUploadProgress('Uploading video to Club Cloud Storage...');
-        try {
-          const videoRes = await uploadVideoToSharedDrive(
-            stagedVideo.file,
-            currentUser.name || currentUser.username || 'rider',
-            '0AGPGJ8Knm3Y7Uk9PVA',
-            (status) => setMediaUploadProgress(status)
-          );
-
-          uploadedVideoUrl = videoRes.url || stagedVideo.previewUrl;
-          mediaItems.push({
-            id: `media_video_${Date.now()}`,
-            type: 'video',
-            url: uploadedVideoUrl,
-            caption: postTitle.trim() || stagedVideo.name,
-          });
-        } catch (vidErr: any) {
-          console.warn('Direct video upload fallback:', vidErr);
-          uploadedVideoUrl = stagedVideo.previewUrl;
-          mediaItems.push({
-            id: `media_video_${Date.now()}`,
-            type: 'video',
-            url: stagedVideo.previewUrl,
-            caption: stagedVideo.name,
-          });
-        }
+        setMediaUploadProgress('Uploading video to cloud storage...');
+        const vidRes = await uploadVideoToSharedDrive(
+          stagedVideo.file,
+          currentUser.name || currentUser.username || 'Member'
+        );
+        uploadedVideoUrl = vidRes.url;
       }
 
-      // 3. Create post with media attached
-      store.createPost({
+      const newPost = store.createPost({
         authorId: currentUser.id,
         authorName: currentUser.name || currentUser.username || 'Member',
         authorAvatar: currentUser.avatar || '',
         authorRole: currentUser.role || 'Member',
         title: postTitle.trim(),
-        content: postContent.trim() || (stagedVideo ? 'Uploaded a ride video' : 'Shared photo(s) with the club'),
-        category: 'General',
-        photos: uploadedPhotos.length > 0 ? uploadedPhotos : undefined,
+        content: postContent.trim(),
+        category: 'General Talk',
+        photos: uploadedPhotosUrls,
         videoUrl: uploadedVideoUrl,
-        media: mediaItems.length > 0 ? mediaItems : undefined,
+        likesCount: 0,
+        likedBy: [],
+        reactions: { like: [], heart: [], care: [], blessed: [] },
+        reactionsDetails: [],
+        comments: [],
+        commentsCount: 0,
+        viewsCount: 1,
       });
 
-      // Reset form & staged media
+      // Reset form
       setPostTitle('');
       setPostContent('');
       setStagedPhotos([]);
       setStagedVideo(null);
-      setMediaUploadProgress(null);
       setIsComposerExpanded(false);
+      setMediaUploadProgress(null);
+
+      // Prepend to feed and update cache immediately
+      setPosts((prev) => [newPost, ...prev]);
+      setDisplayedPosts((prev) => [newPost, ...prev]);
     } catch (err: any) {
-      console.error('Failed to create post:', err);
-      setMediaUploadError(err?.message || 'Failed to publish post. Please try again.');
+      console.error('Failed to publish post:', err);
+      setMediaUploadError(err?.message || 'Failed to publish post. Please check connection and retry.');
     } finally {
       setIsSubmitting(false);
+      setMediaUploadProgress(null);
     }
   };
 
-  // Delete Post Handler
+  // Confirm Delete Post
   const handleConfirmDelete = () => {
     if (!postToDelete) return;
     store.deletePost(postToDelete.id);
+    setPosts((prev) => prev.filter((p) => p.id !== postToDelete.id));
+    setDisplayedPosts((prev) => prev.filter((p) => p.id !== postToDelete.id));
     setPostToDelete(null);
   };
-
-  // Reaction Picker hover/touch helpers
-  const handleReactionButtonMouseEnter = (key: string) => {
-    if (reactionPickerTimeoutRef.current) {
-      clearTimeout(reactionPickerTimeoutRef.current);
-    }
-    setActiveReactionPickerKey(key);
-  };
-
-  const handleReactionButtonMouseLeave = () => {
-    reactionPickerTimeoutRef.current = setTimeout(() => {
-      setActiveReactionPickerKey(null);
-    }, 350);
-  };
-
-  // Post Reaction Handling
-  const handleReact = (postId: string, reactionType: SocialReactionType) => {
-    if (!currentUser) return;
-    setActiveReactionPickerKey(null);
-    store.reactToPost(
-      postId,
-      currentUser.id,
-      currentUser.name || currentUser.username || 'Member',
-      reactionType,
-      currentUser.role || 'Member',
-      currentUser.avatar || ''
-    );
-  };
-
-  const handleQuickReact = (post: CommunityPost) => {
-    if (!currentUser) return;
-    const existing = post.reactionsDetails?.find((r) => r.userId === currentUser.id);
-    if (existing) {
-      handleReact(post.id, existing.type);
-    } else {
-      handleReact(post.id, 'like');
-    }
-  };
-
-  // Comment Reaction Handling
-  const handleReactToComment = (
-    postId: string,
-    commentId: string,
-    reactionType: SocialReactionType
-  ) => {
-    if (!currentUser) return;
-    setActiveReactionPickerKey(null);
-    store.reactToComment(
-      postId,
-      commentId,
-      currentUser.id,
-      currentUser.name || currentUser.username || 'Member',
-      reactionType,
-      currentUser.role || 'Member',
-      currentUser.avatar || ''
-    );
-  };
-
-  const handleQuickReactToComment = (postId: string, comment: PostComment) => {
-    if (!currentUser) return;
-    const existing = comment.reactionsDetails?.find((r) => r.userId === currentUser.id);
-    if (existing) {
-      handleReactToComment(postId, comment.id, existing.type);
-    } else {
-      handleReactToComment(postId, comment.id, 'like');
-    }
-  };
-
-  // Reply Reaction Handling
-  const handleReactToReply = (
-    postId: string,
-    commentId: string,
-    replyId: string,
-    reactionType: SocialReactionType
-  ) => {
-    if (!currentUser) return;
-    setActiveReactionPickerKey(null);
-    store.reactToReply(
-      postId,
-      commentId,
-      replyId,
-      currentUser.id,
-      currentUser.name || currentUser.username || 'Member',
-      reactionType,
-      currentUser.role || 'Member',
-      currentUser.avatar || ''
-    );
-  };
-
-  const handleQuickReactToReply = (
-    postId: string,
-    commentId: string,
-    reply: CommentReply
-  ) => {
-    if (!currentUser) return;
-    const existing = reply.reactionsDetails?.find((r) => r.userId === currentUser.id);
-    if (existing) {
-      handleReactToReply(postId, commentId, reply.id, existing.type);
-    } else {
-      handleReactToReply(postId, commentId, reply.id, 'like');
-    }
-  };
-
-  // Comments Handling
-  const toggleComments = (postId: string) => {
-    setExpandedCommentPostIds((prev) => ({
-      ...prev,
-      [postId]: !prev[postId],
-    }));
-  };
-
-  const handleAddComment = (postId: string, e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!currentUser) return;
-    const text = (commentInputs[postId] || '').trim();
-    if (!text) return;
-
-    store.addCommentToPost(postId, {
-      authorId: currentUser.id,
-      authorName: currentUser.name || currentUser.username || 'Member',
-      authorAvatar: currentUser.avatar || '',
-      authorRole: currentUser.role || 'Member',
-      content: text,
-    });
-
-    setCommentInputs((prev) => ({ ...prev, [postId]: '' }));
-    setExpandedCommentPostIds((prev) => ({ ...prev, [postId]: true }));
-  };
-
-  const handleDeleteComment = (postId: string, commentId: string) => {
-    store.deleteCommentFromPost(postId, commentId);
-  };
-
-  // Replies Handling
-  const handleStartReply = (commentId: string, mentionName?: string) => {
-    setActiveReplyCommentId(commentId);
-    if (mentionName) {
-      setReplyMentions((prev) => ({ ...prev, [commentId]: mentionName }));
-    }
-  };
-
-  const handleCancelReply = (commentId: string) => {
-    setActiveReplyCommentId((prev) => (prev === commentId ? null : prev));
-    setReplyMentions((prev) => {
-      const next = { ...prev };
-      delete next[commentId];
-      return next;
-    });
-  };
-
-  const handleAddReply = (postId: string, commentId: string, e?: React.FormEvent) => {
-    if (e) e.preventDefault();
-    if (!currentUser) return;
-    const text = (replyInputs[commentId] || '').trim();
-    if (!text) return;
-
-    const mention = replyMentions[commentId];
-
-    store.addReplyToComment(postId, commentId, {
-      authorId: currentUser.id,
-      authorName: currentUser.name || currentUser.username || 'Member',
-      authorAvatar: currentUser.avatar || '',
-      authorRole: currentUser.role || 'Member',
-      replyToUserName: mention,
-      content: text,
-    });
-
-    setReplyInputs((prev) => ({ ...prev, [commentId]: '' }));
-    setActiveReplyCommentId(null);
-    setReplyMentions((prev) => {
-      const next = { ...prev };
-      delete next[commentId];
-      return next;
-    });
-  };
-
-  const handleDeleteReply = (postId: string, commentId: string, replyId: string) => {
-    store.deleteReplyFromComment(postId, commentId, replyId);
-  };
-
-  // Filter & Sort Posts
-  const filteredPosts = useMemo(() => {
-    let result = [...posts];
-
-    // Filter by Search
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      result = result.filter(
-        (p) =>
-          p.content.toLowerCase().includes(q) ||
-          p.title?.toLowerCase().includes(q) ||
-          p.authorName.toLowerCase().includes(q)
-      );
-    }
-
-    // Sort
-    if (sortBy === 'popular') {
-      result.sort((a, b) => (b.likesCount || 0) - (a.likesCount || 0));
-    } else {
-      // Latest first
-      result.sort((a, b) => {
-        const timeA = new Date(a.createdAt).getTime() || 0;
-        const timeB = new Date(b.createdAt).getTime() || 0;
-        return timeB - timeA;
-      });
-    }
-
-    return result;
-  }, [posts, searchQuery, sortBy]);
 
   // Compute Active Reaction Details for Modal
   const modalReactionDetails = useMemo(() => {
@@ -618,19 +523,57 @@ export const NewsFeed: React.FC = () => {
     return reactionsModalData.reactionsDetails.filter((r) => r.type === reactionsModalTab);
   }, [reactionsModalData, reactionsModalTab]);
 
+  const sortOptions = [
+    {
+      id: 'newest' as FeedSortMode,
+      label: 'Newest',
+      sublabel: 'Latest posts first',
+      icon: Clock,
+    },
+    {
+      id: 'most_viewed' as FeedSortMode,
+      label: 'Most Viewed',
+      sublabel: 'Highest engagement & views',
+      icon: Flame,
+    },
+    {
+      id: 'old' as FeedSortMode,
+      label: 'Old post',
+      sublabel: 'Earliest posts first',
+      icon: History,
+    },
+    {
+      id: 'algorithm' as FeedSortMode,
+      label: 'Algorithm (For You)',
+      sublabel: 'Smart randomized discovery',
+      icon: Zap,
+    },
+  ];
+
+  const currentSortOption = sortOptions.find((s) => s.id === sortMode) || sortOptions[0];
+  const CurrentSortIcon = currentSortOption.icon;
+
   return (
     <div className="space-y-3.5 sm:space-y-4">
       {/* SOCIAL MEDIA COMPOSER CARD */}
       <div className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-4 border border-[#e2ece2] shadow-xs">
         <div className="flex items-start gap-2.5 sm:gap-3">
           {/* Current User Avatar */}
-          <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full ${currentUser?.avatar?.includes('bcc-logo.png') ? 'bg-white' : 'bg-[#d8f3dc]'} border border-[#b7e4c7] flex items-center justify-center font-heading font-black text-[#1b4332] text-xs shrink-0 shadow-xs overflow-hidden`}>
+          <div
+            className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full ${
+              currentUser?.avatar?.includes('bcc-logo.png') ? 'bg-white' : 'bg-[#d8f3dc]'
+            } border border-[#b7e4c7] flex items-center justify-center font-heading font-black text-[#1b4332] text-xs shrink-0 shadow-xs overflow-hidden`}
+          >
             {currentUser?.avatar ? (
               <img
                 src={currentUser.avatar}
                 alt={currentUser.name}
                 referrerPolicy="no-referrer"
-                className={`w-full h-full ${currentUser.avatar.includes('bcc-logo.png') ? 'object-contain p-0.5 bg-white' : 'object-cover'}`}
+                className={`w-full h-full ${
+                  currentUser.avatar.includes('bcc-logo.png')
+                    ? 'object-contain p-0.5 bg-white'
+                    : 'object-cover'
+                }`}
               />
             ) : (
               (currentUser?.name || currentUser?.username || 'U').charAt(0).toUpperCase()
@@ -647,94 +590,80 @@ export const NewsFeed: React.FC = () => {
                 className="w-full text-left px-3 py-2 bg-[#f7f9f7] hover:bg-[#eef5ef] rounded-xl border border-[#e2ece2] text-xs text-[#52605d] transition-all cursor-pointer flex items-center justify-between"
               >
                 <span className="truncate">
-                  What&apos;s on your mind, {currentUser?.firstName || currentUser?.name?.split(' ')[0] || 'Rider'}?
+                  What&apos;s on your mind,{' '}
+                  {currentUser?.firstName || currentUser?.name?.split(' ')[0] || 'Rider'}?
                 </span>
-                <span className="px-2 py-0.5 rounded-md bg-white border border-[#e2ece2] text-[10px] font-bold text-[#2d6a4f] shadow-xs shrink-0 hidden sm:inline-block">
-                  Write Post
-                </span>
+                <span className="text-[10px] text-[#2d6a4f] font-bold shrink-0 ml-2">Share</span>
               </button>
             ) : (
               <motion.form
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
                 onSubmit={handleCreatePost}
-                className="space-y-2.5"
+                className="space-y-3"
               >
-                {/* Optional Title */}
-                <div>
-                  <input
-                    type="text"
-                    id="post-title-input"
-                    value={postTitle}
-                    onChange={(e) => setPostTitle(e.target.value)}
-                    placeholder="Optional headline (e.g., Weekend ride reflection, Gear review)..."
-                    className="w-full px-3 py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs font-semibold text-[#1b4332] placeholder:text-xs placeholder:text-[#52605d]/70 focus:outline-none focus:border-[#2d6a4f]"
-                    maxLength={100}
-                  />
+                <div className="flex items-center justify-between border-b border-[#e2ece2] pb-2">
+                  <span className="text-xs font-bold text-[#1b4332]">Create Post</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsComposerExpanded(false);
+                      setStagedPhotos([]);
+                      setStagedVideo(null);
+                      setMediaUploadError(null);
+                    }}
+                    className="text-[#52605d] hover:text-[#1b4332] p-1 rounded-lg"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
 
-                {/* Main Content Area */}
-                <div>
-                  <textarea
-                    id="post-content-textarea"
-                    rows={3}
-                    value={postContent}
-                    onChange={(e) => setPostContent(e.target.value)}
-                    placeholder="Share an update, prayer request, ride story, or discussion with the BCC brotherhood..."
-                    className="w-full p-2.5 sm:p-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs text-[#1b4332] placeholder:text-xs placeholder:text-[#52605d]/70 focus:outline-none focus:border-[#2d6a4f] resize-y"
-                    autoFocus
-                    required
-                  />
-                </div>
-
-                {/* Hidden File Inputs */}
                 <input
-                  ref={photoInputRef}
-                  type="file"
-                  id="composer-photo-input"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={handlePhotoSelect}
-                />
-                <input
-                  ref={videoInputRef}
-                  type="file"
-                  id="composer-video-input"
-                  accept="video/*"
-                  className="hidden"
-                  onChange={handleVideoSelect}
+                  type="text"
+                  placeholder="Subject or Title (optional)"
+                  value={postTitle}
+                  onChange={(e) => setPostTitle(e.target.value)}
+                  className="w-full px-3 py-1.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs text-[#1b4332] placeholder:text-xs placeholder:text-[#52605d]/70 focus:outline-none focus:border-[#2d6a4f]"
                 />
 
-                {/* Staged Photos Preview Grid */}
+                <textarea
+                  placeholder={`What's happening on the road, ${
+                    currentUser?.name?.split(' ')[0] || 'rider'
+                  }?`}
+                  value={postContent}
+                  onChange={(e) => setPostContent(e.target.value)}
+                  rows={3}
+                  className="w-full p-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs text-[#1b4332] placeholder:text-xs placeholder:text-[#52605d]/70 focus:outline-none focus:border-[#2d6a4f] resize-none"
+                />
+
+                {/* Staged Photos Preview */}
                 {stagedPhotos.length > 0 && (
-                  <div className="p-2.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-[#1b4332]">
-                      <span className="flex items-center gap-1.5">
-                        <HardDrive className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                        Photos to upload to Shared Drive ({stagedPhotos.length})
-                      </span>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] text-[#52605d]">
+                      <span>Selected Photos ({stagedPhotos.length})</span>
                       <button
                         type="button"
                         onClick={() => setStagedPhotos([])}
-                        className="text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
+                        className="text-rose-600 hover:underline"
                       >
-                        Clear all
+                        Remove all
                       </button>
                     </div>
                     <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                      {stagedPhotos.map((photo) => (
-                        <div key={photo.id} className="relative group rounded-lg overflow-hidden border border-[#b7e4c7] aspect-square bg-white shadow-xs">
+                      {stagedPhotos.map((p) => (
+                        <div
+                          key={p.id}
+                          className="relative aspect-square rounded-xl overflow-hidden border border-[#e2ece2] bg-[#f0f4f0] group"
+                        >
                           <img
-                            src={photo.previewUrl}
-                            alt={photo.name}
+                            src={p.previewUrl}
+                            alt={p.name}
                             className="w-full h-full object-cover"
                           />
                           <button
                             type="button"
-                            onClick={() => handleRemovePhoto(photo.id)}
-                            className="absolute top-1 right-1 p-1 bg-black/70 hover:bg-rose-600 text-white rounded-full transition-colors cursor-pointer"
-                            title="Remove photo"
+                            onClick={() => handleRemovePhoto(p.id)}
+                            className="absolute top-1 right-1 p-1 bg-black/60 hover:bg-black/80 text-white rounded-full transition-colors"
                           >
                             <X className="w-3 h-3" />
                           </button>
@@ -744,137 +673,105 @@ export const NewsFeed: React.FC = () => {
                   </div>
                 )}
 
-                {/* Staged Video Preview (100% White-Label) */}
+                {/* Staged Video Preview */}
                 {stagedVideo && (
-                  <div className="p-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] space-y-2.5">
-                    <div className="flex items-center justify-between text-[11px] font-bold text-[#1b4332]">
-                      <span className="flex items-center gap-1.5">
-                        <Film className="w-4 h-4 text-emerald-600" />
-                        Video Attachment (White-Label HD Stream / Shorts)
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleRemoveVideo}
-                        className="text-rose-600 hover:text-rose-700 font-semibold cursor-pointer"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                    <div className="relative rounded-xl overflow-hidden bg-black max-h-64 sm:max-h-72 flex items-center justify-center">
-                      <video
-                        src={stagedVideo.previewUrl}
-                        controls
-                        playsInline
-                        className="max-h-64 sm:max-h-72 w-auto max-w-full object-contain mx-auto"
-                      />
-                    </div>
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 text-[11px] text-[#52605d] px-1">
-                      <span className="truncate max-w-[280px] font-medium">{stagedVideo.name}</span>
-                      <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
-                        <Check className="w-3.5 h-3.5 text-emerald-600" /> Auto-detects Landscape & Shorts (9:16)
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Upload Status / Progress Message */}
-                {mediaUploadProgress && (
-                  <div className="flex items-center gap-2 p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium">
-                    <Loader2 className="w-4 h-4 animate-spin text-emerald-600 shrink-0" />
-                    <span>{mediaUploadProgress}</span>
-                  </div>
-                )}
-
-                {/* Upload Error Banner */}
-                {mediaUploadError && (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-semibold text-rose-900">Upload Notice</p>
-                        <p className="text-[11px] text-rose-700">{mediaUploadError}</p>
+                  <div className="p-3 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="w-9 h-9 rounded-lg bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center shrink-0">
+                        <Play className="w-4 h-4 fill-current" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-bold text-[#1b4332] truncate">
+                          {stagedVideo.title || stagedVideo.name}
+                        </p>
+                        <span className="text-[10px] text-[#2d6a4f] font-semibold flex items-center gap-1">
+                          <Film className="w-3 h-3" /> Video ready to upload
+                        </span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 self-end sm:self-auto">
-                      <button
-                        type="button"
-                        onClick={() => setMediaUploadError(null)}
-                        className="p-1 text-rose-600 hover:text-rose-800 rounded-md cursor-pointer"
-                        title="Dismiss"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemoveVideo}
+                      className="p-1 text-[#52605d] hover:text-rose-600 rounded-lg"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
                   </div>
                 )}
 
-                {/* Media Add Trigger Buttons & Actions Bar */}
-                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-[#e2ece2]">
+                {/* Media Upload Error */}
+                {mediaUploadError && (
+                  <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{mediaUploadError}</span>
+                  </div>
+                )}
+
+                {/* Media Upload Progress */}
+                {mediaUploadProgress && (
+                  <div className="p-2.5 rounded-xl bg-[#e8f5e9] border border-[#b7e4c7] text-[#1b4332] text-xs flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-[#2d6a4f]" />
+                    <span className="font-semibold">{mediaUploadProgress}</span>
+                  </div>
+                )}
+
+                {/* Composer Footer Actions */}
+                <div className="flex items-center justify-between pt-1 border-t border-[#f0f4f0]">
                   <div className="flex items-center gap-1.5">
-                    {/* Upload Photos Button */}
+                    {/* Photo upload */}
+                    <input
+                      type="file"
+                      ref={photoInputRef}
+                      onChange={handlePhotoSelect}
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                    />
                     <button
                       type="button"
-                      id="composer-add-photo-btn"
                       onClick={() => photoInputRef.current?.click()}
-                      disabled={isSubmitting}
-                      className="px-2.5 py-1.5 rounded-lg border border-[#e2ece2] bg-[#f7f9f7] hover:bg-[#e8f2e9] text-[#1b4332] text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                      title="Upload photos to BCC Shared Drive"
+                      className="px-2.5 py-1.5 rounded-lg hover:bg-[#f7f9f7] text-[#52605d] hover:text-[#1b4332] text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer border border-transparent hover:border-[#e2ece2]"
                     >
-                      <ImageIcon className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                      <span>Photos</span>
+                      <ImageIcon className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Photo</span>
                     </button>
 
-                    {/* Upload Video Button */}
+                    {/* Video upload */}
+                    <input
+                      type="file"
+                      ref={videoInputRef}
+                      onChange={handleVideoSelect}
+                      accept="video/*"
+                      className="hidden"
+                    />
                     <button
                       type="button"
-                      id="composer-add-video-btn"
                       onClick={() => videoInputRef.current?.click()}
-                      disabled={isSubmitting || Boolean(stagedVideo)}
-                      className="px-2.5 py-1.5 rounded-lg border border-[#e2ece2] bg-[#f7f9f7] hover:bg-emerald-50 text-[#1b4332] text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
-                      title="Upload video to Club Shared Drive"
+                      className="px-2.5 py-1.5 rounded-lg hover:bg-[#f7f9f7] text-[#52605d] hover:text-[#1b4332] text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer border border-transparent hover:border-[#e2ece2]"
                     >
-                      <VideoIcon className="w-3.5 h-3.5 text-emerald-600" />
+                      <VideoIcon className="w-3.5 h-3.5 text-blue-600" />
                       <span>Video</span>
                     </button>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      id="composer-cancel-btn"
-                      onClick={() => {
-                        setIsComposerExpanded(false);
-                        setPostTitle('');
-                        setPostContent('');
-                        setStagedPhotos([]);
-                        setStagedVideo(null);
-                        setMediaUploadError(null);
-                        setMediaUploadProgress(null);
-                      }}
-                      disabled={isSubmitting}
-                      className="px-3 py-1.5 rounded-lg text-xs font-semibold text-[#52605d] hover:bg-[#f7f9f7] transition-all cursor-pointer disabled:opacity-50"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="submit"
-                      id="composer-submit-btn"
-                      disabled={isSubmitting || (!postContent.trim() && stagedPhotos.length === 0 && !stagedVideo)}
-                      className="px-3.5 py-1.5 rounded-lg bg-[#1b4332] hover:bg-[#2d6a4f] disabled:opacity-50 text-white font-heading font-extrabold text-xs shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
-                    >
-                      {isSubmitting ? (
-                        <>
-                          <Loader2 className="w-3 h-3 animate-spin text-[#74c69d]" />
-                          <span>Publishing...</span>
-                        </>
-                      ) : (
-                        <>
-                          <Send className="w-3 h-3 text-[#74c69d]" />
-                          <span>Post</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
+                  <button
+                    type="submit"
+                    id="submit-post-btn"
+                    disabled={isSubmitting || (!postContent.trim() && stagedPhotos.length === 0 && !stagedVideo)}
+                    className="px-4 py-1.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] disabled:opacity-40 text-white text-xs font-heading font-extrabold transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Posting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3 h-3 text-[#74c69d]" />
+                        <span>Post</span>
+                      </>
+                    )}
+                  </button>
                 </div>
               </motion.form>
             )}
@@ -882,71 +779,119 @@ export const NewsFeed: React.FC = () => {
         </div>
       </div>
 
-      {/* SEARCH & SORT BAR (Category filter removed, compact mobile layout) */}
-      <div className="flex items-center justify-between gap-2.5 bg-white p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-[#e2ece2] shadow-xs">
-        {/* Search Input */}
-        <div className="relative flex-1">
-          <input
-            type="text"
-            id="feed-search-input"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search feed posts or riders..."
-            className="w-full pl-8 pr-3 py-1.5 rounded-lg sm:rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs font-medium text-[#1b4332] placeholder:text-xs placeholder:text-[#52605d]/70 focus:outline-none focus:border-[#2d6a4f]"
-          />
-          <Search className="w-3.5 h-3.5 text-[#52605d] absolute left-2.5 top-2" />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2 top-1.5 text-[#52605d] hover:text-[#1b4332]"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
+      {/* FEED HEADER WITH CUSTOM SORTING BUTTON & DROPDOWN */}
+      {/* (Search input bar and subtabs removed per user requirement) */}
+      <div className="flex items-center justify-between gap-3 bg-white p-2.5 sm:p-3 rounded-xl sm:rounded-2xl border border-[#e2ece2] shadow-xs">
+        {/* Left Side: Feed Identity & Posts Count */}
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-[#d8f3dc] text-[#1b4332] flex items-center justify-center font-bold text-xs">
+            <Layers className="w-3.5 h-3.5 text-[#2d6a4f]" />
+          </div>
+          <div>
+            <span className="font-heading font-black text-xs sm:text-sm text-[#1b4332]">
+              BCC News Feed
+            </span>
+            <span className="text-[10px] text-[#52605d] ml-1.5 hidden sm:inline">
+              ({fullSortedPosts.length} posts)
+            </span>
+          </div>
         </div>
 
-        {/* Sort By Toggle */}
-        <div className="flex items-center gap-0.5 bg-[#f7f9f7] p-0.5 rounded-lg border border-[#e2ece2] shrink-0">
+        {/* Right Side: Custom Sorting Dropdown */}
+        <div className="relative" ref={sortDropdownRef}>
           <button
             type="button"
-            id="sort-latest-btn"
-            onClick={() => setSortBy('latest')}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-              sortBy === 'latest' ? 'bg-white text-[#1b4332] shadow-xs' : 'text-[#52605d] hover:text-[#1b4332]'
-            }`}
+            id="feed-sort-dropdown-btn"
+            onClick={() => setIsSortDropdownOpen(!isSortDropdownOpen)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-[#f7f9f7] hover:bg-[#eef5ef] text-[#1b4332] border border-[#e2ece2] hover:border-[#b7e4c7] text-xs font-bold transition-all cursor-pointer shadow-2xs"
+            aria-expanded={isSortDropdownOpen}
+            aria-haspopup="true"
           >
-            Latest
+            <CurrentSortIcon className="w-3.5 h-3.5 text-[#2d6a4f]" />
+            <span>Sort: {currentSortOption.label}</span>
+            <ChevronDown
+              className={`w-3.5 h-3.5 text-[#52605d] transition-transform duration-200 ${
+                isSortDropdownOpen ? 'rotate-180' : ''
+              }`}
+            />
           </button>
-          <button
-            type="button"
-            id="sort-popular-btn"
-            onClick={() => setSortBy('popular')}
-            className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-              sortBy === 'popular' ? 'bg-white text-[#1b4332] shadow-xs' : 'text-[#52605d] hover:text-[#1b4332]'
-            }`}
-          >
-            Popular
-          </button>
+
+          {/* Custom Dropdown Menu */}
+          <AnimatePresence>
+            {isSortDropdownOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 6, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 6, scale: 0.96 }}
+                transition={{ duration: 0.15 }}
+                className="absolute right-0 top-full mt-1.5 z-50 w-56 bg-white rounded-2xl border border-[#e2ece2] shadow-xl p-1.5 space-y-1 overflow-hidden"
+              >
+                <div className="px-2.5 py-1 text-[10px] font-black uppercase tracking-wider text-[#52605d]">
+                  Sort Feed By
+                </div>
+
+                {sortOptions.map((opt) => {
+                  const IconComp = opt.icon;
+                  const isSelected = opt.id === sortMode;
+
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      id={`sort-option-${opt.id}`}
+                      onClick={() => handleSelectSort(opt.id)}
+                      className={`w-full flex items-center justify-between p-2 rounded-xl text-xs text-left transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-[#e8f5e9] text-[#1b4332] font-bold'
+                          : 'text-[#2d4036] hover:bg-[#f7f9f7]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                            isSelected
+                              ? 'bg-[#1b4332] text-white'
+                              : 'bg-[#f0f4f0] text-[#2d6a4f]'
+                          }`}
+                        >
+                          <IconComp className="w-3.5 h-3.5" />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="leading-tight font-heading font-black text-xs truncate">
+                            {opt.label}
+                          </p>
+                          <p className="text-[10px] text-[#52605d] truncate leading-tight mt-0.5">
+                            {opt.sublabel}
+                          </p>
+                        </div>
+                      </div>
+
+                      {isSelected && (
+                        <Check className="w-4 h-4 text-[#2d6a4f] shrink-0 ml-2" />
+                      )}
+                    </button>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
 
-      {/* POSTS LIST */}
+      {/* POSTS LIST (Virtualization + Lazy Loading + Cursor-based Pagination) */}
       <div className="space-y-3 sm:space-y-4">
-        {filteredPosts.length === 0 ? (
+        {displayedPosts.length === 0 ? (
           <div className="bg-white rounded-2xl sm:rounded-3xl p-8 sm:p-10 text-center border border-[#e2ece2] shadow-xs space-y-2.5">
             <div className="w-12 h-12 bg-[#f7f9f7] rounded-full flex items-center justify-center mx-auto text-[#52605d]">
               <MessageSquare className="w-5 h-5 text-[#2d6a4f]" />
             </div>
             <h3 className="font-heading font-extrabold text-[#1b4332] text-sm sm:text-base">
-              No Feed Posts Found
+              No Feed Posts Yet
             </h3>
             <p className="text-xs text-[#52605d] max-w-sm mx-auto">
-              {searchQuery
-                ? 'No posts match your search query. Try clearing the search.'
-                : 'Be the first to share a post with the BCC community above!'}
+              Be the first to share a post or update with the BCC community!
             </p>
-            {isComposerExpanded ? null : (
+            {!isComposerExpanded && (
               <button
                 type="button"
                 onClick={() => setIsComposerExpanded(true)}
@@ -957,798 +902,41 @@ export const NewsFeed: React.FC = () => {
             )}
           </div>
         ) : (
-          filteredPosts.map((post) => {
-            const isAuthor = currentUser?.id === post.authorId;
-            const canDelete = isAuthor || isAdmin;
-            const userReaction = post.reactionsDetails?.find((r) => r.userId === currentUser?.id);
-            const activeReactionConfig = userReaction
-              ? REACTIONS.find((r) => r.type === userReaction.type)
-              : null;
-
-            // Tally non-empty reactions
-            const reactionCounts = {
-              like: post.reactions?.like?.length || 0,
-              heart: post.reactions?.heart?.length || 0,
-              care: post.reactions?.care?.length || 0,
-              blessed: post.reactions?.blessed?.length || 0,
-            };
-            const totalReactions = Object.values(reactionCounts).reduce((a, b) => a + b, 0);
-            const activeReactionTypes = REACTIONS.filter((r) => reactionCounts[r.type] > 0);
-
-            const isCommentsOpen = Boolean(expandedCommentPostIds[post.id]);
-            const commentsList = post.comments || [];
-            const commentsCount = commentsList.length || post.commentsCount || 0;
+          displayedPosts.map((post, idx) => {
+            const isAlgorithmPick = sortMode === 'algorithm' && idx === 0 && fullSortedPosts.length > 1;
 
             return (
-              <motion.article
+              <FeedPostCard
                 key={post.id}
-                id={`post-card-${post.id}`}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="bg-white rounded-2xl sm:rounded-3xl p-3 sm:p-4 border border-[#e2ece2] shadow-xs space-y-2.5 sm:space-y-3 transition-all hover:border-[#b7e4c7]"
-              >
-                {/* POST HEADER */}
-                <div className="flex items-start justify-between gap-2.5 sm:gap-3">
-                  <div className="flex items-center gap-2.5 sm:gap-3">
-                    {/* Author Avatar */}
-                    <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full ${post.authorAvatar?.includes('bcc-logo.png') ? 'bg-white' : 'bg-[#d8f3dc]'} border border-[#b7e4c7] flex items-center justify-center font-heading font-black text-[#1b4332] text-xs shrink-0 shadow-xs overflow-hidden`}>
-                      {post.authorAvatar ? (
-                        <img
-                          src={post.authorAvatar}
-                          alt={post.authorName}
-                          referrerPolicy="no-referrer"
-                          className={`w-full h-full ${post.authorAvatar.includes('bcc-logo.png') ? 'object-contain p-0.5 bg-white' : 'object-cover'}`}
-                        />
-                      ) : (
-                        post.authorName.charAt(0).toUpperCase()
-                      )}
-                    </div>
-
-                    <div>
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <h4 className="font-heading font-black text-xs sm:text-sm text-[#1b4332]">
-                          {post.authorName}
-                        </h4>
-                        {post.authorRole && (
-                          <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider bg-[#d8f3dc] text-[#1b4332] border border-[#b7e4c7]">
-                            {post.authorRole}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[10px] sm:text-[11px] text-[#52605d] flex items-center gap-1 mt-0.5">
-                        <Clock className="w-3 h-3 text-[#52605d]" />
-                        <span>{formatRelativeTime(post.createdAt)}</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Actions / Delete */}
-                  {canDelete && (
-                    <button
-                      type="button"
-                      id={`delete-post-btn-${post.id}`}
-                      onClick={() => setPostToDelete(post)}
-                      className="p-1 rounded-lg text-[#52605d] hover:text-rose-600 hover:bg-rose-50 transition-all cursor-pointer"
-                      title="Delete post"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-
-                {/* POST CONTENT */}
-                <div className="space-y-1.5">
-                  {post.title && (
-                    <h3 className="font-heading font-black text-xs sm:text-sm text-[#1b4332]">
-                      {post.title}
-                    </h3>
-                  )}
-                  {post.content && (
-                    <p className="text-xs sm:text-sm text-[#2d4036] leading-relaxed whitespace-pre-wrap">
-                      {post.content}
-                    </p>
-                  )}
-                </div>
-
-                {/* POST MEDIA: 100% WHITE-LABEL NATIVE VIDEO STREAMING */}
-                {post.videoUrl && (
-                  <div className="w-full flex justify-center">
-                    <WhiteLabelVideoPlayer
-                      src={post.videoUrl}
-                      title={post.title}
-                    />
-                  </div>
-                )}
-
-                {/* POST MEDIA: PHOTOS FROM SHARED DRIVE */}
-                {((post.photos && post.photos.length > 0) || (post.media && post.media.filter(m => m.type === 'photo' || (m.type as any) === 'image').length > 0)) && (
-                  (() => {
-                    const photoList = post.photos && post.photos.length > 0
-                      ? post.photos
-                      : (post.media || []).filter(m => m.type === 'photo' || (m.type as any) === 'image').map(m => m.url);
-
-                    return (
-                      <div className={`grid gap-1.5 rounded-xl sm:rounded-2xl overflow-hidden ${
-                        photoList.length === 1
-                          ? 'grid-cols-1'
-                          : photoList.length === 2
-                          ? 'grid-cols-2'
-                          : photoList.length === 3
-                          ? 'grid-cols-3'
-                          : 'grid-cols-2 sm:grid-cols-4'
-                      }`}>
-                        {photoList.map((photoUrl, idx) => (
-                          <div
-                            key={idx}
-                            onClick={() => setSelectedPhotoPreview(photoUrl)}
-                            className="relative aspect-video sm:aspect-square bg-[#f0f4f0] cursor-pointer group overflow-hidden"
-                          >
-                            <img
-                              src={photoUrl}
-                              alt={`Post attachment ${idx + 1}`}
-                              referrerPolicy="no-referrer"
-                              className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-                              loading="lazy"
-                            />
-                            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                              <Maximize2 className="w-4 h-4 text-white drop-shadow-md" />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    );
-                  })()
-                )}
-
-                {/* REACTION SUMMARY ROW (Above interactive actions) */}
-                {(totalReactions > 0 || commentsCount > 0) && (
-                  <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-[#52605d] pt-1.5 border-t border-[#f0f4f0]">
-                    {/* Reactions Tally */}
-                    {totalReactions > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setReactionsModalData({
-                            title: 'Post Reactions',
-                            reactions: post.reactions,
-                            reactionsDetails: post.reactionsDetails,
-                          });
-                          setReactionsModalTab('all');
-                        }}
-                        className="flex items-center gap-1.5 hover:underline cursor-pointer group"
-                      >
-                        <div className="flex items-center -space-x-1">
-                          {activeReactionTypes.map((r) => (
-                            <span
-                              key={r.type}
-                              className="inline-flex items-center justify-center w-4 h-4 sm:w-5 sm:h-5 rounded-full bg-white shadow-xs text-[10px] sm:text-xs border border-white"
-                              title={`${r.label}: ${reactionCounts[r.type]}`}
-                            >
-                              {r.emoji}
-                            </span>
-                          ))}
-                        </div>
-                        <span className="font-bold text-[#1b4332] group-hover:text-[#2d6a4f]">
-                          {totalReactions} {totalReactions === 1 ? 'reaction' : 'reactions'}
-                        </span>
-                      </button>
-                    ) : (
-                      <div />
-                    )}
-
-                    {/* Comments Tally */}
-                    {commentsCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => toggleComments(post.id)}
-                        className="hover:underline cursor-pointer font-medium"
-                      >
-                        {commentsCount} {commentsCount === 1 ? 'comment' : 'comments'}
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* INTERACTIVE ACTIONS BAR (Reactions + Comments ONLY, STRICTLY NO SHARE BUTTON) */}
-                <div className="relative flex items-center gap-2 pt-1.5 border-t border-[#e2ece2]">
-                  {/* Floating Reactions Dock Popover */}
-                  <AnimatePresence>
-                    {activeReactionPickerKey === `post_${post.id}` && (
-                      <motion.div
-                        initial={{ opacity: 0, y: 4, scale: 0.95 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        exit={{ opacity: 0, y: 4, scale: 0.95 }}
-                        transition={{ duration: 0.15 }}
-                        onMouseEnter={() => handleReactionButtonMouseEnter(`post_${post.id}`)}
-                        onMouseLeave={handleReactionButtonMouseLeave}
-                        className="absolute left-0 bottom-full mb-2 z-50 bg-white px-2 py-1 rounded-full shadow-2xl border border-[#e2ece2] flex items-center gap-1.5 whitespace-nowrap"
-                      >
-                        {REACTIONS.map((rec) => (
-                          <button
-                            key={rec.type}
-                            type="button"
-                            onClick={() => handleReact(post.id, rec.type)}
-                            className="p-1 hover:bg-[#f7f9f7] rounded-full text-base sm:text-lg transition-transform hover:scale-125 cursor-pointer active:scale-95"
-                            title={rec.label}
-                          >
-                            {rec.emoji}
-                          </button>
-                        ))}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-
-                  {/* Reaction Action Button */}
-                  <div
-                    className="relative flex-1 sm:flex-initial"
-                    onMouseEnter={() => handleReactionButtonMouseEnter(`post_${post.id}`)}
-                    onMouseLeave={handleReactionButtonMouseLeave}
-                  >
-                    <button
-                      type="button"
-                      id={`react-btn-${post.id}`}
-                      onClick={() => handleQuickReact(post)}
-                      className={`w-full sm:w-auto flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer border ${
-                        activeReactionConfig
-                          ? `${activeReactionConfig.activeBg} ${activeReactionConfig.activeColor} ${activeReactionConfig.activeBorder}`
-                          : 'bg-[#f7f9f7] hover:bg-[#e8f2e9] text-[#52605d] border-[#e2ece2]'
-                      }`}
-                    >
-                      {activeReactionConfig ? (
-                        <>
-                          <span className="text-xs">{activeReactionConfig.emoji}</span>
-                          <span>{activeReactionConfig.label}</span>
-                        </>
-                      ) : (
-                        <>
-                          <Smile className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                          <span>React</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Comment Action Button */}
-                  <button
-                    type="button"
-                    id={`comment-btn-${post.id}`}
-                    onClick={() => toggleComments(post.id)}
-                    className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#f7f9f7] hover:bg-[#e8f2e9] text-[#52605d] hover:text-[#1b4332] text-xs font-bold transition-all cursor-pointer border border-[#e2ece2]"
-                  >
-                    <MessageSquare className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                    <span>Comment</span>
-                    {commentsCount > 0 && <span>({commentsCount})</span>}
-                  </button>
-
-                  {/* User requirement: "and do not include a share button." -> Intentionally omitted. */}
-                </div>
-
-                {/* COMMENTS & REPLIES SECTION */}
-                <AnimatePresence>
-                  {isCommentsOpen && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      transition={{ duration: 0.2 }}
-                      className="pt-3 border-t border-[#f0f4f0] space-y-3 overflow-visible"
-                    >
-                      {/* Comments List */}
-                      {commentsList.length > 0 && (
-                        <div className="space-y-3 overflow-visible">
-                          {commentsList.map((comm) => {
-                            const isCommentAuthor = comm.authorId === currentUser?.id;
-                            const canDeleteComment = isCommentAuthor || isAdmin;
-                            const userCommentReaction = comm.reactionsDetails?.find(
-                              (r) => r.userId === currentUser?.id
-                            )?.type;
-                            const userCommentReactionConfig = userCommentReaction
-                              ? REACTIONS.find((r) => r.type === userCommentReaction)
-                              : null;
-                            const commentReactionsCount = comm.reactionsDetails?.length || 0;
-                            const commentDistinctEmojis = Array.from(
-                              new Set(
-                                (comm.reactionsDetails || [])
-                                  .map((r) => REACTIONS.find((rc) => rc.type === r.type)?.emoji)
-                                  .filter(Boolean)
-                              )
-                            );
-                            const repliesList = comm.replies || [];
-
-                            return (
-                              <div
-                                key={comm.id}
-                                className={`p-3 rounded-2xl bg-[#f7f9f7] border border-[#e2ece2] text-xs space-y-2.5 relative ${
-                                  activeReactionPickerKey === `comment_${comm.id}` ? 'z-30' : 'z-0'
-                                }`}
-                              >
-                                {/* Top: Comment Author & Content */}
-                                <div className="flex items-start gap-2.5">
-                                  <div className={`w-7 h-7 rounded-full ${comm.authorAvatar?.includes('bcc-logo.png') ? 'bg-white' : 'bg-[#d8f3dc]'} border border-[#b7e4c7] flex items-center justify-center font-bold text-[#1b4332] text-[10px] shrink-0 overflow-hidden`}>
-                                    {comm.authorAvatar ? (
-                                      <img
-                                        src={comm.authorAvatar}
-                                        alt={comm.authorName}
-                                        referrerPolicy="no-referrer"
-                                        className={`w-full h-full ${comm.authorAvatar.includes('bcc-logo.png') ? 'object-contain p-0.5 bg-white' : 'object-cover'}`}
-                                      />
-                                    ) : (
-                                      comm.authorName.charAt(0).toUpperCase()
-                                    )}
-                                  </div>
-
-                                  <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between gap-1">
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="font-heading font-black text-[#1b4332]">
-                                          {comm.authorName}
-                                        </span>
-                                        {comm.authorRole && (
-                                          <span className="text-[9px] px-1.5 py-0.2 rounded-md bg-white border border-[#e2ece2] text-[#52605d] font-semibold">
-                                            {comm.authorRole}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-[10px] text-[#52605d]">
-                                          {formatRelativeTime(comm.createdAt)}
-                                        </span>
-                                        {canDeleteComment && (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleDeleteComment(post.id, comm.id)}
-                                            className="text-[#52605d] hover:text-rose-600 p-0.5 ml-1 transition-colors cursor-pointer"
-                                            title="Delete comment"
-                                          >
-                                            <Trash2 className="w-3 h-3" />
-                                          </button>
-                                        )}
-                                      </div>
-                                    </div>
-                                    <p className="text-[#2d4036] mt-1 whitespace-pre-wrap leading-relaxed">
-                                      {comm.content}
-                                    </p>
-
-                                    {/* Comment Interactive Actions: React, Reaction Tally, Reply */}
-                                    <div className="flex items-center gap-3 mt-2 text-[11px]">
-                                      {/* Comment React Button & Floating Dock */}
-                                      <div
-                                        className={`relative ${
-                                          activeReactionPickerKey === `comment_${comm.id}`
-                                            ? 'z-50'
-                                            : 'z-10'
-                                        }`}
-                                        onMouseEnter={() =>
-                                          handleReactionButtonMouseEnter(`comment_${comm.id}`)
-                                        }
-                                        onMouseLeave={handleReactionButtonMouseLeave}
-                                      >
-                                        <AnimatePresence>
-                                          {activeReactionPickerKey === `comment_${comm.id}` && (
-                                            <motion.div
-                                              initial={{ opacity: 0, y: 4, scale: 0.95 }}
-                                              animate={{ opacity: 1, y: 0, scale: 1 }}
-                                              exit={{ opacity: 0, y: 4, scale: 0.95 }}
-                                              transition={{ duration: 0.15 }}
-                                              onMouseEnter={() =>
-                                                handleReactionButtonMouseEnter(`comment_${comm.id}`)
-                                              }
-                                              onMouseLeave={handleReactionButtonMouseLeave}
-                                              className="absolute left-0 bottom-full mb-1.5 z-50 bg-white px-2 py-1 rounded-full shadow-2xl border border-[#e2ece2] flex items-center gap-1.5 whitespace-nowrap"
-                                            >
-                                              {REACTIONS.map((rec) => (
-                                                <button
-                                                  key={rec.type}
-                                                  type="button"
-                                                  onClick={() =>
-                                                    handleReactToComment(post.id, comm.id, rec.type)
-                                                  }
-                                                  className="p-1 hover:bg-[#f7f9f7] rounded-full text-base transition-transform hover:scale-125 cursor-pointer active:scale-95"
-                                                  title={rec.label}
-                                                >
-                                                  {rec.emoji}
-                                                </button>
-                                              ))}
-                                            </motion.div>
-                                          )}
-                                        </AnimatePresence>
-
-                                        <button
-                                          type="button"
-                                          onClick={() => handleQuickReactToComment(post.id, comm)}
-                                          className={`font-bold transition-colors cursor-pointer flex items-center gap-1 ${
-                                            userCommentReactionConfig
-                                              ? userCommentReactionConfig.activeColor
-                                              : 'text-[#52605d] hover:text-[#1b4332]'
-                                          }`}
-                                        >
-                                          {userCommentReactionConfig ? (
-                                            <>
-                                              <span>{userCommentReactionConfig.emoji}</span>
-                                              <span>{userCommentReactionConfig.label}</span>
-                                            </>
-                                          ) : (
-                                            <span>React</span>
-                                          )}
-                                        </button>
-                                      </div>
-
-                                      {/* Comment Reactions Count Pill */}
-                                      {commentReactionsCount > 0 && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setReactionsModalData({
-                                              title: 'Comment Reactions',
-                                              reactions: comm.reactions,
-                                              reactionsDetails: comm.reactionsDetails,
-                                            });
-                                            setReactionsModalTab('all');
-                                          }}
-                                          className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white border border-[#e2ece2] text-[10px] font-bold text-[#1b4332] hover:bg-[#f0f4f0] transition-colors cursor-pointer shadow-2xs"
-                                          title="View who reacted"
-                                        >
-                                          <span className="flex items-center -space-x-1">
-                                            {commentDistinctEmojis.map((emoji, idx) => (
-                                              <span key={idx}>{emoji}</span>
-                                            ))}
-                                          </span>
-                                          <span>{commentReactionsCount}</span>
-                                        </button>
-                                      )}
-
-                                      <span className="text-[#c2d1c2]">•</span>
-
-                                      {/* Reply to comment button */}
-                                      <button
-                                        type="button"
-                                        onClick={() => handleStartReply(comm.id, comm.authorName)}
-                                        className="font-bold text-[#52605d] hover:text-[#1b4332] transition-colors cursor-pointer flex items-center gap-1"
-                                      >
-                                        <Reply className="w-3 h-3 text-[#2d6a4f]" />
-                                        <span>Reply</span>
-                                        {repliesList.length > 0 && (
-                                          <span className="text-[10px] text-[#52605d]">
-                                            ({repliesList.length})
-                                          </span>
-                                        )}
-                                      </button>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Threaded Replies Sub-tree */}
-                                {repliesList.length > 0 && (
-                                  <div className="ml-5 sm:ml-7 pl-3 border-l-2 border-[#b7e4c7] space-y-2 pt-1">
-                                    {repliesList.map((reply) => {
-                                      const isReplyAuthor = reply.authorId === currentUser?.id;
-                                      const canDeleteReply = isReplyAuthor || isAdmin;
-                                      const userReplyReaction = reply.reactionsDetails?.find(
-                                        (r) => r.userId === currentUser?.id
-                                      )?.type;
-                                      const userReplyReactionConfig = userReplyReaction
-                                        ? REACTIONS.find((r) => r.type === userReplyReaction)
-                                        : null;
-                                      const replyReactionsCount = reply.reactionsDetails?.length || 0;
-                                      const replyDistinctEmojis = Array.from(
-                                        new Set(
-                                          (reply.reactionsDetails || [])
-                                            .map(
-                                              (r) => REACTIONS.find((rc) => rc.type === r.type)?.emoji
-                                            )
-                                            .filter(Boolean)
-                                        )
-                                      );
-
-                                      return (
-                                        <div
-                                          key={reply.id}
-                                          className={`p-2.5 rounded-xl bg-white border border-[#e2ece2] text-xs space-y-1.5 shadow-2xs relative ${
-                                            activeReactionPickerKey === `reply_${reply.id}` ? 'z-20' : 'z-0'
-                                          }`}
-                                        >
-                                          <div className="flex items-start gap-2">
-                                            <div className={`w-6 h-6 rounded-full ${reply.authorAvatar?.includes('bcc-logo.png') ? 'bg-white' : 'bg-[#d8f3dc]'} border border-[#b7e4c7] flex items-center justify-center font-bold text-[#1b4332] text-[9px] shrink-0 overflow-hidden`}>
-                                              {reply.authorAvatar ? (
-                                                <img
-                                                  src={reply.authorAvatar}
-                                                  alt={reply.authorName}
-                                                  referrerPolicy="no-referrer"
-                                                  className={`w-full h-full ${reply.authorAvatar.includes('bcc-logo.png') ? 'object-contain p-0.5 bg-white' : 'object-cover'}`}
-                                                />
-                                              ) : (
-                                                reply.authorName.charAt(0).toUpperCase()
-                                              )}
-                                            </div>
-
-                                            <div className="flex-1 min-w-0">
-                                              <div className="flex items-center justify-between gap-1">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                  <span className="font-heading font-black text-[#1b4332]">
-                                                    {reply.authorName}
-                                                  </span>
-                                                  {reply.authorRole && (
-                                                    <span className="text-[9px] px-1 py-0.2 rounded-md bg-[#f7f9f7] border border-[#e2ece2] text-[#52605d] font-semibold">
-                                                      {reply.authorRole}
-                                                    </span>
-                                                  )}
-                                                </div>
-                                                <div className="flex items-center gap-1">
-                                                  <span className="text-[10px] text-[#52605d]">
-                                                    {formatRelativeTime(reply.createdAt)}
-                                                  </span>
-                                                  {canDeleteReply && (
-                                                    <button
-                                                      type="button"
-                                                      onClick={() =>
-                                                        handleDeleteReply(
-                                                          post.id,
-                                                          comm.id,
-                                                          reply.id
-                                                        )
-                                                      }
-                                                      className="text-[#52605d] hover:text-rose-600 p-0.5 ml-1 transition-colors cursor-pointer"
-                                                      title="Delete reply"
-                                                    >
-                                                      <Trash2 className="w-3 h-3" />
-                                                    </button>
-                                                  )}
-                                                </div>
-                                              </div>
-
-                                              {/* Reply Text */}
-                                              <p className="text-[#2d4036] mt-0.5 leading-relaxed">
-                                                {reply.replyToUserName && (
-                                                  <span className="text-[#2d6a4f] font-bold mr-1.5">
-                                                    @{reply.replyToUserName}
-                                                  </span>
-                                                )}
-                                                {reply.content}
-                                              </p>
-
-                                              {/* Reply Actions: React & Reply */}
-                                              <div className="flex items-center gap-3 mt-1.5 text-[11px]">
-                                                {/* Reply React Button & Floating Dock */}
-                                                <div
-                                                  className={`relative ${
-                                                    activeReactionPickerKey === `reply_${reply.id}`
-                                                      ? 'z-50'
-                                                      : 'z-10'
-                                                  }`}
-                                                  onMouseEnter={() =>
-                                                    handleReactionButtonMouseEnter(
-                                                      `reply_${reply.id}`
-                                                    )
-                                                  }
-                                                  onMouseLeave={handleReactionButtonMouseLeave}
-                                                >
-                                                  <AnimatePresence>
-                                                    {activeReactionPickerKey ===
-                                                      `reply_${reply.id}` && (
-                                                      <motion.div
-                                                        initial={{ opacity: 0, y: 4, scale: 0.95 }}
-                                                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                                                        exit={{ opacity: 0, y: 4, scale: 0.95 }}
-                                                        transition={{ duration: 0.15 }}
-                                                        onMouseEnter={() =>
-                                                          handleReactionButtonMouseEnter(
-                                                            `reply_${reply.id}`
-                                                          )
-                                                        }
-                                                        onMouseLeave={
-                                                          handleReactionButtonMouseLeave
-                                                        }
-                                                        className="absolute left-0 bottom-full mb-1.5 z-50 bg-white px-2 py-1 rounded-full shadow-2xl border border-[#e2ece2] flex items-center gap-1.5 whitespace-nowrap"
-                                                      >
-                                                        {REACTIONS.map((rec) => (
-                                                          <button
-                                                            key={rec.type}
-                                                            type="button"
-                                                            onClick={() =>
-                                                              handleReactToReply(
-                                                                post.id,
-                                                                comm.id,
-                                                                reply.id,
-                                                                rec.type
-                                                              )
-                                                            }
-                                                            className="p-1 hover:bg-[#f7f9f7] rounded-full text-base transition-transform hover:scale-125 cursor-pointer active:scale-95"
-                                                            title={rec.label}
-                                                          >
-                                                            {rec.emoji}
-                                                          </button>
-                                                        ))}
-                                                      </motion.div>
-                                                    )}
-                                                  </AnimatePresence>
-
-                                                  <button
-                                                    type="button"
-                                                    onClick={() =>
-                                                      handleQuickReactToReply(
-                                                        post.id,
-                                                        comm.id,
-                                                        reply
-                                                      )
-                                                    }
-                                                    className={`font-bold transition-colors cursor-pointer flex items-center gap-1 ${
-                                                      userReplyReactionConfig
-                                                        ? userReplyReactionConfig.activeColor
-                                                        : 'text-[#52605d] hover:text-[#1b4332]'
-                                                    }`}
-                                                  >
-                                                    {userReplyReactionConfig ? (
-                                                      <>
-                                                        <span>{userReplyReactionConfig.emoji}</span>
-                                                        <span>{userReplyReactionConfig.label}</span>
-                                                      </>
-                                                    ) : (
-                                                      <span>React</span>
-                                                    )}
-                                                  </button>
-                                                </div>
-
-                                                {/* Reply Reactions Count Pill */}
-                                                {replyReactionsCount > 0 && (
-                                                  <button
-                                                    type="button"
-                                                    onClick={() => {
-                                                      setReactionsModalData({
-                                                        title: 'Reply Reactions',
-                                                        reactions: reply.reactions,
-                                                        reactionsDetails: reply.reactionsDetails,
-                                                      });
-                                                      setReactionsModalTab('all');
-                                                    }}
-                                                    className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-[#f7f9f7] border border-[#e2ece2] text-[10px] font-bold text-[#1b4332] hover:bg-white transition-colors cursor-pointer shadow-2xs"
-                                                    title="View who reacted"
-                                                  >
-                                                    <span className="flex items-center -space-x-1">
-                                                      {replyDistinctEmojis.map((emoji, idx) => (
-                                                        <span key={idx}>{emoji}</span>
-                                                      ))}
-                                                    </span>
-                                                    <span>{replyReactionsCount}</span>
-                                                  </button>
-                                                )}
-
-                                                <span className="text-[#c2d1c2]">•</span>
-
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    handleStartReply(comm.id, reply.authorName)
-                                                  }
-                                                  className="font-bold text-[#52605d] hover:text-[#1b4332] transition-colors cursor-pointer flex items-center gap-1"
-                                                >
-                                                  <Reply className="w-3 h-3 text-[#2d6a4f]" />
-                                                  <span>Reply</span>
-                                                </button>
-                                              </div>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-
-                                {/* Inline Reply Composer Box */}
-                                {activeReplyCommentId === comm.id && (
-                                  <form
-                                    onSubmit={(e) => handleAddReply(post.id, comm.id, e)}
-                                    className="ml-5 sm:ml-7 p-2.5 rounded-2xl bg-white border border-[#b7e4c7] shadow-xs space-y-2"
-                                  >
-                                    <div className="flex items-center justify-between text-[11px] text-[#2d6a4f] font-semibold">
-                                      <div className="flex items-center gap-1">
-                                        <CornerDownRight className="w-3.5 h-3.5 text-[#2d6a4f]" />
-                                        <span>
-                                          Replying to {replyMentions[comm.id] || comm.authorName}
-                                        </span>
-                                      </div>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleCancelReply(comm.id)}
-                                        className="text-[#52605d] hover:text-rose-600 p-0.5 rounded-md hover:bg-[#f7f9f7] transition-colors cursor-pointer"
-                                        title="Cancel reply"
-                                      >
-                                        <X className="w-3.5 h-3.5" />
-                                      </button>
-                                    </div>
-
-                                    <div className="flex items-center gap-2">
-                                      <div className={`w-6 h-6 rounded-full ${currentUser?.avatar?.includes('bcc-logo.png') ? 'bg-white' : 'bg-[#d8f3dc]'} border border-[#b7e4c7] flex items-center justify-center font-bold text-[#1b4332] text-[9px] shrink-0 overflow-hidden`}>
-                                        {currentUser?.avatar ? (
-                                          <img
-                                            src={currentUser.avatar}
-                                            alt={currentUser.name}
-                                            referrerPolicy="no-referrer"
-                                            className={`w-full h-full ${currentUser.avatar.includes('bcc-logo.png') ? 'object-contain p-0.5 bg-white' : 'object-cover'}`}
-                                          />
-                                        ) : (
-                                          (currentUser?.name || 'U').charAt(0).toUpperCase()
-                                        )}
-                                      </div>
-
-                                      <input
-                                        type="text"
-                                        autoFocus
-                                        value={replyInputs[comm.id] || ''}
-                                        onChange={(e) =>
-                                          setReplyInputs((prev) => ({
-                                            ...prev,
-                                            [comm.id]: e.target.value,
-                                          }))
-                                        }
-                                        placeholder={`Write a reply to ${
-                                          replyMentions[comm.id] || comm.authorName
-                                        }...`}
-                                        className="flex-1 px-3 py-1.5 rounded-xl bg-[#f7f9f7] border border-[#e2ece2] text-xs text-[#1b4332] focus:outline-none focus:border-[#2d6a4f]"
-                                      />
-
-                                      <button
-                                        type="submit"
-                                        disabled={!replyInputs[comm.id]?.trim()}
-                                        className="px-3 py-1.5 rounded-xl bg-[#1b4332] hover:bg-[#2d6a4f] disabled:opacity-40 text-white font-bold text-xs transition-all cursor-pointer shrink-0 flex items-center gap-1"
-                                        title="Send reply"
-                                      >
-                                        <Send className="w-3 h-3 text-[#74c69d]" />
-                                        <span>Reply</span>
-                                      </button>
-                                    </div>
-                                  </form>
-                                )}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-
-                      {/* Comment Input */}
-                      <form
-                        onSubmit={(e) => handleAddComment(post.id, e)}
-                        className="flex items-center gap-2"
-                      >
-                        <div className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full ${currentUser?.avatar?.includes('bcc-logo.png') ? 'bg-white' : 'bg-[#d8f3dc]'} border border-[#b7e4c7] flex items-center justify-center font-bold text-[#1b4332] text-[10px] sm:text-xs shrink-0 overflow-hidden`}>
-                          {currentUser?.avatar ? (
-                            <img
-                              src={currentUser.avatar}
-                              alt={currentUser.name}
-                              referrerPolicy="no-referrer"
-                              className={`w-full h-full ${currentUser.avatar.includes('bcc-logo.png') ? 'object-contain p-0.5 bg-white' : 'object-cover'}`}
-                            />
-                          ) : (
-                            (currentUser?.name || 'U').charAt(0).toUpperCase()
-                          )}
-                        </div>
-
-                        <input
-                          type="text"
-                          id={`comment-input-${post.id}`}
-                          value={commentInputs[post.id] || ''}
-                          onChange={(e) =>
-                            setCommentInputs((prev) => ({ ...prev, [post.id]: e.target.value }))
-                          }
-                          placeholder="Write a comment..."
-                          className="flex-1 px-3 py-1.5 rounded-lg bg-[#f7f9f7] border border-[#e2ece2] text-xs text-[#1b4332] placeholder:text-xs placeholder:text-[#52605d]/70 focus:outline-none focus:border-[#2d6a4f]"
-                        />
-
-                        <button
-                          type="submit"
-                          id={`send-comment-${post.id}`}
-                          disabled={!commentInputs[post.id]?.trim()}
-                          className="p-1.5 rounded-lg bg-[#1b4332] hover:bg-[#2d6a4f] disabled:opacity-40 text-white transition-all cursor-pointer shrink-0"
-                          title="Send comment"
-                        >
-                          <Send className="w-3 h-3 text-[#74c69d]" />
-                        </button>
-                      </form>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.article>
+                post={post}
+                currentUser={currentUser}
+                isAdmin={isAdmin}
+                isAlgorithmPick={isAlgorithmPick}
+                onOpenDeleteModal={(p) => setPostToDelete(p)}
+                onOpenReactionsModal={(data) => {
+                  setReactionsModalData(data);
+                  setReactionsModalTab('all');
+                }}
+                onPhotoClick={(url) => setSelectedPhotoPreview(url)}
+              />
             );
           })
+        )}
+
+        {/* INFINITE SCROLL SENTINEL & LOADING STATE */}
+        <div ref={sentinelRef} className="h-4 w-full" />
+
+        {isLoadingMore && (
+          <div className="py-4 flex items-center justify-center gap-2 text-xs font-bold text-[#2d6a4f] bg-white/60 backdrop-blur-xs rounded-2xl border border-[#e2ece2]">
+            <Loader2 className="w-4 h-4 animate-spin text-[#2d6a4f]" />
+            <span>Loading more posts...</span>
+          </div>
+        )}
+
+        {!hasMore && displayedPosts.length > 0 && (
+          <div className="py-6 text-center text-xs font-semibold text-[#52605d]">
+            ✨ You&apos;re all caught up
+          </div>
         )}
       </div>
 
